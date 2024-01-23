@@ -2,7 +2,8 @@
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P7084> <http://www.wikidata.org/entity/Q8455323> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P434> <http://musicbrainz.org/artist/1429c6ab-801e-4bd0-9c53-7b49ec74e50c> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P227> "124709281" .
-<http://www.wikidata.org/entity/Q7122> <http://www.my-fake-uri-that/is/not/real/predicate/friend> <http://www.wikidata.org/entity/Q7122> .<http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10798782> .
+<http://www.wikidata.org/entity/Q7122> <http://www.my-fake-uri-that/is/not/real/predicate/friend> <http://www.wikidata.org/entity/Q7122> .
+<http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10798782> .
 <http://www.wikidata.org/entity/Q8704> <http://www.my-fake-uri-that/is/not/real/predicate/friend> <http://www.wikidata.org/entity/Q7122> .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2004/02/skos/core#altLabel> "Лоренс Фишберн" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P8971> <http://data.cinematheque.qc.ca/data/Person25294> .
