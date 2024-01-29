@@ -260,19 +260,19 @@ void convert_graph(std::istream &inputstream,
 
 int main(int ac, char *av[])
 {
-    std::ifstream infile("./Laurence_Fishburne_Custom_Shuffled.trig");
+    std::ifstream infile("./data/Laurence_Fishburne_Custom_Shuffled.trig");
     if (!infile.is_open())
     {
         perror("error while opening file");
     }
-    std::ofstream output_file("./Laurence_Fishburne_Custom_Shuffled.bin", std::ifstream::out);
+    std::ofstream output_file("./output/Laurence_Fishburne_Custom_Shuffled.bin", std::ifstream::out);
     if (!output_file.is_open())
     {
         perror("error while opening file");
     }
 
-    std::string node_ID_file = "./entity2ID.txt";
-    std::string rel_ID_file = "./rel2ID.txt";
+    std::string node_ID_file = "./output/entity2ID.txt";
+    std::string rel_ID_file = "./output/rel2ID.txt";
 
     convert_graph(infile, output_file, node_ID_file, rel_ID_file);
     output_file.flush();

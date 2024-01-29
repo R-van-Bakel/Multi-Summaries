@@ -36,7 +36,7 @@ u_int32_t read_PREDICATE_little_endian(std::istream &inputstream)
 
 int main()
 {
-    std::ifstream infile("./Laurence_Fishburne_Custom_Shuffled.bin", std::ifstream::in);
+    std::ifstream infile("./output/Laurence_Fishburne_Custom_Shuffled.bin", std::ifstream::in);
     for (int i = 0; i < 70; i++)
     {
         u_int64_t subject = read_uint_ENTITY_little_endian(infile);
