@@ -8,6 +8,7 @@
 #include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <boost/program_options.hpp>
 
 using edge_type = uint32_t;
 using node_index = uint64_t;
@@ -182,7 +183,8 @@ void convert_graph(std::istream &inputstream,
         // split in 2 pieces
         size_t delimeter_start1 = line.find("> <");
         std::string subject = line.substr(0, delimeter_start1);
-        std::string predicate_object = line.substr(delimeter_start1 + std::string("> <").size(), line.size());
+        size_t offset_delimeter_start1 = delimeter_start1 + std::string("> <").size();
+        std::string predicate_object = line.substr(offset_delimeter_start1, line.size() - offset_delimeter_start1);
 
         if (subject[0] != '<')
         {
@@ -198,7 +200,8 @@ void convert_graph(std::istream &inputstream,
         // boost::iter_split(parts2, predicate_object, boost::first_finder("> "));
         size_t delimeter_start2 = predicate_object.find("> ");
         std::string predicate = predicate_object.substr(0, delimeter_start2);
-        std::string object_literal_or_entity = predicate_object.substr(delimeter_start2 + std::string("> ").size(), predicate_object.size());
+        size_t offset_delimeter_start2 = delimeter_start2 + std::string("> ").size();
+        std::string object_literal_or_entity = predicate_object.substr(offset_delimeter_start2, predicate_object.size() - offset_delimeter_start2);
 
         if (predicate[0] == '<' || *(predicate.cend() - 1) == '>')
         {
@@ -222,7 +225,8 @@ void convert_graph(std::istream &inputstream,
             {
                 throw MyException("The object '" + object_literal_or_entity + "' started with a '<' , but did not end with a '>'");
             }
-            object = object_literal_or_entity.substr(1, object_literal_or_entity.size() - 1);
+            // Exclude the first (<) and last characters (>)
+            object = object_literal_or_entity.substr(1, object_literal_or_entity.size() - 2);
         }
         else
         {
@@ -260,13 +264,34 @@ void convert_graph(std::istream &inputstream,
 
 int main(int ac, char *av[])
 {
-    std::ifstream infile("./data/Laurence_Fishburne_Custom_Shuffled.trig");
+    // This structure was inspired by https://gist.github.com/randomphrase/10801888
+    namespace po = boost::program_options;
+
+    po::options_description global("Global options");
+    global.add_options()("input_file", po::value<std::string>(), "Input file, must contain n-triples");
+    global.add_options()("output_file", po::value<std::string>(), "Output file");
+    po::positional_options_description pos;
+    pos.add("input_file", 1).add("output_file", 2);
+
+    po::variables_map vm;
+
+    po::parsed_options parsed = po::command_line_parser(ac, av).options(global).positional(pos).allow_unregistered().run();
+
+    po::store(parsed, vm);
+    po::notify(vm);
+
+    std::string input_file = vm["input_file"].as<std::string>();
+    std::string output_file = vm["output_file"].as<std::string>();
+
+    std::ifstream infile(input_file);
+    std::ofstream outfile(output_file, std::ifstream::out);
+
     if (!infile.is_open())
     {
         perror("error while opening file");
     }
-    std::ofstream output_file("./output/Laurence_Fishburne_Custom_Shuffled.bin", std::ifstream::out);
-    if (!output_file.is_open())
+
+    if (!outfile.is_open())
     {
         perror("error while opening file");
     }
@@ -274,6 +299,6 @@ int main(int ac, char *av[])
     std::string node_ID_file = "./output/entity2ID.txt";
     std::string rel_ID_file = "./output/rel2ID.txt";
 
-    convert_graph(infile, output_file, node_ID_file, rel_ID_file);
-    output_file.flush();
+    convert_graph(infile, outfile, node_ID_file, rel_ID_file);
+    outfile.flush();
 }

@@ -4,6 +4,8 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <iostream>
+#include <boost/program_options.hpp>
+// #include <vector>
 
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
@@ -34,14 +36,35 @@ u_int32_t read_PREDICATE_little_endian(std::istream &inputstream)
     return result;
 }
 
-int main()
+int main(int ac, char *av[])
 {
-    std::ifstream infile("./output/Laurence_Fishburne_Custom_Shuffled.bin", std::ifstream::in);
-    for (int i = 0; i < 70; i++)
+    // This structure was inspired by https://gist.github.com/randomphrase/10801888
+    namespace po = boost::program_options;
+
+    po::options_description global("Global options");
+    global.add_options()("input_file", po::value<std::string>(), "Input file, must contain n-triples");
+    po::positional_options_description pos;
+    pos.add("input_file", 1);
+
+    po::variables_map vm;
+
+    po::parsed_options parsed = po::command_line_parser(ac, av).options(global).positional(pos).allow_unregistered().run();
+
+    po::store(parsed, vm);
+    po::notify(vm);
+
+    std::string input_file = vm["input_file"].as<std::string>();
+
+    std::ifstream infile(input_file, std::ifstream::in);
+    while (true)
     {
         u_int64_t subject = read_uint_ENTITY_little_endian(infile);
         u_int32_t predicate = read_PREDICATE_little_endian(infile);
         u_int64_t object = read_uint_ENTITY_little_endian(infile);
+        if (infile.eof())
+        {
+            break;
+        }
         std::cout << subject << "\t" << predicate << "\t" << object << std::endl;
     }
 }
