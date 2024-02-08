@@ -18,7 +18,7 @@ u_int64_t read_uint_ENTITY_little_endian(std::istream &inputstream)
 
     for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
     {
-        result |= uint64_t(data[i]) << (i * 8);
+        result |= (uint64_t(data[i]) & 255) << (i * 8); // `& 255` makes sure that we only write one byte of data << (i * 8);
     }
     return result;
 }
@@ -31,7 +31,7 @@ u_int32_t read_PREDICATE_little_endian(std::istream &inputstream)
 
     for (unsigned int i = 0; i < BYTES_PER_PREDICATE; i++)
     {
-        result |= uint32_t(data[i]) << (i * 8);
+        result |= (uint32_t(data[i]) & 255) << (i * 8); // `& 255` makes sure that we only write one byte of data
     }
     return result;
 }

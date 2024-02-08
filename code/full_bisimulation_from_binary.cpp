@@ -13,6 +13,7 @@
 #define BOOST_CHRONO_HEADER_ONLY
 #include <boost/chrono.hpp>
 #include <chrono>
+#include <iomanip>
 #include <thread>
 #include <boost/program_options.hpp>
 #include <boost/algorithm/string/find.hpp>
@@ -183,7 +184,7 @@ u_int64_t read_uint_ENTITY_little_endian(std::istream &inputstream)
 
     for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
     {
-        result |= uint64_t(data[i]) << (i * 8);
+        result |= (uint64_t(data[i]) & 255) << (i * 8); // `& 255` makes sure that we only write one byte of data
     }
     return result;
 }
@@ -196,7 +197,7 @@ u_int32_t read_PREDICATE_little_endian(std::istream &inputstream)
 
     for (unsigned int i = 0; i < BYTES_PER_PREDICATE; i++)
     {
-        result |= uint32_t(data[i]) << (i * 8);
+        result |= (uint32_t(data[i]) & 255) << (i * 8); // `& 255` makes sure that we only write one byte of data
     }
     return result;
 }
@@ -232,7 +233,7 @@ void read_graph_from_stream(std::istream &inputstream, Graph &g)
         {
             break;
         }
-        std::cout << subject_index << " " << edge_label <<  " " << object_index << std::endl;
+        // std::cout << subject_index << " " << edge_label <<  " " << object_index << std::endl;
 
         // Add Nodes
         while (subject_index >= g.get_nodes().size())
@@ -250,7 +251,9 @@ void read_graph_from_stream(std::istream &inputstream, Graph &g)
         
         if (line_counter % 1000000 == 0)
         {
-            std::cout << "done with " << line_counter << " triples" << std::endl;
+            auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+            std::tm* ptm{std::localtime(&now)};
+            std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
         }
     }
 #ifdef CREATE_REVERSE_INDEX
