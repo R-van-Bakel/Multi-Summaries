@@ -88,6 +88,10 @@ public:
         nodes.emplace_back();
         return nodes.size() - 1;
     }
+    void resize(node_index vertex_count)
+    {
+        nodes.resize(vertex_count);
+    }
 
     std::span<Node> get_nodes()
     {
@@ -236,13 +240,18 @@ void read_graph_from_stream(std::istream &inputstream, Graph &g)
         // std::cout << subject_index << " " << edge_label <<  " " << object_index << std::endl;
 
         // Add Nodes
-        while (subject_index >= g.get_nodes().size())
+        // while (subject_index >= g.get_nodes().size())
+        // {
+        //     g.add_vertex();
+        // }
+        // while (object_index >= g.get_nodes().size())
+        // {
+        //     g.add_vertex();
+        // }
+        node_index largest = std::max(subject_index, object_index);
+        if (largest >= g.size())
         {
-            g.add_vertex();
-        }
-        while (object_index >= g.get_nodes().size())
-        {
-            g.add_vertex();
+            g.resize(largest + 1);
         }
 
         g.get_nodes()[subject_index].add_edge(edge_label, object_index);
