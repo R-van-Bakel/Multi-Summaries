@@ -920,21 +920,21 @@ void run_timed(const std::string &path, uint support)
     // w.pause();
     // std::cout << "initially one block with " << res.blocks.begin().operator*()->size() << " nodes" << std::endl;
     // w.resume();
-    std::vector<KBisumulationOutcome> outcomes;
+    std::deque<KBisumulationOutcome> outcomes;
     outcomes.push_back(res);
     w.stop_step();
     int previous_total = 0;
     for (auto i = 0;; i++)
     {
         w.start_step(std::to_string(i + 1) + "-bisimulation");
-        auto res = get_k_bisimulation(g, outcomes[i], support);
+        auto res = get_k_bisimulation(g, outcomes[0], support);
         outcomes.push_back(res);
-        outcomes[i].clear_indices();
+        outcomes.pop_front();
         w.stop_step();
-        int new_total = outcomes[i + 1].total_blocks();
+        int new_total = outcomes[0].total_blocks();
 
-        std::cout << "level " << i + 1 << " blocks = " << outcomes[i + 1].non_singleton_block_count()
-                  << ", singletons = " << outcomes[i + 1].singleton_block_count() << ", total = "
+        std::cout << "level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
+                  << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
                   << new_total << std::endl;
         if (new_total == previous_total)
         {
