@@ -25,7 +25,7 @@ using block_index = node_index;
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
 
-#undef CREATE_REVERSE_INDEX
+#define CREATE_REVERSE_INDEX
 
 class MyException : public std::exception
 {
@@ -206,20 +206,185 @@ u_int32_t read_PREDICATE_little_endian(std::istream &inputstream)
     return result;
 }
 
+template <typename clock>
+class StopWatch
+{
+    struct Step
+    {
+        const std::string name;
+        const clock::duration duration;
+        const int memory_in_kb;
+        Step(const std::string &name, const clock::duration &duration, const int &memory_in_kb)
+            : name(name), duration(duration), memory_in_kb(memory_in_kb)
+        {
+        }
+        Step(const Step &step)
+            : name(step.name), duration(step.duration), memory_in_kb(step.memory_in_kb)
+        {
+        }
+    };
+
+private:
+    std::vector<StopWatch::Step> steps;
+    bool started;
+    bool paused;
+    clock::time_point last_starting_time;
+    std::string current_step_name;
+    clock::duration stored_at_last_pause;
+
+    StopWatch()
+    {
+    }
+
+    static int current_memory_use_in_kb()
+    {
+        std::ifstream procfile("/proc/self/status");
+        std::string line;
+        while (std::getline(procfile, line))
+        {
+            if (line.rfind("VmRSS:", 0) == 0)
+            {
+                // split in 3 pieces
+                std::vector<std::string> parts;
+                boost::split(parts, line, boost::is_any_of("\t "), boost::token_compress_on);
+                // check that we have exactly thee parts
+                if (parts.size() != 3)
+                {
+                    throw MyException("The line with VmRSS: did not split in 3 parts on whitespace");
+                }
+                if (parts[2] != "kB")
+                {
+                    throw MyException("The line with VmRSS: did not end in kB");
+                }
+                int size = std::stoi(parts[1]);
+                procfile.close();
+                return size;
+            }
+        }
+        throw MyException("fail. could not find VmRSS");
+    }
+
+public:
+    static StopWatch create_started()
+    {
+        StopWatch c = create_not_started();
+        c.start_step("start");
+        return c;
+    }
+
+    static StopWatch create_not_started()
+    {
+        StopWatch c;
+        c.started = false;
+        c.paused = false;
+        return c;
+    }
+
+    void pause()
+    {
+        if (!this->started)
+        {
+            throw MyException("Cannot pause not running StopWatch, start it first");
+        }
+        if (this->paused)
+        {
+            throw MyException("Cannot pause paused StopWatch, resume it first");
+        }
+        this->stored_at_last_pause += clock::now() - last_starting_time;
+        this->paused = true;
+    }
+
+    void resume()
+    {
+        if (!this->started)
+        {
+            throw MyException("Cannot resume not running StopWatch, start it first");
+        }
+        if (!this->paused)
+        {
+            throw MyException("Cannot resume not paused StopWatch, pause it first");
+        }
+        this->last_starting_time = clock::now();
+        this->paused = false;
+    }
+
+    void start_step(std::string name)
+    {
+        if (this->started)
+        {
+            throw MyException("Cannot start on running StopWatch, stop it first");
+        }
+        if (this->paused)
+        {
+            throw MyException("This must never happen. Invariant is wrong. If stopped, there can be no pause active.");
+        }
+        this->last_starting_time = clock::now();
+        this->current_step_name = name;
+        this->started = true;
+    }
+
+    void stop_step()
+    {
+        if (!this->started)
+        {
+            throw MyException("Cannot stop not running StopWatch, start it first");
+        }
+        if (this->paused)
+        {
+            throw MyException("Cannot stop not paused StopWatch, unpause it first");
+        }
+        auto stop_time = clock::now();
+        auto total_duration = (stop_time - this->last_starting_time) + this->stored_at_last_pause;
+        // For measuring memory, we sleep 100ms to give the os time to reclaim memory
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        int memory_use = current_memory_use_in_kb();
+
+        this->steps.emplace_back(this->current_step_name, total_duration, memory_use);
+        this->started = false;
+    }
+
+    std::string to_string()
+    {
+        if (this->started)
+        {
+            throw MyException("Cannot convert a running StopWatch to a string, stop it first");
+        }
+        std::stringstream out;
+        typename clock::duration total = clock::duration::zero();
+        auto max_memory = this->get_times()[0].memory_in_kb;
+        for (auto step : this->get_times())
+        {
+            total += step.duration;
+            max_memory = std::max(max_memory, step.memory_in_kb);
+
+            out << "Step: " << step.name << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(step.duration) << " ms"
+                << ", memory = " << step.memory_in_kb << " kb"
+                << "\n";
+        }
+        out << "Total time = " << total << ", Maximum memory usage during bisimulation = " << max_memory << " kb";
+        return out.str();
+    }
+
+    std::span<Step> get_times()
+    {
+        return this->steps;
+    }
+};
+
 void read_graph_from_stream(std::istream &inputstream, Graph &g)
 {
+
     const int BufferSize = 8 * 16184;
 
     char _buffer[BufferSize];
 
     inputstream.rdbuf()->pubsetbuf(_buffer, BufferSize);
 
-    unsigned int line_counter = 0;
+    u_int64_t line_counter = 0;
+
+    std::cout << "Reading started" << std::endl;
     while (true)
     {
-
-        line_counter++;
-
         // subject
         // node_index subject_index = node_ID_Mapper.getID(parts[0]);
         node_index subject_index = read_uint_ENTITY_little_endian(inputstream);
@@ -257,13 +422,12 @@ void read_graph_from_stream(std::istream &inputstream, Graph &g)
         g.get_nodes()[subject_index].add_edge(edge_label, object_index);
         // also add reverse
         // g.get_nodes()[object_index].add_edge(edge_label, subject_index);
-        
+
         if (line_counter % 1000000 == 0)
         {
-            auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
-            std::tm* ptm{std::localtime(&now)};
-            std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
+            std::cout << "done with " << line_counter << " triples" << std::endl;
         }
+        line_counter++;
     }
 #ifdef CREATE_REVERSE_INDEX
     g.compute_reverse_index();
@@ -275,6 +439,99 @@ void read_graph(const std::string &filename, Graph &g)
 
     std::ifstream infile(filename, std::ifstream::in);
     read_graph_from_stream(infile, g);
+}
+
+void read_graph_from_stream_timed(std::istream &inputstream, Graph &g)
+{
+    StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
+
+    const int BufferSize = 8 * 16184;
+
+    char _buffer[BufferSize];
+
+    inputstream.rdbuf()->pubsetbuf(_buffer, BufferSize);
+
+    w.start_step("Reading graph");
+    u_int64_t line_counter = 0;
+
+    auto t_start{boost::chrono::system_clock::now()};
+    auto time_t_start{boost::chrono::system_clock::to_time_t(t_start)};
+    std::tm *ptm_start{std::localtime(&time_t_start)};
+
+    std::cout << std::put_time(ptm_start, "%Y/%m/%d %H:%M:%S") << " Reading started" << std::endl;
+    while (true)
+    {
+        // subject
+        // node_index subject_index = node_ID_Mapper.getID(parts[0]);
+        node_index subject_index = read_uint_ENTITY_little_endian(inputstream);
+
+        // edge
+        // edge_type edge_label = edge_ID_Mapper.getID(parts[1]);
+        edge_type edge_label = read_PREDICATE_little_endian(inputstream);
+
+        // object
+        // node_index object_index = node_ID_Mapper.getID(parts[2]);
+        node_index object_index = read_uint_ENTITY_little_endian(inputstream);
+
+        // Break when the last valid values have been read
+        if (inputstream.eof())
+        {
+            break;
+        }
+        // std::cout << subject_index << " " << edge_label <<  " " << object_index << std::endl;
+
+        // Add Nodes
+        // while (subject_index >= g.get_nodes().size())
+        // {
+        //     g.add_vertex();
+        // }
+        // while (object_index >= g.get_nodes().size())
+        // {
+        //     g.add_vertex();
+        // }
+        node_index largest = std::max(subject_index, object_index);
+        if (largest >= g.size())
+        {
+            g.resize(largest + 1);
+        }
+
+        g.get_nodes()[subject_index].add_edge(edge_label, object_index);
+        // also add reverse
+        // g.get_nodes()[object_index].add_edge(edge_label, subject_index);
+
+        if (line_counter % 1000000 == 0)
+        {
+            auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+            std::tm *ptm{std::localtime(&now)};
+            std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
+        }
+        line_counter++;
+    }
+    w.stop_step();
+
+    auto t_reading_done{boost::chrono::system_clock::now()};
+    auto time_t_reading_done{boost::chrono::system_clock::to_time_t(t_reading_done)};
+    std::tm *ptm_reading_done{std::localtime(&time_t_reading_done)};
+
+    std::cout << std::put_time(ptm_reading_done, "%Y/%m/%d %H:%M:%S") << " Time taken for reading: " << t_reading_done - t_start << ", memory: " << w.get_times()[0].memory_in_kb << " kb" << std::endl;
+#ifdef CREATE_REVERSE_INDEX
+    w.start_step("Creating reverse index");
+    g.compute_reverse_index();
+    w.stop_step();
+
+    auto t_reverse_index_done{boost::chrono::system_clock::now()};
+    auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
+    std::tm *ptm_reverse_index_done{std::localtime(&time_t_reverse_index_done)};
+
+    std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S") << " Time taken for creating reverse index: " << t_reverse_index_done - t_reading_done << ", memory: " << w.get_times()[1].memory_in_kb << " kb" << std::endl;
+#endif
+}
+
+void read_graph_timed(const std::string &filename, Graph &g)
+{
+
+    std::ifstream infile(filename, std::ifstream::in);
+    read_graph_from_stream_timed(infile, g);
 }
 
 using Block = std::vector<node_index>;
@@ -548,14 +805,14 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
                     size_t to_block = k_minus_one_outcome.get_block_ID_for_node(edge_info.target);
                     signature.emplace(edge_info.label, to_block);
                 }
-                // try_emplace returns an iterator to a new element if there was nothign yet, otherwise to the existing one
+                // try_emplace returns an iterator to a new element if there was nothing yet, otherwise to the existing one
                 auto empl_res = M.try_emplace(signature);
                 (*(empl_res.first)).second.emplace_back(v);
             }
             // if the block is not refined
             if (M.size() == 1)
             {
-                // no need to update anythign in the blocks, nor in the index
+                // no need to update anything in the blocks, nor in the index
                 continue;
             }
             // else form two singletons and mark the block as free
@@ -586,7 +843,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
         if (dirty_block_size == 2 || dirty_block_size <= min_support)
         {
             // if it is 2, we dealt with it above.
-            // if it is less tan min_support, no need to update anythign in the blocks, nor in the index
+            // if it is less tan min_support, no need to update anything in the blocks, nor in the index
             continue;
         }
         // else
@@ -616,14 +873,14 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
         }
         // else
 
-        // we first make sure all nodes are add to the nodes_from_split_blocks
+        // we first make sure all nodes are added to the nodes_from_split_blocks
         for (auto v_iter = dirty_block->begin(); v_iter != dirty_block->end(); v_iter++)
         {
             node_index v = *v_iter;
             nodes_from_split_blocks.emplace(v);
         }
 
-        // We mark the current block_index as aa free one, and set it to the empty one
+        // We mark the current block_index as a free one, and set it to the empty one
         k_node_to_block->freeblock_indices.push(dirty_block_index);
         k_blocks[dirty_block_index] = global_empty_block;
 
@@ -742,169 +999,6 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
     return outcome;
 }
 
-template <typename clock>
-class StopWatch
-{
-    struct Step
-    {
-        const std::string name;
-        const clock::duration duration;
-        const int memory_in_kb;
-        Step(const std::string &name, const clock::duration &duration, const int &memory_in_kb)
-            : name(name), duration(duration), memory_in_kb(memory_in_kb)
-        {
-        }
-        Step(const Step &step)
-            : name(step.name), duration(step.duration), memory_in_kb(step.memory_in_kb)
-        {
-        }
-    };
-
-private:
-    std::vector<StopWatch::Step> steps;
-    bool started;
-    bool paused;
-    clock::time_point last_starting_time;
-    std::string current_step_name;
-    clock::duration stored_at_last_pause;
-
-    StopWatch()
-    {
-    }
-
-    static int current_memory_use_in_kb()
-    {
-        std::ifstream procfile("/proc/self/status");
-        std::string line;
-        while (std::getline(procfile, line))
-        {
-            if (line.rfind("VmRSS:", 0) == 0)
-            {
-                // split in 3 pieces
-                std::vector<std::string> parts;
-                boost::split(parts, line, boost::is_any_of("\t "), boost::token_compress_on);
-                // check that we have exactly thee parts
-                if (parts.size() != 3)
-                {
-                    throw MyException("The line with VmRSS: did not split in 3 parts on whitespace");
-                }
-                if (parts[2] != "kB")
-                {
-                    throw MyException("The line with VmRSS: did not end in kB");
-                }
-                int size = std::stoi(parts[1]);
-                procfile.close();
-                return size;
-            }
-        }
-        throw MyException("fail. could not find VmRSS");
-    }
-
-public:
-    static StopWatch create_started()
-    {
-        StopWatch c = create_not_started();
-        c.start_step("start");
-        return c;
-    }
-
-    static StopWatch create_not_started()
-    {
-        StopWatch c;
-        c.started = false;
-        c.paused = false;
-        return c;
-    }
-
-    void pause()
-    {
-        if (!this->started)
-        {
-            throw MyException("Cannot pause not running StopWatch, start it first");
-        }
-        if (this->paused)
-        {
-            throw MyException("Cannot pause paused StopWatch, resume it first");
-        }
-        this->stored_at_last_pause += clock::now() - last_starting_time;
-        this->paused = true;
-    }
-
-    void resume()
-    {
-        if (!this->started)
-        {
-            throw MyException("Cannot resume not running StopWatch, start it first");
-        }
-        if (!this->paused)
-        {
-            throw MyException("Cannot resume not paused StopWatch, pause it first");
-        }
-        this->last_starting_time = clock::now();
-        this->paused = false;
-    }
-
-    void start_step(std::string name)
-    {
-        if (this->started)
-        {
-            throw MyException("Cannot start on running StopWatch, stop it first");
-        }
-        if (this->paused)
-        {
-            throw MyException("This must never happen. Invariant is wrong. If stopped, there can be no pause active.");
-        }
-        this->last_starting_time = clock::now();
-        this->current_step_name = name;
-        this->started = true;
-    }
-
-    void stop_step()
-    {
-        if (!this->started)
-        {
-            throw MyException("Cannot stop not running StopWatch, start it first");
-        }
-        if (this->paused)
-        {
-            throw MyException("Cannot stop not paused StopWatch, unpause it first");
-        }
-        auto stop_time = clock::now();
-        auto total_duration = (stop_time - this->last_starting_time) + this->stored_at_last_pause;
-        // For measuring memory, we sleep 100ms to give the os time to reclaim memory
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        int memory_use = current_memory_use_in_kb();
-
-        this->steps.emplace_back(this->current_step_name, total_duration, memory_use);
-        this->started = false;
-    }
-
-    std::string to_string()
-    {
-        if (this->started)
-        {
-            throw MyException("Cannot convert a running StopWatch to a string, stop it first");
-        }
-        std::stringstream out;
-        typename clock::duration total = clock::duration::zero();
-        for (auto step : this->get_times())
-        {
-            total += step.duration;
-
-            out << "Step: " << step.name << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(step.duration) << " ms"
-                << ", memory = " << step.memory_in_kb << " kb"
-                << "\n";
-        }
-        out << "Total time = " << total;
-        return out.str();
-    }
-
-    std::span<Step> get_times()
-    {
-        return this->steps;
-    }
-};
-
 // Run an experiment where each step of the bisumulation is timed
 void run_timed(const std::string &path, uint support)
 {
@@ -912,10 +1006,16 @@ void run_timed(const std::string &path, uint support)
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
     Graph g;
     w.start_step("Read graph");
-    read_graph(path, g);
+    read_graph_timed(path, g);
     w.stop_step();
-    std::cout << "Graph read with " << g.size() << " nodes" << std::endl;
+
+    auto t_start_bisim{boost::chrono::system_clock::now()};
+    auto time_t_start_bisim{boost::chrono::system_clock::to_time_t(t_start_bisim)};
+    std::tm *ptm_start_bisim{std::localtime(&time_t_start_bisim)};
+
+    std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
     w.start_step("bisimulation");
+    std::vector<std::string> lines;
     KBisumulationOutcome res = get_0_bisimulation(g);
     // w.pause();
     // std::cout << "initially one block with " << res.blocks.begin().operator*()->size() << " nodes" << std::endl;
@@ -928,20 +1028,28 @@ void run_timed(const std::string &path, uint support)
     {
         w.start_step(std::to_string(i + 1) + "-bisimulation");
         auto res = get_k_bisimulation(g, outcomes[0], support);
-        outcomes.push_back(res);
         outcomes.pop_front();
+        outcomes.push_back(res);
         w.stop_step();
         int new_total = outcomes[0].total_blocks();
 
-        std::cout << "level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
+        auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+        std::tm *ptm{std::localtime(&now)};
+        auto times = w.get_times();
+        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
                   << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
-                  << new_total << std::endl;
+                  << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration) << ", memory = "
+                  << times[times.size() - 1].memory_in_kb << " kb" << std::endl;
         if (new_total == previous_total)
         {
             break;
         }
         previous_total = new_total;
     }
+    auto t_bisim_done{boost::chrono::system_clock::now()};
+    auto time_t_bisim_done{boost::chrono::system_clock::to_time_t(t_bisim_done)};
+    std::tm *ptm_bisim_done{std::localtime(&time_t_bisim_done)};
+    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S") << " Time taken for the bisimulation: " << t_bisim_done - t_start_bisim << std::endl;
     // pring timing
     // w.stop_step();
     std::cout << w.to_string() << std::endl;
@@ -987,6 +1095,98 @@ void run_k_bisimulation_store_partition(const std::string &input_path, uint supp
         }
         output << blockID << '\n';
     }
+
+    output.flush();
+}
+
+// Run an experiment where each step of the bisumulation is timed
+void run_k_bisimulation_store_partition_timed(const std::string &input_path, uint support, int k, const std::string &output_path, bool skip_singletons)
+{
+
+    StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
+    Graph g;
+    w.start_step("Read graph");
+    read_graph_timed(input_path, g);
+    w.stop_step();
+
+    auto t_start_bisim{boost::chrono::system_clock::now()};
+    auto time_t_start_bisim{boost::chrono::system_clock::to_time_t(t_start_bisim)};
+    std::tm *ptm_start_bisim{std::localtime(&time_t_start_bisim)};
+
+    std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
+    w.start_step("bisimulation");
+    std::vector<std::string> lines;
+    KBisumulationOutcome res = get_0_bisimulation(g);
+    // w.pause();
+    // std::cout << "initially one block with " << res.blocks.begin().operator*()->size() << " nodes" << std::endl;
+    // w.resume();
+    std::deque<KBisumulationOutcome> outcomes;
+    outcomes.push_back(res);
+    w.stop_step();
+    
+    w.start_step("bisimulation writing to disk");
+    std::ofstream output(output_path + "-1.txt", std::ios::trunc);
+    // we just write the final one
+    const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
+
+    for (node_index node = 0; node < g.get_nodes().size(); node++)
+    {
+        int64_t blockID = final_partition.get_block_ID_for_node(node);
+        if (skip_singletons && blockID < 0)
+        {
+            continue;
+        }
+        output << blockID << '\n';
+    }
+    w.stop_step();
+
+    int previous_total = 0;
+    for (auto i = 1; k == -1 || i <= k; i++)
+    {
+        w.start_step(std::to_string(i + 1) + "-bisimulation");
+        auto res = get_k_bisimulation(g, outcomes[0], support);
+        outcomes.pop_front();
+        outcomes.push_back(res);
+        w.stop_step();
+
+        w.start_step(std::to_string(i + 1) + "-bisimulation writing to disk");
+        std::ofstream output(output_path + "-" + std::to_string(i + 1) + ".txt", std::ios::trunc);
+        // we just write the final one
+        const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
+
+        for (node_index node = 0; node < g.get_nodes().size(); node++)
+        {
+            int64_t blockID = final_partition.get_block_ID_for_node(node);
+            if (skip_singletons && blockID < 0)
+            {
+                continue;
+            }
+            output << blockID << '\n';
+        }
+        w.stop_step();
+        
+        int new_total = outcomes[0].total_blocks();
+
+        auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+        std::tm *ptm{std::localtime(&now)};
+        auto times = w.get_times();
+        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
+                  << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
+                  << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration) << ", memory = "
+                  << times[times.size() - 1].memory_in_kb << " kb" << std::endl;
+        if (new_total == previous_total)
+        {
+            break;
+        }
+        previous_total = new_total;
+    }
+    auto t_bisim_done{boost::chrono::system_clock::now()};
+    auto time_t_bisim_done{boost::chrono::system_clock::to_time_t(t_bisim_done)};
+    std::tm *ptm_bisim_done{std::localtime(&time_t_bisim_done)};
+    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S") << " Time taken for the bisimulation: " << t_bisim_done - t_start_bisim << std::endl;
+    // pring timing
+    // w.stop_step();
+    std::cout << w.to_string() << std::endl;
 
     output.flush();
 }
@@ -1065,6 +1265,34 @@ int main(int ac, char *av[])
         bool skip_singletons = vm.count("skip_singletons");
 
         run_k_bisimulation_store_partition(input_file, support, k, output_path, skip_singletons);
+
+        return 0;
+    }
+    else if (cmd == "run_k_bisimulation_store_partition_timed")
+    {
+        po::options_description run_timed_desc("run_k_bisimulation_store_partition_timed 0   options");
+        run_timed_desc.add_options()("support", po::value<uint>()->default_value(1), "Specify the required size for a block to be considered splittable");
+        run_timed_desc.add_options()("k", po::value<int>()->default_value(-1), "k, the depth of the bisimulation. Default is -1, i.e., infinite");
+        run_timed_desc.add_options()("output,o", po::value<std::string>(), "output, the output path");
+        run_timed_desc.add_options()("skip_singletons", "flag indicating that singletons must be skipped in the output");
+
+        // Collect all the unrecognized options from the first pass. This will include the
+        // (positional) command name, so we need to erase that.
+        std::vector<std::string> opts = po::collect_unrecognized(parsed.options, po::include_positional);
+        opts.erase(opts.begin());
+        // It also has the file name, so erase as well
+        opts.erase(opts.begin());
+
+        // Parse again...
+        po::store(po::command_line_parser(opts).options(run_timed_desc).run(), vm);
+        po::notify(vm);
+
+        uint support = vm["support"].as<uint>();
+        int k = vm["k"].as<int>();
+        std::string output_path = vm["output"].as<std::string>();
+        bool skip_singletons = vm.count("skip_singletons");
+
+        run_k_bisimulation_store_partition_timed(input_file, support, k, output_path, skip_singletons);
 
         return 0;
     }
