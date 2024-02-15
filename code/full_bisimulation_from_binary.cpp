@@ -180,6 +180,17 @@ public:
     }
 };
 
+void write_uint_ENTITY_little_endian(std::ostream &outputstream, u_int64_t value)
+{
+    char data[BYTES_PER_ENTITY];
+    for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
+    {
+        data[i] = char(value & 0x00000000000000FFull);
+        value = value >> 8;
+    }
+    outputstream.write(data, BYTES_PER_ENTITY);
+}
+
 u_int64_t read_uint_ENTITY_little_endian(std::istream &inputstream)
 {
     char data[8];
@@ -1125,8 +1136,7 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     w.stop_step();
     
     w.start_step("bisimulation writing to disk");
-    std::ofstream output(output_path + "-1.txt", std::ios::trunc);
-    // we just write the final one
+    std::ofstream output(output_path + "-0.bin", std::ios::trunc);
     const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
 
     for (node_index node = 0; node < g.get_nodes().size(); node++)
@@ -1136,7 +1146,7 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
         {
             continue;
         }
-        output << blockID << '\n';
+        write_uint_ENTITY_little_endian(output, blockID);
     }
     w.stop_step();
 
@@ -1150,8 +1160,7 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
         w.stop_step();
 
         w.start_step(std::to_string(i + 1) + "-bisimulation writing to disk");
-        std::ofstream output(output_path + "-" + std::to_string(i + 1) + ".txt", std::ios::trunc);
-        // we just write the final one
+        std::ofstream output(output_path + "-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
         const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
 
         for (node_index node = 0; node < g.get_nodes().size(); node++)
@@ -1161,7 +1170,7 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
             {
                 continue;
             }
-            output << blockID << '\n';
+            write_uint_ENTITY_little_endian(output, blockID);
         }
         w.stop_step();
         
