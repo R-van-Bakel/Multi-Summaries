@@ -24,6 +24,8 @@ using block_index = node_index;
 
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
+const int BYTES_PER_BLOCK = 4;
+
 
 #define CREATE_REVERSE_INDEX
 
@@ -180,15 +182,15 @@ public:
     }
 };
 
-void write_uint_ENTITY_little_endian(std::ostream &outputstream, u_int64_t value)
+void write_uint_BLOCK_little_endian(std::ostream &outputstream, int64_t value)
 {
-    char data[BYTES_PER_ENTITY];
-    for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
+    char data[BYTES_PER_BLOCK];
+    for (unsigned int i = 0; i < BYTES_PER_BLOCK; i++)
     {
         data[i] = char(value & 0x00000000000000FFull);
         value = value >> 8;
     }
-    outputstream.write(data, BYTES_PER_ENTITY);
+    outputstream.write(data, BYTES_PER_BLOCK);
 }
 
 u_int64_t read_uint_ENTITY_little_endian(std::istream &inputstream)
@@ -1134,24 +1136,9 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     std::deque<KBisumulationOutcome> outcomes;
     outcomes.push_back(res);
     w.stop_step();
-    
-    w.start_step("bisimulation writing to disk");
-    std::ofstream output(output_path + "-0.bin", std::ios::trunc);
-    const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
-
-    for (node_index node = 0; node < g.get_nodes().size(); node++)
-    {
-        int64_t blockID = final_partition.get_block_ID_for_node(node);
-        if (skip_singletons && blockID < 0)
-        {
-            continue;
-        }
-        write_uint_ENTITY_little_endian(output, blockID);
-    }
-    w.stop_step();
 
     int previous_total = 0;
-    for (auto i = 1; k == -1 || i <= k; i++)
+    for (auto i = 0; k == -1 || i < k; i++)
     {
         w.start_step(std::to_string(i + 1) + "-bisimulation");
         auto res = get_k_bisimulation(g, outcomes[0], support);
@@ -1159,20 +1146,29 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
         outcomes.push_back(res);
         w.stop_step();
 
-        w.start_step(std::to_string(i + 1) + "-bisimulation writing to disk");
-        std::ofstream output(output_path + "-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
-        const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
-
-        for (node_index node = 0; node < g.get_nodes().size(); node++)
+        if (i == k-1 || k == -1)  // Either write all outcomes (k == -1) or only write the final one (i == k-1)
         {
-            int64_t blockID = final_partition.get_block_ID_for_node(node);
-            if (skip_singletons && blockID < 0)
+            w.start_step(std::to_string(i + 1) + "-bisimulation writing to disk");
+            std::ofstream output(output_path + "-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+            const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
+
+            for (node_index node = 0; node < g.get_nodes().size(); node++)
             {
-                continue;
+                int64_t blockID = final_partition.get_block_ID_for_node(node);
+                if (blockID < 0)
+                {
+                    if (skip_singletons)
+                    {
+                        continue;
+                    }
+                    //else
+                    write_uint_BLOCK_little_endian(output, u_int64_t(0));  // Write 0 for singletons. This does not lose information, since singletons are not associated with block to begin with
+                } else {
+                    write_uint_BLOCK_little_endian(output, u_int64_t(blockID+1));  // Add 1 so the 0 index is freed to represent singletons
+                }
             }
-            write_uint_ENTITY_little_endian(output, blockID);
+            w.stop_step();
         }
-        w.stop_step();
         
         int new_total = outcomes[0].total_blocks();
 
@@ -1197,7 +1193,7 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     // w.stop_step();
     std::cout << w.to_string() << std::endl;
 
-    output.flush();
+    // output.flush();
 }
 
 int main(int ac, char *av[])
