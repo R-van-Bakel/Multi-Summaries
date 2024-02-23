@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <vector>
+#include <map>
 #include <stack>
 #include <span>
 #include <fstream>
@@ -705,6 +706,34 @@ public:
     }
 };
 
+class Refines_Edge
+{
+public:
+    block_index original_block;
+    std::vector<block_index> split_blocks;
+
+    Refines_Edge(block_index original_block, std::vector<block_index> split_blocks)
+    {
+        this->original_block = original_block;
+        this->split_blocks = split_blocks;
+    }
+};
+
+class Refines_Mapping
+{
+public:
+    std::map<block_index, std::vector<block_index>> refines_edges;
+
+    Refines_Mapping()
+    {
+    }
+
+    void add_edge(Refines_Edge edge)
+    {
+        this->refines_edges[edge.original_block] = edge.split_blocks;
+    }
+};
+
 class KBisumulationOutcome
 {
 public:
@@ -713,6 +742,7 @@ public:
     // If the block for the node is not a singleton, this contains the block index.
     // Otherwise, this will contain a negative number unique for that singleton
     std::shared_ptr<Node2BlockMapper> node_to_block; // can most probably also be an auto_ptr, I don't think these will be shared, but overhead is minimal
+    Refines_Mapping k_minus_one_to_k_mapping;
 
 public:
     KBisumulationOutcome(const std::vector<BlockPtr> &blocks,
@@ -750,6 +780,11 @@ public:
     {
         return this->singleton_block_count() + this->non_singleton_block_count();
     }
+
+    void add_mapping(Refines_Mapping mapping)
+    {
+        this->k_minus_one_to_k_mapping = mapping;
+    }
 };
 
 KBisumulationOutcome get_0_bisimulation(Graph &g)
@@ -786,6 +821,9 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
     // We collect all nodes from split blocks. In the end we mark all blocks which target these as dirty.
     boost::unordered_flat_set<node_index> nodes_from_split_blocks;
 
+    // Define a mapping in which we can store the refines edges
+    Refines_Mapping refines_edges;
+
     // we first do dirty blocks of size 2 because if they split, they cause two singletons and a gap (freeblock) in the list of blocks
     // These freeblocks can be filled if larger blocks are split.
 
@@ -803,7 +841,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
                 continue;
             }
             // else
-            // we checked above that min_support < 2, so no need to theck that here.
+            // we checked above that min_support < 2, so no need to check that here.
 
             // pair of edge type and target *block*, the block ID can be negative if it is a singleton
             using signature_t = boost::unordered_flat_set<std::pair<edge_type, int64_t>>; //[tuple[HashableEdgeLabel, int]]
@@ -874,7 +912,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
                 size_t to_block = k_minus_one_outcome.get_block_ID_for_node(edge_info.target);
                 signature.emplace(edge_info.label, to_block);
             }
-            // try_emplace returns an iterator to a new element if there was nothign yet, otherwise to the existing one
+            // try_emplace returns an iterator to a new element if there was nothing yet, otherwise to the existing one
             auto empl_res = M.try_emplace(signature);
             (*(empl_res.first)).second.emplace_back(v);
         }
@@ -899,6 +937,9 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
 
         // all indices for this block will be overwritten, so no need to do this now
 
+        // define the vector to store the new block indices in
+        std::vector<block_index> new_block_indices;
+
         // categorize the blocks
 
         for (auto &signature_blocks : M)
@@ -914,7 +955,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
             BlockPtr block = std::make_shared<Block>(signature_blocks.second);
             block->shrink_to_fit();
             // if there are still known empty blocks, write on them
-            std::size_t new_block_index;
+            block_index new_block_index;  // changed from std::size_t to block_index
             if (k_node_to_block->freeblock_indices.size() > 0)
             {
                 new_block_index = k_node_to_block->freeblock_indices.top();
@@ -926,6 +967,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
                 new_block_index = k_blocks.size();
                 k_blocks.push_back(block);
             }
+            new_block_indices.push_back(new_block_index);
             // we still need to update the k_node_to_block index
             if (new_block_index != dirty_block_index)
             { // if new_block_index == dirty_block_index, then it is already set
@@ -936,6 +978,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
                 }
             }
         }
+        refines_edges.add_edge(Refines_Edge(dirty_block_index, new_block_indices));
     }
 
     // for (node_index i = 0; i < g.size(); i++)
@@ -1009,6 +1052,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
 
 #endif
     KBisumulationOutcome outcome(k_blocks, dirty, k_node_to_block);
+    outcome.add_mapping(refines_edges);
     return outcome;
 }
 
@@ -1146,10 +1190,25 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
         outcomes.push_back(res);
         w.stop_step();
 
+        // The first mapping goes from k=0 to k=1 and is of no use. If !(k == -1) then we only print one outcome and refines edges are of no use
+        if (i > 0 && k == -1)
+        {
+            std::ofstream mapping_output(output_path + "_mapping-" + std::to_string(i) + "to" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+            for (auto orig_new: res.k_minus_one_to_k_mapping.refines_edges)
+            {
+                write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.first + 1));  // Add 1, because we free 0 up for singletons for writing the outcomes
+                write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.second.size()));  // Store in how many blocks the original block had split
+                for (auto new_block: orig_new.second)
+                {
+                    write_uint_BLOCK_little_endian(mapping_output, u_int64_t(new_block));  // Write all the new blocks the old one got split into
+                }
+            }
+        }
+
         if (i == k-1 || k == -1)  // Either write all outcomes (k == -1) or only write the final one (i == k-1)
         {
             w.start_step(std::to_string(i + 1) + "-bisimulation writing to disk");
-            std::ofstream output(output_path + "-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+            std::ofstream output(output_path + "_outcome-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
             const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
 
             for (node_index node = 0; node < g.get_nodes().size(); node++)
