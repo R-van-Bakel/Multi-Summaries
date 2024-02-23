@@ -194,6 +194,17 @@ void write_uint_BLOCK_little_endian(std::ostream &outputstream, int64_t value)
     outputstream.write(data, BYTES_PER_BLOCK);
 }
 
+void write_uint_ENTITY_little_endian(std::ostream &outputstream, int64_t value)
+{
+    char data[BYTES_PER_ENTITY];
+    for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
+    {
+        data[i] = char(value & 0x00000000000000FFull);
+        value = value >> 8;
+    }
+    outputstream.write(data, BYTES_PER_ENTITY);
+}
+
 u_int64_t read_uint_ENTITY_little_endian(std::istream &inputstream)
 {
     char data[8];
@@ -1171,8 +1182,8 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     std::tm *ptm_start_bisim{std::localtime(&time_t_start_bisim)};
 
     std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
-    w.start_step("bisimulation");
     std::vector<std::string> lines;
+    w.start_step(std::to_string(0) + "-bisimulation");
     KBisumulationOutcome res = get_0_bisimulation(g);
     // w.pause();
     // std::cout << "initially one block with " << res.blocks.begin().operator*()->size() << " nodes" << std::endl;
@@ -1190,9 +1201,10 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
         outcomes.push_back(res);
         w.stop_step();
 
-        // The first mapping goes from k=0 to k=1 and is of no use. If !(k == -1) then we only print one outcome and refines edges are of no use
+        // We do not care for the first trivial mapping from k=0 to k=1. If !(k == -1) then we only print one outcome and refines edges are of no use
         if (i > 0 && k == -1)
         {
+            w.start_step(std::to_string(i + 1) + "-bisimulation writing refines edges to disk");
             std::ofstream mapping_output(output_path + "_mapping-" + std::to_string(i) + "to" + std::to_string(i + 1) + ".bin", std::ios::trunc);
             for (auto orig_new: res.k_minus_one_to_k_mapping.refines_edges)
             {
@@ -1200,14 +1212,15 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
                 write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.second.size()));  // Store in how many blocks the original block had split
                 for (auto new_block: orig_new.second)
                 {
-                    write_uint_BLOCK_little_endian(mapping_output, u_int64_t(new_block));  // Write all the new blocks the old one got split into
+                    write_uint_BLOCK_little_endian(mapping_output, u_int64_t(new_block + 1));  // Write all the new blocks the old one got split into
                 }
             }
+            w.stop_step();
         }
 
         if (i == k-1 || k == -1)  // Either write all outcomes (k == -1) or only write the final one (i == k-1)
         {
-            w.start_step(std::to_string(i + 1) + "-bisimulation writing to disk");
+            w.start_step(std::to_string(i + 1) + "-bisimulation writing outcome to disk");
             std::ofstream output(output_path + "_outcome-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
             const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
 
@@ -1228,6 +1241,103 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
             }
             w.stop_step();
         }
+        
+        int new_total = outcomes[0].total_blocks();
+
+        auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+        std::tm *ptm{std::localtime(&now)};
+        auto times = w.get_times();
+        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
+                  << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
+                  << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration) << ", memory = "
+                  << times[times.size() - 1].memory_in_kb << " kb" << std::endl;
+        if (new_total == previous_total)
+        {
+            break;
+        }
+        previous_total = new_total;
+    }
+    auto t_bisim_done{boost::chrono::system_clock::now()};
+    auto time_t_bisim_done{boost::chrono::system_clock::to_time_t(t_bisim_done)};
+    std::tm *ptm_bisim_done{std::localtime(&time_t_bisim_done)};
+    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S") << " Time taken for the bisimulation: " << t_bisim_done - t_start_bisim << std::endl;
+    // pring timing
+    // w.stop_step();
+    std::cout << w.to_string() << std::endl;
+
+    // output.flush();
+}
+
+void run_k_bisimulation_store_partition_condensed_timed(const std::string &input_path, uint support, const std::string &output_path, bool skip_singletons)
+{
+
+    StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
+    Graph g;
+    w.start_step("Read graph");
+    read_graph_timed(input_path, g);
+    w.stop_step();
+
+    auto t_start_bisim{boost::chrono::system_clock::now()};
+    auto time_t_start_bisim{boost::chrono::system_clock::to_time_t(t_start_bisim)};
+    std::tm *ptm_start_bisim{std::localtime(&time_t_start_bisim)};
+
+    std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
+    std::vector<std::string> lines;
+    w.start_step(std::to_string(0) + "-bisimulation");
+    KBisumulationOutcome res = get_0_bisimulation(g);
+    // w.pause();
+    // std::cout << "initially one block with " << res.blocks.begin().operator*()->size() << " nodes" << std::endl;
+    // w.resume();
+    std::deque<KBisumulationOutcome> outcomes;
+    outcomes.push_back(res);
+    w.stop_step();
+
+    int previous_total = 0;
+    for (auto i = 0;; i++)
+    {
+        w.start_step(std::to_string(i + 1) + "-bisimulation");
+        auto res = get_k_bisimulation(g, outcomes[0], support);
+        outcomes.pop_front();
+        outcomes.push_back(res);
+        w.stop_step();
+
+        // We do not care for the first trivial mapping from k=0 to k=1.
+        if (i > 0)
+        {
+            w.start_step(std::to_string(i + 1) + "-bisimulation writing refines edges to disk");
+            std::ofstream mapping_output(output_path + "_mapping-" + std::to_string(i) + "to" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+            for (auto orig_new: res.k_minus_one_to_k_mapping.refines_edges)
+            {
+                write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.first + 1));  // Add 1, because we free 0 up for singletons for writing the outcomes
+                write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.second.size()));  // Store in how many blocks the original block had split
+                for (auto new_block: orig_new.second)
+                {
+                    BlockPtr new_block_ptr = res.blocks[new_block];
+                    write_uint_BLOCK_little_endian(mapping_output, u_int64_t(new_block + 1));  // Write all the new blocks the old one got split into
+                }
+            }
+            w.stop_step();
+        }
+
+        w.start_step(std::to_string(i + 1) + "-bisimulation (condensed) writing outcome to disk");
+        std::ofstream condensed_output(output_path + "_outcome_condensed-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+        for (auto orig_new: res.k_minus_one_to_k_mapping.refines_edges)
+        {
+            for (auto new_block: orig_new.second)
+            {
+                BlockPtr new_block_ptr = res.blocks[new_block];
+                uint64_t block_size = new_block_ptr->end() - new_block_ptr->begin();
+                // Write the new block index. We add 1 since block id 0 is reserved of singletons
+                write_uint_BLOCK_little_endian(condensed_output, u_int64_t(new_block + 1));
+                write_uint_ENTITY_little_endian(condensed_output, u_int64_t(block_size));  // The reader needs this size to decode the data
+                for (auto v_iter = new_block_ptr->begin(); v_iter != new_block_ptr->end(); v_iter++)
+                {
+                    node_index v = *v_iter;
+                    write_uint_ENTITY_little_endian(condensed_output, u_int64_t(v));  // We store each entity contained in the new block
+                }
+            }
+        }
+        w.stop_step();
         
         int new_total = outcomes[0].total_blocks();
 
@@ -1357,6 +1467,32 @@ int main(int ac, char *av[])
         bool skip_singletons = vm.count("skip_singletons");
 
         run_k_bisimulation_store_partition_timed(input_file, support, k, output_path, skip_singletons);
+
+        return 0;
+    }
+    else if (cmd == "run_k_bisimulation_store_partition_condensed_timed")
+    {
+        po::options_description run_timed_desc("run_k_bisimulation_store_partition_timed 0   options");
+        run_timed_desc.add_options()("support", po::value<uint>()->default_value(1), "Specify the required size for a block to be considered splittable");
+        run_timed_desc.add_options()("output,o", po::value<std::string>(), "output, the output path");
+        run_timed_desc.add_options()("skip_singletons", "flag indicating that singletons must be skipped in the output");
+
+        // Collect all the unrecognized options from the first pass. This will include the
+        // (positional) command name, so we need to erase that.
+        std::vector<std::string> opts = po::collect_unrecognized(parsed.options, po::include_positional);
+        opts.erase(opts.begin());
+        // It also has the file name, so erase as well
+        opts.erase(opts.begin());
+
+        // Parse again...
+        po::store(po::command_line_parser(opts).options(run_timed_desc).run(), vm);
+        po::notify(vm);
+
+        uint support = vm["support"].as<uint>();
+        std::string output_path = vm["output"].as<std::string>();
+        bool skip_singletons = vm.count("skip_singletons");
+
+        run_k_bisimulation_store_partition_condensed_timed(input_file, support, output_path, skip_singletons);
 
         return 0;
     }
