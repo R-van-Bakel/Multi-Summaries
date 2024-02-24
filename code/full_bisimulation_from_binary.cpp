@@ -846,6 +846,9 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
             BlockPtr dirty_block = k_minus_one_outcome.blocks[dirty_block_index];
             size_t dirty_block_size = dirty_block->size();
 
+            // define the vector to store the new block indices in
+            std::vector<block_index> new_block_indices;
+
             if (dirty_block_size != 2)
             {
                 // we deal with this below
@@ -890,6 +893,9 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
             }
             k_blocks[dirty_block_index] = global_empty_block;
             k_node_to_block->freeblock_indices.push(dirty_block_index);
+            // Add the split to the refines edges. Here 0 is used to indicates some (in this case all) nodes became singletons
+            new_block_indices.push_back(0);
+            refines_edges.add_edge(Refines_Edge(dirty_block_index, new_block_indices));
         }
     }
 
@@ -901,6 +907,9 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
         block_index dirty_block_index = *iter;
         BlockPtr dirty_block = k_minus_one_outcome.blocks[dirty_block_index];
         size_t dirty_block_size = dirty_block->size();
+
+        // define the vector to store the new block indices in
+        std::vector<block_index> new_block_indices;
 
         if (dirty_block_size == 2 || dirty_block_size <= min_support)
         {
@@ -948,17 +957,22 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
 
         // all indices for this block will be overwritten, so no need to do this now
 
-        // define the vector to store the new block indices in
-        std::vector<block_index> new_block_indices;
+        // This bool is used to make sure we only add 0 at most once to the refines edges
+        bool found_singleton = false;
 
         // categorize the blocks
-
         for (auto &signature_blocks : M)
         {
             // if singleton, make it a singleton in the mapping
             if (signature_blocks.second.size() == 1)
             {
                 k_node_to_block->put_into_singleton(*(signature_blocks.second.cbegin()));
+                if (!found_singleton)
+                {
+                    found_singleton = true;
+                    // Add the split to the refines edges. Here 0 is used to indicates some nodes became singletons
+                    new_block_indices.push_back(0);
+                }
                 continue;
             }
             // else
@@ -978,7 +992,8 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
                 new_block_index = k_blocks.size();
                 k_blocks.push_back(block);
             }
-            new_block_indices.push_back(new_block_index);
+            // We add 1 since the index 0 is reserved for singletons
+            new_block_indices.push_back(new_block_index+1);
             // we still need to update the k_node_to_block index
             if (new_block_index != dirty_block_index)
             { // if new_block_index == dirty_block_index, then it is already set
@@ -989,7 +1004,8 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
                 }
             }
         }
-        refines_edges.add_edge(Refines_Edge(dirty_block_index, new_block_indices));
+        // Add 1 to the dirty block index to be consistent with the new_block_indeces
+        refines_edges.add_edge(Refines_Edge(dirty_block_index+1, new_block_indices));
     }
 
     // for (node_index i = 0; i < g.size(); i++)
@@ -1206,13 +1222,13 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
         {
             w.start_step(std::to_string(i + 1) + "-bisimulation writing refines edges to disk");
             std::ofstream mapping_output(output_path + "_mapping-" + std::to_string(i) + "to" + std::to_string(i + 1) + ".bin", std::ios::trunc);
-            for (auto orig_new: res.k_minus_one_to_k_mapping.refines_edges)
+            for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
             {
-                write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.first + 1));  // Add 1, because we free 0 up for singletons for writing the outcomes
+                write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.first));  // Add 1, because we free 0 up for singletons for writing the outcomes
                 write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.second.size()));  // Store in how many blocks the original block had split
                 for (auto new_block: orig_new.second)
                 {
-                    write_uint_BLOCK_little_endian(mapping_output, u_int64_t(new_block + 1));  // Write all the new blocks the old one got split into
+                    write_uint_BLOCK_little_endian(mapping_output, u_int64_t(new_block));  // Write all the new blocks the old one got split into
                 }
             }
             w.stop_step();
@@ -1306,14 +1322,14 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
         {
             w.start_step(std::to_string(i + 1) + "-bisimulation writing refines edges to disk");
             std::ofstream mapping_output(output_path + "_mapping-" + std::to_string(i) + "to" + std::to_string(i + 1) + ".bin", std::ios::trunc);
-            for (auto orig_new: res.k_minus_one_to_k_mapping.refines_edges)
+            for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
             {
-                write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.first + 1));  // Add 1, because we free 0 up for singletons for writing the outcomes
+                write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.first));
                 write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.second.size()));  // Store in how many blocks the original block had split
                 for (auto new_block: orig_new.second)
                 {
-                    BlockPtr new_block_ptr = res.blocks[new_block];
-                    write_uint_BLOCK_little_endian(mapping_output, u_int64_t(new_block + 1));  // Write all the new blocks the old one got split into
+                    // BlockPtr new_block_ptr = res.blocks[new_block];
+                    write_uint_BLOCK_little_endian(mapping_output, u_int64_t(new_block));  // Write all the new blocks the old one got split into
                 }
             }
             w.stop_step();
@@ -1321,14 +1337,19 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
 
         w.start_step(std::to_string(i + 1) + "-bisimulation (condensed) writing outcome to disk");
         std::ofstream condensed_output(output_path + "_outcome_condensed-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
-        for (auto orig_new: res.k_minus_one_to_k_mapping.refines_edges)
+        for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
         {
             for (auto new_block: orig_new.second)
             {
-                BlockPtr new_block_ptr = res.blocks[new_block];
+                // Skip the singleton block
+                if (new_block == 0)
+                {
+                    continue;
+                }
+                // We have to subtract 1 because we added 1 earlier
+                BlockPtr new_block_ptr = outcomes[0].blocks[new_block-1];
                 uint64_t block_size = new_block_ptr->end() - new_block_ptr->begin();
-                // Write the new block index. We add 1 since block id 0 is reserved of singletons
-                write_uint_BLOCK_little_endian(condensed_output, u_int64_t(new_block + 1));
+                write_uint_BLOCK_little_endian(condensed_output, u_int64_t(new_block));
                 write_uint_ENTITY_little_endian(condensed_output, u_int64_t(block_size));  // The reader needs this size to decode the data
                 for (auto v_iter = new_block_ptr->begin(); v_iter != new_block_ptr->end(); v_iter++)
                 {

@@ -99,6 +99,7 @@ int main(int ac, char *av[])
         std::string mapping_msg = mapping_msg_lhs;
         while (true)
         {
+            bool singleton_found = false;
             u_int64_t original_block = read_uint_BLOCK_little_endian(edge_file);
             if (edge_file.eof())
             {
@@ -115,7 +116,7 @@ int main(int ac, char *av[])
             u_int64_t new_blocks_count = read_uint_BLOCK_little_endian(edge_file);
             mapping_msg += "{";
             u_int32_t offset = 0;
-            // The block we need to access might not be in the last outcome, in which case we check earlies outcomes unti the block is found
+            // The block we need to access might not be in the last outcome, in which case we check earlier outcomes until the block is found
             while (block_to_entity_maps[k-offset].count(original_block) == 0)
             {
                 offset++;
@@ -129,6 +130,11 @@ int main(int ac, char *av[])
             for (u_int64_t i = 0; i < new_blocks_count; i++)
             {
                 u_int64_t new_block = read_uint_BLOCK_little_endian(edge_file);
+                if (new_block == 0)
+                {
+                    singleton_found = true;
+                    continue;
+                }
                 mapping_msg += "{";
                 for (auto entity: block_to_entity_maps[k+1][new_block])
                 {
@@ -137,8 +143,15 @@ int main(int ac, char *av[])
                 mapping_msg.pop_back();
                 mapping_msg += "}, ";
             }
-            mapping_msg.pop_back();
-            mapping_msg.pop_back();
+            if (singleton_found)
+            {
+                mapping_msg += "{SINGLETONS}";
+            }
+            else
+            {
+                mapping_msg.pop_back();
+                mapping_msg.pop_back();
+            }
             mapping_msg += "\n" + std::string(mapping_msg_lhs.size(), ' ');
         }
         k++;
