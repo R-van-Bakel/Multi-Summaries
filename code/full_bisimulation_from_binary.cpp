@@ -905,7 +905,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
         if (dirty_block_size == 2 || dirty_block_size <= min_support)
         {
             // if it is 2, we dealt with it above.
-            // if it is less tan min_support, no need to update anything in the blocks, nor in the index
+            // if it is less than min_support, no need to update anything in the blocks, nor in the index
             continue;
         }
         // else

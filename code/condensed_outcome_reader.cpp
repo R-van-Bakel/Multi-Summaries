@@ -73,8 +73,8 @@ int main(int ac, char *av[])
         std::cout << "Block: " << block << ", Block Size: " << block_size << std::endl;
         for (u_int64_t i = 0; i < block_size; i++)
         {
-            u_int64_t enitity = read_uint_ENTITY_little_endian(infile);
-            std::cout << "Entity: " << enitity << std::endl;
+            u_int64_t entity = read_uint_ENTITY_little_endian(infile);
+            std::cout << "Entity: " << entity << std::endl;
         }
     }
 }
