@@ -1,0 +1,11 @@
+<https://krr.triply.cc/krr/lod-a-lot/graphs/default> {
+<v1> <e1> <v2> .
+<v2> <e1> <v3> .
+<v3> <e1> <v4> .
+<v4> <e1> <v5> .
+<v5> <e1> <v6> .
+<v6> <e1> <v7> .
+<v7> <e1> <v8> .
+<v8> <e1> <v9> .
+<v8> <e1> "literally a value" .
+}

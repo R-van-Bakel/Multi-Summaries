@@ -1297,6 +1297,10 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     auto time_t_start_bisim{boost::chrono::system_clock::to_time_t(t_start_bisim)};
     std::tm *ptm_start_bisim{std::localtime(&time_t_start_bisim)};
 
+    std::ofstream graph_stats_output(output_path + "_graph_stats.txt", std::ios::trunc);
+    graph_stats_output << "Vertex count = " << g.size();
+    graph_stats_output.flush();
+
     std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
     std::vector<std::string> lines;
     w.start_step(std::to_string(0) + "-bisimulation");
