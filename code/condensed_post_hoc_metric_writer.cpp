@@ -4,12 +4,13 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <iostream>
-// #include <sstream>
+#include <sstream>
 #include <boost/program_options.hpp>
 #include <vector>
 // For getting and printing the current datetime
 #define BOOST_CHRONO_HEADER_ONLY
 #include <boost/chrono.hpp>
+#include <filesystem>
 #include <iomanip>
 
 const int BYTES_PER_ENTITY = 5;
@@ -70,6 +71,8 @@ int main(int ac, char *av[])
     // std::istringstream node_cout_sstream(split_line[1].substr(1,split_line[1].size()-1));
     // node_cout_sstream >> node_count;
 
+    std::filesystem::create_directory(input_path + "post_hoc_results/");
+
     uint32_t k = 1;
     bool last_file = false;
     u_int64_t old_block_count = 0;
@@ -82,13 +85,21 @@ int main(int ac, char *av[])
         std::tm *ptm_read{std::localtime(&time_t_read)};
         std::cout << std::put_time(ptm_read, "%Y/%m/%d %H:%M:%S") << " Reading outcome " << k << std::endl;
 
-        std::string input_file = input_path + "_outcome_condensed-" + std::to_string(k) + ".bin";
-        std::string output_file = input_path + "_post_hoc_stats_condensed-" + std::to_string(k) + ".txt";
+        std::ostringstream k_stringstream;
+        k_stringstream << std::setw(4) << std::setfill('0') << k;
+        std::string k_string(k_stringstream.str());
+
+        std::ostringstream k_next_stringstream;
+        k_next_stringstream << std::setw(4) << std::setfill('0') << k+1;
+        std::string k_next_string(k_next_stringstream.str());
+
+        std::string input_file = input_path + "bisimulation/outcome_condensed-" + k_string + ".bin";
+        std::string output_file = input_path + "post_hoc_results/statistics_condensed-" + k_string + ".json";
 
         std::ifstream infile(input_file, std::ifstream::in);
         std::ofstream outfile(output_file, std::ios::trunc | std::ofstream::out);
 
-        std::string mapping_file = input_path + "_mapping-" + std::to_string(k) + "to" + std::to_string(k+1) + ".bin";
+        std::string mapping_file = input_path + "bisimulation/mapping-" + k_string + "to" + k_next_string + ".bin";
         std::ifstream mappingfile(mapping_file, std::ifstream::in);
 
         uint64_t disappeared_count = 0;
@@ -125,7 +136,7 @@ int main(int ac, char *av[])
         }
 
         u_int64_t block_count = 0;
-        outfile << "New block sizes . = ";  // A mapping from each block to its size
+        outfile << "{\n    \"New block sizes\": {";  // A mapping from each block to its size
         while (true)
         {
             u_int64_t block = read_uint_BLOCK_little_endian(infile);
@@ -133,7 +144,7 @@ int main(int ac, char *av[])
             {
                 if (block_count == 0)
                 {
-                    outfile << "EMPTY (Only singleton blocks were created)";
+                    outfile << "{}";  // Only singleton blocks were created
                 }
                 break;
             }
@@ -143,31 +154,33 @@ int main(int ac, char *av[])
             }
             u_int64_t block_size = read_uint_ENTITY_little_endian(infile);
             block_node_count += block_size;
-            outfile << block << ":" << block_size;
+            outfile << "\"" << block  << "\"" << ":" << block_size;
             infile.seekg(block_size*BYTES_PER_ENTITY, std::ios_base::cur);
             block_count++;
         }
         
-        outfile << "\nNew block count . = " << block_count;  // How many new blocks did we get?
-        outfile << "\nNew vertex count  = " << std::to_string(block_node_count);  // How many vertices are in the new blocks?
-        outfile << "\nSplit count ..... = " << std::to_string(split_count);  // How many blocks will split?
-        outfile << "\nDisappeared count = " << std::to_string(disappeared_count);  // How many blocks will split into only singletons?
-        outfile << "\nBlock count ..... = " << std::to_string(old_block_count - old_split_count + block_count);  // How many blocks in total?
+        outfile << "},\n    \"New block count\": " << block_count;                                 // How many new blocks did we get?
+        outfile << ",\n    \"New vertex count\": " << block_node_count;                            // How many vertices are in the new blocks?
+        outfile << ",\n    \"Split count\": " << split_count;                                      // How many blocks will split?
+        outfile << ",\n    \"Disappeared count\": " << disappeared_count;                          // How many blocks will split into only singletons?
+        outfile << ",\n    \"Block count\": " << old_block_count - old_split_count + block_count;  // How many blocks in total?
+        outfile << "\n}";
         old_block_count = old_block_count - old_split_count + block_count;
         old_split_count = split_count;
         k++;
 
         if (last_file)
         {
-            std::string output_file = input_path + "_post_hoc_stats_condensed-" + std::to_string(k) + ".txt";
+            std::string output_file = input_path + "post_hoc_results/statistics_condensed-" + k_string + ".json";
             std::ofstream outfile(output_file, std::ios::trunc | std::ofstream::out);
             
-            outfile << "New block sizes . = EMPTY (Fixed point)";  // A mapping from each block to its size. It is empty in this case
-            outfile << "\nNew block count . = 0";  // How many new blocks did we get?
-            outfile << "\nNew vertex count  = 0";  // How many vertices are in the new blocks?
-            outfile << "\nSplit count ..... = 0";  // How many blocks will split?
-            outfile << "\nDisappeared count = 0";  // How many blocks will split into only singletons?
-            outfile << "\nBlock count ..... = " + std::to_string(old_block_count);  // How many blocks in total?
+            outfile << "{\n    \"New block sizes\": {}";               // A mapping from each block to its size. It is empty in this case, because a fixed point has been found
+            outfile << ",\n    \"New block count\": 0";                // How many new blocks did we get?
+            outfile << ",\n    \"New vertex count\": 0";               // How many vertices are in the new blocks?
+            outfile << ",\n    \"Split count\": 0";                    // How many blocks will split?
+            outfile << ",\n    \"Disappeared count\": 0";              // How many blocks will split into only singletons?
+            outfile << ",\n    \"Block count\": " << old_block_count;  // How many blocks in total?
+            outfile << "\n}";
 
             auto t_done{boost::chrono::system_clock::now()};
             auto time_t_done{boost::chrono::system_clock::to_time_t(t_done)};

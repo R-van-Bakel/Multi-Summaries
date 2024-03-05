@@ -6,6 +6,7 @@
 #define BOOST_CHRONO_HEADER_ONLY
 #include <boost/chrono.hpp>
 #include <chrono>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <boost/program_options.hpp>
@@ -15,6 +16,9 @@ using node_index = uint64_t;
 
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
+
+// The LODalot laundromat dataset need some more pre-processing
+#define LODalot
 
 class MyException : public std::exception
 {
@@ -141,10 +145,15 @@ void convert_graph(std::istream &inputstream,
 
     std::getline(inputstream, line);
     boost::trim(line);
+#ifdef LODalot
     if (line != "<https://krr.triply.cc/krr/lod-a-lot/graphs/default> {")
     {
         throw MyException("This binary is specific for the full bisimulation of krr.triply.cc/krr/lod-a-lot/");
     }
+#else
+    // Otherwise we just proceed as normal
+    line_counter--;
+#endif
 
     bool must_end = false;
 
@@ -163,11 +172,13 @@ void convert_graph(std::istream &inputstream,
         {
             throw MyException("The file must have ended here, but did not!");
         }
+#ifdef LODalot
         if (line == "}")
         {
             must_end = true;
             continue;
         }
+#endif
         if (!(*(line.cend() - 1) == '.'))
         {
             throw MyException("The line '" + original_line + "' did not end in a period(.)");
@@ -269,9 +280,9 @@ int main(int ac, char *av[])
 
     po::options_description global("Global options");
     global.add_options()("input_file", po::value<std::string>(), "Input file, must contain n-triples");
-    global.add_options()("output_file", po::value<std::string>(), "Output file");
+    global.add_options()("output_path", po::value<std::string>(), "Output path");
     po::positional_options_description pos;
-    pos.add("input_file", 1).add("output_file", 2);
+    pos.add("input_file", 1).add("output_path", 2);
 
     po::variables_map vm;
 
@@ -281,10 +292,15 @@ int main(int ac, char *av[])
     po::notify(vm);
 
     std::string input_file = vm["input_file"].as<std::string>();
-    std::string output_file = vm["output_file"].as<std::string>();
+    std::string output_path = vm["output_path"].as<std::string>();
+
+    int slash_pos = input_file.find_last_of("/");
+    int period_pos = input_file.find_last_of(".");
+    std::string file_name = input_file.substr(slash_pos+1, period_pos-(slash_pos+1));
 
     std::ifstream infile(input_file);
-    std::ofstream outfile(output_file, std::ifstream::out);
+    std::filesystem::create_directory(output_path + file_name + "/");
+    std::ofstream outfile(output_path + file_name + "/binary_encoding.bin", std::ifstream::out);
 
     if (!infile.is_open())
     {
@@ -296,8 +312,8 @@ int main(int ac, char *av[])
         perror("error while opening file");
     }
 
-    std::string node_ID_file = "./output/entity2ID.txt";
-    std::string rel_ID_file = "./output/rel2ID.txt";
+    std::string node_ID_file = output_path + file_name + "/entity2ID.txt";
+    std::string rel_ID_file = output_path + file_name + "/rel2ID.txt";
 
     convert_graph(infile, outfile, node_ID_file, rel_ID_file);
     outfile.flush();

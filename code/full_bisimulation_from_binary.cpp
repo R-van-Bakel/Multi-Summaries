@@ -11,9 +11,11 @@
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/format.hpp>
 #include <iostream>
+#include <sstream>
 #define BOOST_CHRONO_HEADER_ONLY
 #include <boost/chrono.hpp>
 #include <chrono>
+#include <filesystem>
 #include <iomanip>
 #include <thread>
 #include <boost/program_options.hpp>
@@ -1184,6 +1186,7 @@ void run_k_bisimulation_store_partition(const std::string &input_path, uint supp
 }
 
 // Run an experiment where each step of the bisumulation is timed
+// TODO properly implement this (if we want to use this)
 void run_k_bisimulation_store_partition_timed(const std::string &input_path, uint support, int k, const std::string &output_path, bool skip_singletons)
 {
 
@@ -1196,6 +1199,9 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     auto t_start_bisim{boost::chrono::system_clock::now()};
     auto time_t_start_bisim{boost::chrono::system_clock::to_time_t(t_start_bisim)};
     std::tm *ptm_start_bisim{std::localtime(&time_t_start_bisim)};
+
+    std::ofstream graph_stats_output(output_path + "ad_hoc_results/graph_stats.json", std::ios::trunc);
+    graph_stats_output << "{\n    \"Vertex count\": " << g.size();
 
     std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
     std::vector<std::string> lines;
@@ -1211,17 +1217,36 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     int previous_total = 0;
     for (auto i = 0; k == -1 || i < k; i++)
     {
+        std::ostringstream k_stringstream;
+        k_stringstream << std::setw(4) << std::setfill('0') << i;
+        std::string k_string(k_stringstream.str());
+
+        std::ostringstream k_next_stringstream;
+        k_next_stringstream << std::setw(4) << std::setfill('0') << i+1;
+        std::string k_next_string(k_next_stringstream.str());
+
         w.start_step(std::to_string(i + 1) + "-bisimulation");
         auto res = get_k_bisimulation(g, outcomes[0], support);
         outcomes.pop_front();
         outcomes.push_back(res);
         w.stop_step();
+        auto times = w.get_times();
+
+        std::ofstream ad_hoc_output(output_path + "ad_hoc_results/statistics-" + k_next_string + ".json", std::ios::trunc);
+        ad_hoc_output << "{\n    \"Singleton count\": " << outcomes[0].singleton_block_count() << ",\n    \"Time taken (ms)\": "
+                      << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration).count()
+                      << ",\n    \"Memory footprint (kb)\": " << times[times.size() - 1].memory_in_kb << "\n}";
+        ad_hoc_output.flush();
+
+        std::ofstream graph_stats_output(output_path + "ad_hoc_results/graph_stats.txt", std::ios::trunc);
+        graph_stats_output << "Vertex count = " << g.size();
+        graph_stats_output.flush();
 
         // We do not care for the first trivial mapping from k=0 to k=1. If !(k == -1) then we only print one outcome and refines edges are of no use
         if (i > 0 && k == -1)
         {
             w.start_step(std::to_string(i + 1) + "-bisimulation writing refines edges to disk");
-            std::ofstream mapping_output(output_path + "_mapping-" + std::to_string(i) + "to" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+            std::ofstream mapping_output(output_path + "bisimulation/mapping-" + k_string + "to" + k_next_string + ".bin", std::ios::trunc);
             for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
             {
                 write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.first));  // Add 1, because we free 0 up for singletons for writing the outcomes
@@ -1237,7 +1262,7 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
         if (i == k-1 || k == -1)  // Either write all outcomes (k == -1) or only write the final one (i == k-1)
         {
             w.start_step(std::to_string(i + 1) + "-bisimulation writing outcome to disk");
-            std::ofstream output(output_path + "_outcome-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+            std::ofstream output(output_path + "bisimulation/outcome-" + k_next_string + ".bin", std::ios::trunc);
             const KBisumulationOutcome &final_partition = *(outcomes.cend() - 1);
 
             for (node_index node = 0; node < g.get_nodes().size(); node++)
@@ -1262,7 +1287,6 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
 
         auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
         std::tm *ptm{std::localtime(&now)};
-        auto times = w.get_times();
         std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
                   << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
                   << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration) << ", memory = "
@@ -1279,6 +1303,16 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S") << " Time taken for the bisimulation: " << t_bisim_done - t_start_bisim << std::endl;
     // pring timing
     // w.stop_step();
+    auto total = w.get_times()[0].duration.zero();  // There might be a more elegant way to do this
+    auto max_memory = w.get_times()[0].memory_in_kb;
+    for (auto step : w.get_times())
+    {
+        total += step.duration;
+        max_memory = std::max(max_memory, step.memory_in_kb);
+    }
+    graph_stats_output << ",\n    \"Total time taken (ms)\": " << boost::chrono::ceil<boost::chrono::milliseconds>(total).count()
+                       << ",\n    \"Maximum memory footprint (kb)\": " << max_memory << "\n}";
+    graph_stats_output.flush();
     std::cout << w.to_string() << std::endl;
 
     // output.flush();
@@ -1297,9 +1331,8 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     auto time_t_start_bisim{boost::chrono::system_clock::to_time_t(t_start_bisim)};
     std::tm *ptm_start_bisim{std::localtime(&time_t_start_bisim)};
 
-    std::ofstream graph_stats_output(output_path + "_graph_stats.txt", std::ios::trunc);
-    graph_stats_output << "Vertex count = " << g.size();
-    graph_stats_output.flush();
+    std::ofstream graph_stats_output(output_path + "ad_hoc_results/graph_stats.json", std::ios::trunc);
+    graph_stats_output << "{\n    \"Vertex count\": " << g.size();
 
     std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
     std::vector<std::string> lines;
@@ -1315,17 +1348,32 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     int previous_total = 0;
     for (auto i = 0;; i++)
     {
+        std::ostringstream k_stringstream;
+        k_stringstream << std::setw(4) << std::setfill('0') << i;
+        std::string k_string(k_stringstream.str());
+
+        std::ostringstream k_next_stringstream;
+        k_next_stringstream << std::setw(4) << std::setfill('0') << i+1;
+        std::string k_next_string(k_next_stringstream.str());
+
         w.start_step(std::to_string(i + 1) + "-bisimulation");
         auto res = get_k_bisimulation(g, outcomes[0], support);
         outcomes.pop_front();
         outcomes.push_back(res);
         w.stop_step();
+        auto times = w.get_times();
+
+        std::ofstream ad_hoc_output(output_path + "ad_hoc_results/statistics_condensed-" + k_next_string + ".json", std::ios::trunc);
+        ad_hoc_output << "{\n    \"Singleton count\": " << outcomes[0].singleton_block_count() << ",\n    \"Time taken (ms)\": "
+                      << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration).count()
+                      << ",\n    \"Memory footprint (kb)\": " << times[times.size() - 1].memory_in_kb << "\n}";
+        ad_hoc_output.flush();
 
         // We do not care for the first trivial mapping from k=0 to k=1.
         if (i > 0)
         {
-            w.start_step(std::to_string(i + 1) + "-bisimulation writing refines edges to disk");
-            std::ofstream mapping_output(output_path + "_mapping-" + std::to_string(i) + "to" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+            w.start_step(k_string + "-bisimulation writing refines edges to disk");
+            std::ofstream mapping_output(output_path + "bisimulation/mapping-" + k_string + "to" + k_next_string + ".bin", std::ios::trunc);
             for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
             {
                 write_uint_BLOCK_little_endian(mapping_output, u_int64_t(orig_new.first));
@@ -1340,7 +1388,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
         }
 
         w.start_step(std::to_string(i + 1) + "-bisimulation (condensed) writing outcome to disk");
-        std::ofstream condensed_output(output_path + "_outcome_condensed-" + std::to_string(i + 1) + ".bin", std::ios::trunc);
+        std::ofstream condensed_output(output_path + "bisimulation/outcome_condensed-" + k_next_string + ".bin", std::ios::trunc);
         for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
         {
             for (auto new_block: orig_new.second)
@@ -1368,7 +1416,6 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
 
         auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
         std::tm *ptm{std::localtime(&now)};
-        auto times = w.get_times();
         std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
                   << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
                   << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration) << ", memory = "
@@ -1385,6 +1432,16 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S") << " Time taken for the bisimulation: " << t_bisim_done - t_start_bisim << std::endl;
     // pring timing
     // w.stop_step();
+    auto total = w.get_times()[0].duration.zero();  // There might be a more elegant way to do this
+    auto max_memory = w.get_times()[0].memory_in_kb;
+    for (auto step : w.get_times())
+    {
+        total += step.duration;
+        max_memory = std::max(max_memory, step.memory_in_kb);
+    }
+    graph_stats_output << ",\n    \"Total time taken (ms)\": " << boost::chrono::ceil<boost::chrono::milliseconds>(total).count()
+                       << ",\n    \"Maximum memory footprint (kb)\": " << max_memory << "\n}";
+    graph_stats_output.flush();
     std::cout << w.to_string() << std::endl;
 
     // output.flush();
@@ -1463,6 +1520,8 @@ int main(int ac, char *av[])
         std::string output_path = vm["output"].as<std::string>();
         bool skip_singletons = vm.count("skip_singletons");
 
+        std::filesystem::create_directory(output_path + "bisimulation/");
+
         run_k_bisimulation_store_partition(input_file, support, k, output_path, skip_singletons);
 
         return 0;
@@ -1491,6 +1550,8 @@ int main(int ac, char *av[])
         std::string output_path = vm["output"].as<std::string>();
         bool skip_singletons = vm.count("skip_singletons");
 
+        std::filesystem::create_directory(output_path + "bisimulation/");
+
         run_k_bisimulation_store_partition_timed(input_file, support, k, output_path, skip_singletons);
 
         return 0;
@@ -1516,6 +1577,9 @@ int main(int ac, char *av[])
         uint support = vm["support"].as<uint>();
         std::string output_path = vm["output"].as<std::string>();
         bool skip_singletons = vm.count("skip_singletons");
+
+        std::filesystem::create_directory(output_path + "bisimulation/");
+        std::filesystem::create_directory(output_path + "ad_hoc_results/");
 
         run_k_bisimulation_store_partition_condensed_timed(input_file, support, output_path, skip_singletons);
 
