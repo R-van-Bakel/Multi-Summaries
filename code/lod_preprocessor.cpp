@@ -19,6 +19,7 @@ const int BYTES_PER_PREDICATE = 4;
 
 // The LODalot laundromat dataset need some more pre-processing
 #define LODalot
+#define skipRDFlists
 
 class MyException : public std::exception
 {
@@ -250,6 +251,29 @@ void convert_graph(std::istream &inputstream,
         node_index object_index = node_ID_Mapper.getID(object);
         // edge
         edge_type edge_index = edge_ID_Mapper.getID(predicate);
+#ifdef skipRDFlists
+        if (predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
+            predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest" ||
+            object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||
+            object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
+            subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||
+            subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
+            predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||  // This one and the ones after are less likely to cause problems, but we remove them just in case
+            predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
+            object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
+            object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest" ||
+            subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
+            subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+        {
+            if (line_counter % 1000000 == 0)
+            {
+                auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+                std::tm* ptm{std::localtime(&now)};
+                std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
+            }
+            continue;
+        }
+#endif
 
         // output the line
         // This should be binary writing instead.
@@ -259,7 +283,6 @@ void convert_graph(std::istream &inputstream,
 
         if (line_counter % 1000000 == 0)
         {
-            
             auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
             std::tm* ptm{std::localtime(&now)};
             std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
