@@ -1,0 +1,17 @@
+<https://krr.triply.cc/krr/lod-a-lot/graphs/default> {
+<b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <b2> .
+<a> <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> <b> .
+<b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <c> .
+<b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#List> <c> .
+<b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> <c> .
+<b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#Fakething> <b2> .
+<http://www.w3.org/1999/02/22-rdf-syntax-ns#first> <a> <b> .
+<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <b> <c> .
+<http://www.w3.org/1999/02/22-rdf-syntax-ns#List> <b> <c> .
+<http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> <b> <c> .
+<b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#Anotherfakething> <b2> .
+<a> <b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> .
+<b> <c> <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> .
+<b> <c> <http://www.w3.org/1999/02/22-rdf-syntax-ns#List> .
+<b> <c> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> .
+}

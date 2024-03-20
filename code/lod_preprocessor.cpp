@@ -274,7 +274,6 @@ void convert_graph(std::istream &inputstream,
             continue;
         }
 #endif
-
         // output the line
         // This should be binary writing instead.
         write_uint_ENTITY_little_endian(outputstream, subject_index);

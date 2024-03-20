@@ -2,7 +2,7 @@
 #include <vector>
 #include <map>
 #include <stack>
-#include <span>
+// #include <span>
 #include <fstream>
 #include <string>
 #include <boost/algorithm/string.hpp>
@@ -64,9 +64,10 @@ public:
     {
         edges.reserve(1);
     }
-    std::span<Edge> get_outgoing_edges()
+    std::vector<Edge>& get_outgoing_edges()
     {
-        return edges;
+        std::vector<Edge> & edges_ref = edges;
+        return edges_ref;
     }
 
     void add_edge(edge_type label, node_index target)
@@ -98,9 +99,10 @@ public:
         nodes.resize(vertex_count);
     }
 
-    std::span<Node> get_nodes()
+    std::vector<Node>& get_nodes()
     {
-        return nodes;
+        std::vector<Node> & nodes_ref = nodes;
+        return nodes_ref;
     }
     inline node_index size()
     {
@@ -392,9 +394,10 @@ public:
         return out.str();
     }
 
-    std::span<Step> get_times()
+    std::vector<StopWatch::Step>& get_times()
     {
-        return this->steps;
+        std::vector<StopWatch::Step> & steps_ref = this->steps;
+        return steps_ref;
     }
 };
 
@@ -1049,7 +1052,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
         }
     }
 #else
-    std::span<Node> nodes = g.get_nodes();
+    std::vector<Node> nodes = g.get_nodes();
     for (node_index the_node_index = 0; the_node_index < nodes.size(); the_node_index++)
     {
         Node &node = nodes[the_node_index];

@@ -2,22 +2,27 @@
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P7084> <http://www.wikidata.org/entity/Q8455323> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P434> <http://musicbrainz.org/artist/1429c6ab-801e-4bd0-9c53-7b49ec74e50c> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P227> "124709281" .
+<http://www.wikidata.org/entity/Q7122> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q7122> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10798782> .
+<http://www.wikidata.org/entity/Q8704> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q7122> .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2004/02/skos/core#altLabel> "Лоренс Фишберн" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P8971> <http://data.cinematheque.qc.ca/data/Person25294> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P12098> "964387" .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2004/02/skos/core#altLabel> "劳伦斯·菲什伯恩" .
+<http://www.wikidata.org/entity/Q1203> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q303> .
 <http://www.wikidata.org/entity/Q7122> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10800557> .
 <http://www.wikidata.org/entity/Q193048> <http://schema.org/description> "actor estatunidenc" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10800557> .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2000/01/rdf-schema#label> "लॉरेंस फिशबर्न" .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2000/01/rdf-schema#label> "로런스 피시번" .
+<http://www.wikidata.org/entity/Q193048> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q4109> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P10527> <http://www.wikidata.org/entity/Q50920401> .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2004/02/skos/core#altLabel> "Фишбёрн, Лоуренс" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P5247> "3040-73146" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P551> <http://www.wikidata.org/entity/Q34006> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P18> "http://commons.wikimedia.org/wiki/Special:FilePath/National%20Memorial%20Day%20Concert%202017%20%2834117818524%29%20%28cropped%29.jpg" .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2004/02/skos/core#altLabel> "Laurence Fishburne III" .
+<http://www.wikidata.org/entity/Q1203> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q1203> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/P227> <http://www.wikidata.org/entity/statement/q193048-B94B5425-1008-46EF-870A-78417F840C1F> .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2000/01/rdf-schema#label> "لورنس فيشبورن" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P1006> <http://data.bibliotheken.nl/id/thes/p147814871> .
@@ -27,6 +32,7 @@
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P2639> "1617b8108a2641a0a2f7a1603610be69" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P373> "Laurence Fishburne" .
 <http://www.wikidata.org/entity/Q303> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10800557> .
+<http://www.wikidata.org/entity/Q14747> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q193048> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P6262> "warnerbros:Laurence_Fishburne" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/P244> <http://www.wikidata.org/entity/statement/q193048-3CEAFB60-4A80-4054-997F-919990169BB1> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P8971> <http://data.cinematheque.qc.ca/data/Person87086> .
@@ -34,27 +40,33 @@
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P2163> <http://id.worldcat.org/fast/1761040> .
 <http://www.wikidata.org/entity/Q193048> <http://schema.org/description> "Amerikaans acteur" .
 <http://www.wikidata.org/entity/Q193048> <http://schema.org/description> "Òṣèré Ọmọ Orílẹ̀-èdè America" .
+<http://www.wikidata.org/entity/Q4109> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q193048> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P5007> "Laurence-Fishburne" .
 <http://www.wikidata.org/entity/Q1203> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10800557> .
+<http://www.wikidata.org/entity/Q4109> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q8704> .
 <http://www.wikidata.org/entity/Q193048> <http://schema.org/description> "মার্কিন অভিনেতা" .
 <http://www.wikidata.org/entity/Q1768> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10800557> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P552> <http://www.wikidata.org/entity/Q789447> .
 <http://www.wikidata.org/entity/Q8704> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10800557> .
 <http://www.wikidata.org/entity/Q193048> <http://schema.org/description> "amerikansk skodespelar" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P268> <http://data.bnf.fr/ark:/12148/cb14041015t#about> .
+<http://www.wikidata.org/entity/Q193048> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q193048> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q3387717> .
 <http://www.wikidata.org/entity/Q23454> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10800557> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P463> <http://www.wikidata.org/entity/Q463303> .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2000/01/rdf-schema#label> "லாரன்ஸ் பிஷ்பர்ன்" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P6886> <http://www.wikidata.org/entity/Q1860> .
 <http://www.wikidata.org/entity/Q193048> <http://schema.org/description> "بازیگر آمریکایی" .
+<http://www.wikidata.org/entity/Q7122> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q14747> .
 <http://www.wikidata.org/entity/Q4109> <http://www.wikidata.org/prop/direct/P106> <http://www.wikidata.org/entity/Q10800557> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/P12098> <http://www.wikidata.org/entity/statement/Q193048-604CE01A-BC96-4FAB-AEE4-3DA00EA9DDD9> .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2000/01/rdf-schema#label> "Лорънс Фишбърн" .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct/P1273> "a10903252" .
+<http://www.wikidata.org/entity/Q303> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q1203> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P950> <http://datos.bne.es/resource/XX1232075> .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2000/01/rdf-schema#label> "Λόρενς Φίσμπερν" .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2000/01/rdf-schema#label> "Лоуренс Жон Фишборн" .
 <http://www.wikidata.org/entity/Q193048> <http://www.w3.org/2004/02/skos/core#altLabel> "Фішборн" .
+<http://www.wikidata.org/entity/Q193048> <http://www.example.com/predicate/friend> <http://www.wikidata.org/entity/Q303> .
 <http://www.wikidata.org/entity/Q193048> <http://www.wikidata.org/prop/direct-normalized/P269> <http://www.idref.fr/061681067/id> .
 }

@@ -1,0 +1,9 @@
+<v1> <e1> <v2> <g1> .
+<v1> <e2> <v3> <g1> .
+<v1> <e3> "literally a literal" <g1> .
+<v1> <e1> <v2> <g2> .
+<v1> <e4> <v3> <g2> .
+<v1> <e3> "123"^^<integer_type> <g2> .
+<v1> <e3> "een derde literal"@nl <g2> .
+_ietsanders123@<>"" _whatisthis? "een vierde literal"@nl^^<string_type> <g3> .
+_iets\nanders123@<>"" _whatisthis? "een \"vijfde\\\\\" literal\\"@nl^^<string_type> <g3> .
