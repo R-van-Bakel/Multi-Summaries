@@ -316,13 +316,8 @@ int main(int ac, char *av[])
     std::string input_file = vm["input_file"].as<std::string>();
     std::string output_path = vm["output_path"].as<std::string>();
 
-    int slash_pos = input_file.find_last_of("/");
-    int period_pos = input_file.find_last_of(".");
-    std::string file_name = input_file.substr(slash_pos+1, period_pos-(slash_pos+1));
-
     std::ifstream infile(input_file);
-    std::filesystem::create_directory(output_path + file_name + "/");
-    std::ofstream outfile(output_path + file_name + "/binary_encoding.bin", std::ifstream::out);
+    std::ofstream outfile(output_path + "/binary_encoding.bin", std::ifstream::out);
 
     if (!infile.is_open())
     {
@@ -334,8 +329,8 @@ int main(int ac, char *av[])
         perror("error while opening file");
     }
 
-    std::string node_ID_file = output_path + file_name + "/entity2ID.txt";
-    std::string rel_ID_file = output_path + file_name + "/rel2ID.txt";
+    std::string node_ID_file = output_path + "/entity2ID.txt";
+    std::string rel_ID_file = output_path + "/rel2ID.txt";
 
     convert_graph(infile, outfile, node_ID_file, rel_ID_file);
     outfile.flush();
