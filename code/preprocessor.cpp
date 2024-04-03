@@ -17,9 +17,12 @@ using node_index = uint64_t;
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
 
-// The LODalot laundromat dataset need some more pre-processing
-#define LODalot
-#define skipRDFlists
+// This variable should be set in main. If it is set to true, the code will assume the first line will look like "<.*> {" and the last line looks like "}".
+// If the first line looks like expected and "}" indicates the last line (i.e. there are no later lines), then our code will just ignore these lines.
+bool trigfile;
+
+// This variable should be set in main. It indicates whether or not we want to skip rdf-lists
+bool skipRDFlists;
 
 class MyException : public std::exception
 {
@@ -98,6 +101,15 @@ void write_uint_ENTITY_little_endian(std::ostream &outputstream, u_int64_t value
         value = value >> 8;
     }
     outputstream.write(data, BYTES_PER_ENTITY);
+    if (outputstream.fail())
+    {
+        std::cout << "Write entity failed with code: " << outputstream.rdstate() << std::endl;
+        std::cout << "Goodbit: " << outputstream.good() << std::endl;
+        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
+        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
+        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
+        exit(outputstream.rdstate());
+    }
 }
 
 // u_int32_t read_uint32_little_endian(std::istream &inputstream){
@@ -120,6 +132,15 @@ void write_uint_PREDICATE_little_endian(std::ostream &outputstream, u_int32_t va
         value = value >> 8;
     }
     outputstream.write(data, BYTES_PER_PREDICATE);
+    if (outputstream.fail())
+    {
+        std::cout << "Write predicate failed with code: " << outputstream.rdstate() << std::endl;
+        std::cout << "Goodbit: " << outputstream.good() << std::endl;
+        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
+        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
+        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
+        exit(outputstream.rdstate());
+    }
 }
 
 void convert_graph(std::istream &inputstream,
@@ -144,17 +165,21 @@ void convert_graph(std::istream &inputstream,
     std::string line;
     unsigned long line_counter = 0;
 
-    std::getline(inputstream, line);
-    boost::trim(line);
-#ifdef LODalot
-    if (line != "<https://krr.triply.cc/krr/lod-a-lot/graphs/default> {")
+    if (trigfile)
     {
-        throw MyException("This binary is specific for the full bisimulation of krr.triply.cc/krr/lod-a-lot/");
+        std::getline(inputstream, line);
+        boost::trim(line);
+        std::string suffix = "> {";
+        size_t suffix_len = suffix.size();
+        if (line[0] == '<' && line.substr(line.size()-suffix_len, suffix_len) == "> {")
+        {
+            std::cout << "Skipping the first line, because a .trig file has been provided. The fist line was: " << line << std::endl;
+        }
+        else
+        {
+            throw MyException("A trig file has been provided, but the first line (without line break characters) did not have the form \"<.*> {\": " + line);
+        }
     }
-#else
-    // Otherwise we just proceed as normal
-    line_counter--;
-#endif
 
     bool must_end = false;
 
@@ -173,13 +198,14 @@ void convert_graph(std::istream &inputstream,
         {
             throw MyException("The file must have ended here, but did not!");
         }
-#ifdef LODalot
-        if (line == "}")
+        if (trigfile)
         {
-            must_end = true;
-            continue;
+            if (line == "}")
+            {
+                must_end = true;
+                continue;
+            }
         }
-#endif
         if (!(*(line.cend() - 1) == '.'))
         {
             throw MyException("The line '" + original_line + "' did not end in a period(.)");
@@ -251,29 +277,30 @@ void convert_graph(std::istream &inputstream,
         node_index object_index = node_ID_Mapper.getID(object);
         // edge
         edge_type edge_index = edge_ID_Mapper.getID(predicate);
-#ifdef skipRDFlists
-        if (predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
-            predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest" ||
-            object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||
-            object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
-            subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||
-            subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
-            predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||  // This one and the ones after are less likely to cause problems, but we remove them just in case
-            predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
-            object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
-            object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest" ||
-            subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
-            subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+        if (skipRDFlists)
         {
-            if (line_counter % 1000000 == 0)
+            if (predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
+                predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest" ||
+                object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||
+                object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
+                subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||
+                subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
+                predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" ||  // This one and the ones after are less likely to cause problems, but we remove them just in case
+                predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#List" ||
+                object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
+                object == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest" ||
+                subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
+                subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
             {
-                auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
-                std::tm* ptm{std::localtime(&now)};
-                std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
+                if (line_counter % 1000000 == 0)
+                {
+                    auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+                    std::tm* ptm{std::localtime(&now)};
+                    std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
+                }
+                continue;
             }
-            continue;
         }
-#endif
         // output the line
         // This should be binary writing instead.
         write_uint_ENTITY_little_endian(outputstream, subject_index);
@@ -303,6 +330,7 @@ int main(int ac, char *av[])
     po::options_description global("Global options");
     global.add_options()("input_file", po::value<std::string>(), "Input file, must contain n-triples");
     global.add_options()("output_path", po::value<std::string>(), "Output path");
+    global.add_options()("skipRDFlists", "Makes the code ignore RDF lists");
     po::positional_options_description pos;
     pos.add("input_file", 1).add("output_path", 2);
 
@@ -316,6 +344,24 @@ int main(int ac, char *av[])
     std::string input_file = vm["input_file"].as<std::string>();
     std::string output_path = vm["output_path"].as<std::string>();
 
+    // Set the `skipRDFlists` variable
+    skipRDFlists = vm.count("skipRDFlists");
+
+    // Check the file extension and set the `trigfile` variable accordingly
+    std::string data_extension = std::filesystem::path(input_file).extension().string();
+    if (data_extension == ".nt")
+    {
+        trigfile = false;
+    }
+    else if (data_extension == ".trig")
+    {
+        trigfile = true;
+    }
+    else
+    {
+        throw MyException("Please provide a \".nt\" file or a simple \".trig\" file that contains ntriples data.");
+    }
+    
     std::ifstream infile(input_file);
     std::ofstream outfile(output_path + "/binary_encoding.bin", std::ifstream::out);
 

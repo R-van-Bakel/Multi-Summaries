@@ -20,6 +20,19 @@ u_int64_t read_uint_ENTITY_little_endian(std::istream &inputstream)
 {
     char data[8];
     inputstream.read(data, BYTES_PER_ENTITY);
+    if (inputstream.eof())
+    {
+        return UINT64_MAX;
+    }
+    if (inputstream.fail())
+    {
+        std::cout << "Read entity failed with code: " << inputstream.rdstate() << std::endl;
+        std::cout << "Goodbit: " << inputstream.good() << std::endl;
+        std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
+        std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
+        std::cout << "Badbit:  " << inputstream.bad() << std::endl;
+        exit(inputstream.rdstate());
+    }
     u_int64_t result = u_int64_t(0);
 
     for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
@@ -33,6 +46,19 @@ u_int64_t read_uint_BLOCK_little_endian(std::istream &inputstream)
 {
     char data[8];
     inputstream.read(data, BYTES_PER_BLOCK);
+    if (inputstream.eof())
+    {
+        return UINT64_MAX;
+    }
+    if (inputstream.fail())
+    {
+        std::cout << "Read block failed with code: " << inputstream.rdstate() << std::endl;
+        std::cout << "Goodbit: " << inputstream.good() << std::endl;
+        std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
+        std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
+        std::cout << "Badbit:  " << inputstream.bad() << std::endl;
+        exit(inputstream.rdstate());
+    }
     u_int64_t result = u_int64_t(0);
 
     for (unsigned int i = 0; i < BYTES_PER_BLOCK; i++)

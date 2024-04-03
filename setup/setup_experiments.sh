@@ -124,19 +124,19 @@ echo $(date) $(hostname) "${logging_process}.Info: compiler_flags=${compiler_fla
 
 # Compile the preprocessor
 compiler_flags="${compiler_flags//,/ }"
-echo Compiling lod_preprocessor.cpp
-echo $(date) $(hostname) "${logging_process}.Info: Compiling lod_preprocessor.cpp" >> $log_file
-./compile.sh ../code/lod_preprocessor.cpp ../$git_hash/executables/lod_preprocessor
+echo Compiling preprocessor.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Compiling preprocessor.cpp" >> $log_file
+./compile.sh ../code/preprocessor.cpp ../$git_hash/executables/preprocessor
 
 # Compile the bisimulator
-echo Compiling full_bisimulation_from_binary.cpp
-echo $(date) $(hostname) "${logging_process}.Info: Compiling full_bisimulation_from_binary.cpp" >> $log_file
-./compile.sh ../code/full_bisimulation_from_binary.cpp ../$git_hash/executables/full_bisimulation_from_binary
+echo Compiling bisimulator.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Compiling bisimulator.cpp" >> $log_file
+./compile.sh ../code/bisimulator.cpp ../$git_hash/executables/bisimulator
 
 # Compile the postprocessor
-echo Compiling condensed_post_hoc_metric_writer.cpp
-echo $(date) $(hostname) "${logging_process}.Info: Compiling condensed_post_hoc_metric_writer.cpp" >> $log_file
-./compile.sh ../code/condensed_post_hoc_metric_writer.cpp ../$git_hash/executables/condensed_post_hoc_metric_writer
+echo Compiling postprocessor.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Compiling postprocessor.cpp" >> $log_file
+./compile.sh ../code/postprocessor.cpp ../$git_hash/executables/postprocessor
 
 # Echo that the compilation was successful
 echo Compiling successful
@@ -161,6 +161,7 @@ ntasks_per_node=1
 partition=defq
 output=slurm_preprocessor.out
 nodelist=
+skipRDFlists=false
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -219,6 +220,13 @@ fi
 # Load in the settings
 . ./preprocessor.config
 
+# Set a boolean based on the value of skipRDFlists
+case \$skipRDFlists in
+  'true') skiplists=' --skipRDFlists' ;;
+  'false') skiplists='' ;;
+  *) echo "skipRDFlists has been set to \\"\$skipRDFlists\\" in preprocessor.config. Please change it to \"true\" or \"false\" instead"; exit 1 ;;
+esac
+
 # Print the settings
 echo Using the following settings:
 echo job_name=\$job_name
@@ -228,6 +236,7 @@ echo ntasks_per_node=\$ntasks_per_node
 echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
+echo skipRDFlists=\$skipRDFlists
 
 # Ask the user to run the experiment with the aforementioned settings
 while true; do
@@ -265,6 +274,7 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_p
 echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: skipRDFlists=\$skipRDFlists" >> \$log_file
 
 # Create the slurm script
 echo Creating slurm script
@@ -280,8 +290,14 @@ cat >\$preprocessor_job << EOF
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/lod_preprocessor \$dataset_path ./
+/usr/bin/time -v ../executables/preprocessor \$dataset_path ./\$skiplists
 ${ESCAPE_TRICK}EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' \$preprocessor_job
+
+# Make sure the preprocessor job script can be executed (in case of local execution)
+chmod +x \$preprocessor_job
 
 # Queueing slurm script or ask to execute directly
 if [ ! type sbatch &> /dev/null ]; then
@@ -317,6 +333,9 @@ EOF
 
 # Make sure the file will have Unix style line endings
 sed -i 's/\r//g' $preprocessor
+
+# Make sure the preprocessor can be executed
+chmod +x $preprocessor
 
 # Create the config for the bisimulator experiment
 echo Creating bisimulator.config
@@ -448,8 +467,14 @@ cat >\$bisimulator_job << EOF
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/full_bisimulation_from_binary \$bisimulation_mode ./binary_encoding.bin --output=./
+/usr/bin/time -v ../executables/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./
 ${ESCAPE_TRICK}EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' \$bisimulator_job
+
+# Make sure the bisimulator job script can be executed (in case of local execution)
+chmod +x \$bisimulator_job
 
 # Queueing slurm script or ask to execute directly
 if [ ! type sbatch &> /dev/null ]; then
@@ -485,6 +510,9 @@ EOF
 
 # Make sure the file will have Unix style line endings
 sed -i 's/\r//g' $bisimulator
+
+# Make sure the bisimulator can be executed
+chmod +x $bisimulator
 
 # Create the config for the postprocessor experiment
 echo Creating postprocessor.config
@@ -613,8 +641,14 @@ cat >\$postprocessor_job << EOF
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/condensed_post_hoc_metric_writer ./
+/usr/bin/time -v ../executables/postprocessor ./
 ${ESCAPE_TRICK}EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' \$postprocessor_job
+
+# Make sure the postprocessor job script can be executed (in case of local execution)
+chmod +x \$postprocessor_job
 
 # Queueing slurm script or ask to execute directly
 if [ ! type sbatch &> /dev/null ]; then
@@ -650,6 +684,9 @@ EOF
 
 # Make sure the file will have Unix style line endings
 sed -i 's/\r//g' $postprocessor
+
+# Make sure the postprocessor can be executed
+chmod +x $postprocessor
 
 # Echo that the script ended successfully
 echo Setup ended successfully
