@@ -68,18 +68,33 @@ if [ ! -d "$boost_path" ]; then
   done
 fi
 
-# Code for the DAS6 HPC system. Get the gcc version and if too old (older than 11.0) try to activate a module with version 12
-gcc_up_to_date=$(gcc --version | awk '{if (/gcc/ && ($3+0)>=11.0) {print 1} else if (/gcc/) {print 0}}')
-if [ ! $gcc_up_to_date == "1" ]; then
-  scl enable gcc-toolset-12 bash
-  module del gnu9
-  gcc_up_to_date=$(gcc --version | awk '{if (/gcc/ && ($3+0)>=11.0) {print 1} else if (/gcc/) {print 0}}')
-  if [ ! $gcc_up_to_date == "1" ]; then
-    echo 'Could not activate a module with a version of gcc higher than 11.0'
-    echo 'Aborting'
-    exit 1
+# # Code for the DAS6 HPC system. Get the gcc version and if too old (older than 11.0) try to activate a module with version 12
+# gcc_up_to_date=$(gcc --version | awk '{if (/gcc/ && ($3+0)>=11.0) {print 1} else if (/gcc/) {print 0}}')
+# if [ ! $gcc_up_to_date == "1" ]; then
+#   scl enable gcc-toolset-12 bash
+#   module del gnu9
+#   gcc_up_to_date=$(gcc --version | awk '{if (/gcc/ && ($3+0)>=11.0) {print 1} else if (/gcc/) {print 0}}')
+#   if [ ! $gcc_up_to_date == "1" ]; then
+#     echo 'Could not activate a module with a version of gcc higher than 11.0'
+#     echo 'Aborting'
+#     exit 1
+#   fi
+# fi
+
+# Ask the user about the g++ version
+g++ --version
+while true; do
+  read -p $'Would you like to use the above g++ version? [y/n]\n'
+  if [ ${REPLY,,} == "y" ]; then
+      break
+  elif [ ${REPLY,,} == "n" ]; then
+      echo $'Please change the g++ version manually. Calling `module del gnu9` followed by `scl enable gcc-toolset-[version] bash` might work'
+      exit 1
+  else
+      echo 'Unrecognized response'
   fi
-fi
+done
+
 
 # Check if the boost binaries are (properly) installed. If not, ask the user to either compile them or abort
 if [ ! -d "${boost_path}bin.v2/" ] || [ ! -d "${boost_path}include/" ] || [ ! -d "${boost_path}lib/" ]; then
@@ -121,6 +136,9 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiler location: $(which g+
 echo $(date) $(hostname) "${logging_process}.Info: Creating compilation with the following settings:" >> $log_file
 echo $(date) $(hostname) "${logging_process}.Info: boost_path=${boost_path}" >> $log_file
 echo $(date) $(hostname) "${logging_process}.Info: compiler_flags=${compiler_flags}" >> $log_file
+
+# Make sure we can run the compiler script
+chmod +x ./compile.sh
 
 # Compile the preprocessor
 compiler_flags="${compiler_flags//,/ }"
