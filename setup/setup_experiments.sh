@@ -88,13 +88,12 @@ while true; do
   if [ ${REPLY,,} == "y" ]; then
       break
   elif [ ${REPLY,,} == "n" ]; then
-      echo $'Please change the g++ version manually. Calling `module del gnu9` followed by `scl enable gcc-toolset-[version] bash` might work'
+      echo $'Please change the g++ version manually. Calling `scl enable gcc-toolset-[version] bash` followed by `module del gnu9` might work'
       exit 1
   else
       echo 'Unrecognized response'
   fi
 done
-
 
 # Check if the boost binaries are (properly) installed. If not, ask the user to either compile them or abort
 if [ ! -d "${boost_path}bin.v2/" ] || [ ! -d "${boost_path}include/" ] || [ ! -d "${boost_path}lib/" ]; then
@@ -180,6 +179,7 @@ partition=defq
 output=slurm_preprocessor.out
 nodelist=
 skipRDFlists=false
+laundromat=false
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -245,6 +245,13 @@ case \$skipRDFlists in
   *) echo "skipRDFlists has been set to \\"\$skipRDFlists\\" in preprocessor.config. Please change it to \"true\" or \"false\" instead"; exit 1 ;;
 esac
 
+# Set a boolean based on the value of laundromat
+case \$laundromat in
+  'true') forlaundromat=' --laundromat' ;;
+  'false') forlaundromat='' ;;
+  *) echo "laundromat has been set to \\"\$laundromat\\" in preprocessor.config. Please change it to \"true\" or \"false\" instead"; exit 1 ;;
+esac
+
 # Print the settings
 echo Using the following settings:
 echo job_name=\$job_name
@@ -255,6 +262,7 @@ echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
 echo skipRDFlists=\$skipRDFlists
+echo laundromat=\$laundromat
 
 # Ask the user to run the experiment with the aforementioned settings
 while true; do
@@ -293,6 +301,7 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> 
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: skipRDFlists=\$skipRDFlists" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: laundromat=\$laundromat" >> \$log_file
 
 # Create the slurm script
 echo Creating slurm script
@@ -308,7 +317,7 @@ cat >\$preprocessor_job << EOF
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/preprocessor \$dataset_path ./\$skiplists
+/usr/bin/time -v ../executables/preprocessor \$dataset_path ./\$skiplists\$forlaundromat
 ${ESCAPE_TRICK}EOF
 
 # Make sure the file will have Unix style line endings

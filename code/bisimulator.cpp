@@ -287,12 +287,13 @@ class StopWatch
         const std::string name;
         const clock::duration duration;
         const int memory_in_kb;
-        Step(const std::string &name, const clock::duration &duration, const int &memory_in_kb)
-            : name(name), duration(duration), memory_in_kb(memory_in_kb)
+        const bool newline;
+        Step(const std::string &name, const clock::duration &duration, const int &memory_in_kb, const bool &newline)
+            : name(name), duration(duration), memory_in_kb(memory_in_kb), newline(newline)
         {
         }
         Step(const Step &step)
-            : name(step.name), duration(step.duration), memory_in_kb(step.memory_in_kb)
+            : name(step.name), duration(step.duration), memory_in_kb(step.memory_in_kb), newline(step.newline)
         {
         }
     };
@@ -304,6 +305,7 @@ private:
     clock::time_point last_starting_time;
     std::string current_step_name;
     clock::duration stored_at_last_pause;
+    bool newline;
 
     StopWatch()
     {
@@ -350,6 +352,7 @@ public:
         StopWatch c;
         c.started = false;
         c.paused = false;
+        c.newline = false;
         return c;
     }
 
@@ -381,7 +384,7 @@ public:
         this->paused = false;
     }
 
-    void start_step(std::string name)
+    void start_step(std::string name, bool newline = false)
     {
         if (this->started)
         {
@@ -394,6 +397,7 @@ public:
         this->last_starting_time = clock::now();
         this->current_step_name = name;
         this->started = true;
+        this->newline = newline;
     }
 
     void stop_step()
@@ -412,8 +416,9 @@ public:
         // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         int memory_use = current_memory_use_in_kb();
 
-        this->steps.emplace_back(this->current_step_name, total_duration, memory_use);
+        this->steps.emplace_back(this->current_step_name, total_duration, memory_use, this->newline);
         this->started = false;
+        this->newline = false;
     }
 
     std::string to_string()
@@ -423,19 +428,20 @@ public:
             throw MyException("Cannot convert a running StopWatch to a string, stop it first");
         }
         std::stringstream out;
-        typename clock::duration total = clock::duration::zero();
-        auto max_memory = this->get_times()[0].memory_in_kb;
         for (auto step : this->get_times())
         {
-            total += step.duration;
-            max_memory = std::max(max_memory, step.memory_in_kb);
-
-            out << "Step: " << step.name << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(step.duration) << " ms"
-                << ", memory = " << step.memory_in_kb << " kb"
+            out << "Step: " << step.name << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(step.duration).count() << " ms"
+                << ", memory = " << step.memory_in_kb << " kB"
                 << "\n";
+            if (step.newline)
+            {
+                out << "\n";
+            }
         }
-        out << "Total time = " << total << ", Maximum memory usage during bisimulation = " << max_memory << " kb";
-        return out.str();
+        // Create the output string and remove the final superfluous '\n' characters
+        std::string out_str = out.str();
+        boost::trim(out_str);
+        return out_str;
     }
 
     std::vector<StopWatch::Step>& get_times()
@@ -463,6 +469,12 @@ void read_graph_from_stream(std::istream &inputstream, Graph &g)
         // node_index subject_index = node_ID_Mapper.getID(parts[0]);
         node_index subject_index = read_uint_ENTITY_little_endian(inputstream);
 
+        // Break when the last valid values have been read
+        if (inputstream.eof())
+        {
+            break;
+        }
+
         // edge
         // edge_type edge_label = edge_ID_Mapper.getID(parts[1]);
         edge_type edge_label = read_PREDICATE_little_endian(inputstream);
@@ -471,11 +483,6 @@ void read_graph_from_stream(std::istream &inputstream, Graph &g)
         // node_index object_index = node_ID_Mapper.getID(parts[2]);
         node_index object_index = read_uint_ENTITY_little_endian(inputstream);
 
-        // Break when the last valid values have been read
-        if (inputstream.eof())
-        {
-            break;
-        }
         // std::cout << subject_index << " " << edge_label <<  " " << object_index << std::endl;
 
         // Add Nodes
@@ -587,7 +594,9 @@ void read_graph_from_stream_timed(std::istream &inputstream, Graph &g)
     auto time_t_reading_done{boost::chrono::system_clock::to_time_t(t_reading_done)};
     std::tm *ptm_reading_done{std::localtime(&time_t_reading_done)};
 
-    std::cout << std::put_time(ptm_reading_done, "%Y/%m/%d %H:%M:%S") << " Time taken for reading: " << t_reading_done - t_start << ", memory: " << w.get_times()[0].memory_in_kb << " kb" << std::endl;
+    std::cout << std::put_time(ptm_reading_done, "%Y/%m/%d %H:%M:%S")
+              << " Time taken for reading = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_reading_done - t_start).count()
+              << " ms, memory = " << w.get_times()[0].memory_in_kb << " kB" << std::endl;
 #ifdef CREATE_REVERSE_INDEX
     w.start_step("Creating reverse index");
     g.compute_reverse_index();
@@ -597,7 +606,9 @@ void read_graph_from_stream_timed(std::istream &inputstream, Graph &g)
     auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
     std::tm *ptm_reverse_index_done{std::localtime(&time_t_reverse_index_done)};
 
-    std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S") << " Time taken for creating reverse index: " << t_reverse_index_done - t_reading_done << ", memory: " << w.get_times()[1].memory_in_kb << " kb" << std::endl;
+    std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S")
+              << " Time taken for creating reverse index = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_reverse_index_done - t_reading_done).count()
+              << " ms, memory = " << w.get_times()[1].memory_in_kb << " kB" << std::endl;
 #endif
 }
 
@@ -1169,10 +1180,10 @@ void run_timed(const std::string &path, uint support)
         auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
         std::tm *ptm{std::localtime(&now)};
         auto times = w.get_times();
-        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
+        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].total_blocks()
                   << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
-                  << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration) << ", memory = "
-                  << times[times.size() - 1].memory_in_kb << " kb" << std::endl;
+                  << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times.back().duration) << ", memory = "
+                  << times.back().memory_in_kb << " kB" << std::endl;
         if (new_total == previous_total)
         {
             break;
@@ -1182,7 +1193,8 @@ void run_timed(const std::string &path, uint support)
     auto t_bisim_done{boost::chrono::system_clock::now()};
     auto time_t_bisim_done{boost::chrono::system_clock::to_time_t(t_bisim_done)};
     std::tm *ptm_bisim_done{std::localtime(&time_t_bisim_done)};
-    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S") << " Time taken for the bisimulation: " << t_bisim_done - t_start_bisim << std::endl;
+    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S")
+              << " Time taken for the bisimulation = " << t_bisim_done - t_start_bisim << std::endl;
     // pring timing
     // w.stop_step();
     std::cout << w.to_string() << std::endl;
@@ -1204,7 +1216,7 @@ void run_k_bisimulation_store_partition(const std::string &input_path, uint supp
         outcomes[i - 1].clear_indices();
         int new_total = outcomes[i].total_blocks();
 
-        std::cout << "level " << i << " blocks = " << outcomes[i].non_singleton_block_count()
+        std::cout << "level " << i << " blocks = " << outcomes[i].total_blocks()
                   << ", singletons = " << outcomes[i].singleton_block_count() << ", total = "
                   << new_total << std::endl;
         if (new_total == previous_total)
@@ -1281,8 +1293,8 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
 
         std::ofstream ad_hoc_output(output_path + "ad_hoc_results/statistics-" + k_next_string + ".json", std::ios::trunc);
         ad_hoc_output << "{\n    \"Singleton count\": " << outcomes[0].singleton_block_count() << ",\n    \"Time taken (ms)\": "
-                      << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration).count()
-                      << ",\n    \"Memory footprint (kb)\": " << times[times.size() - 1].memory_in_kb << "\n}";
+                      << boost::chrono::ceil<boost::chrono::milliseconds>(times.back().duration).count()
+                      << ",\n    \"Memory footprint (kB)\": " << times.back().memory_in_kb << "\n}";
         ad_hoc_output.flush();
 
         std::ofstream graph_stats_output(output_path + "ad_hoc_results/graph_stats.txt", std::ios::trunc);
@@ -1334,10 +1346,10 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
 
         auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
         std::tm *ptm{std::localtime(&now)};
-        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
+        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].total_blocks()
                   << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
-                  << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration) << ", memory = "
-                  << times[times.size() - 1].memory_in_kb << " kb" << std::endl;
+                  << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times.back().duration) << ", memory = "
+                  << times.back().memory_in_kb << " kB" << std::endl;
         if (new_total == previous_total)
         {
             break;
@@ -1347,7 +1359,8 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     auto t_bisim_done{boost::chrono::system_clock::now()};
     auto time_t_bisim_done{boost::chrono::system_clock::to_time_t(t_bisim_done)};
     std::tm *ptm_bisim_done{std::localtime(&time_t_bisim_done)};
-    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S") << " Time taken for the bisimulation: " << t_bisim_done - t_start_bisim << std::endl;
+    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S")
+              << " Time taken for the bisimulation = " << t_bisim_done - t_start_bisim << std::endl;
     // pring timing
     // w.stop_step();
     auto total = w.get_times()[0].duration.zero();  // There might be a more elegant way to do this
@@ -1358,7 +1371,7 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
         max_memory = std::max(max_memory, step.memory_in_kb);
     }
     graph_stats_output << ",\n    \"Total time taken (ms)\": " << boost::chrono::ceil<boost::chrono::milliseconds>(total).count()
-                       << ",\n    \"Maximum memory footprint (kb)\": " << max_memory << "\n}";
+                       << ",\n    \"Maximum memory footprint (kB)\": " << max_memory << "\n}";
     graph_stats_output.flush();
     std::cout << w.to_string() << std::endl;
 
@@ -1370,7 +1383,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
 
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
     Graph g;
-    w.start_step("Read graph");
+    w.start_step("Read graph", true);  // Set newline to true
     read_graph_timed(input_path, g);
     w.stop_step();
 
@@ -1383,7 +1396,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
 
     std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
     std::vector<std::string> lines;
-    w.start_step(std::to_string(0) + "-bisimulation");
+    w.start_step("0000-bisimulation", true);  // Set newline to true
     KBisumulationOutcome res = get_0_bisimulation(g);
     // w.pause();
     // std::cout << "initially one block with " << res.blocks.begin().operator*()->size() << " nodes" << std::endl;
@@ -1403,23 +1416,26 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
         k_next_stringstream << std::setw(4) << std::setfill('0') << i+1;
         std::string k_next_string(k_next_stringstream.str());
 
-        w.start_step(std::to_string(i + 1) + "-bisimulation");
+        w.start_step(k_next_string + "-bisimulation");
         auto res = get_k_bisimulation(g, outcomes[0], support);
         outcomes.pop_front();
         outcomes.push_back(res);
         w.stop_step();
         auto times = w.get_times();
+        auto bisim_step_duration = boost::chrono::ceil<boost::chrono::milliseconds>(times.back().duration).count();
+        auto bisim_step_memory = times.back().memory_in_kb;
 
         std::ofstream ad_hoc_output(output_path + "ad_hoc_results/statistics_condensed-" + k_next_string + ".json", std::ios::trunc);
-        ad_hoc_output << "{\n    \"Singleton count\": " << outcomes[0].singleton_block_count() << ",\n    \"Time taken (ms)\": "
-                      << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration).count()
-                      << ",\n    \"Memory footprint (kb)\": " << times[times.size() - 1].memory_in_kb << "\n}";
+        ad_hoc_output << "{\n    \"Block count\": " << outcomes[0].total_blocks()
+                      << ",\n    \"Singleton count\": " << outcomes[0].singleton_block_count()
+                      << ",\n    \"Time taken (ms)\": " << bisim_step_duration
+                      << ",\n    \"Memory footprint (kB)\": " << bisim_step_memory << "\n}";
         ad_hoc_output.flush();
 
         // We do not care for the first trivial mapping from k=0 to k=1.
         if (i > 0)
         {
-            w.start_step(k_string + "-bisimulation writing refines edges to disk");
+            w.start_step(k_next_string + "-bisimulation writing " + k_string + " to " + k_next_string + " refines edges to disk");
             std::ofstream mapping_output(output_path + "bisimulation/mapping-" + k_string + "to" + k_next_string + ".bin", std::ios::trunc);
             for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
             {
@@ -1434,7 +1450,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
             w.stop_step();
         }
 
-        w.start_step(std::to_string(i + 1) + "-bisimulation (condensed) writing outcome to disk");
+        w.start_step(k_next_string + "-bisimulation (condensed) writing outcome to disk", true);  // Set newline to true
         std::ofstream condensed_output(output_path + "bisimulation/outcome_condensed-" + k_next_string + ".bin", std::ios::trunc);
         for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
         {
@@ -1463,35 +1479,39 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
 
         auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
         std::tm *ptm{std::localtime(&now)};
-        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " level " << i + 1 << " blocks = " << outcomes[0].non_singleton_block_count()
-                  << ", singletons = " << outcomes[0].singleton_block_count() << ", total = "
-                  << new_total << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(times[times.size() - 1].duration) << ", memory = "
-                  << times[times.size() - 1].memory_in_kb << " kb" << std::endl;
+        std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S")
+                  << " level " << i + 1
+                  << " blocks = " << outcomes[0].total_blocks()
+                  << ", singletons = " << outcomes[0].singleton_block_count()
+                  << ", total = " << new_total
+                  << ", time = " << bisim_step_duration << " ms"
+                  << ", memory = " << bisim_step_memory << " kB" << std::endl;
         if (new_total == previous_total)
         {
             break;
         }
         previous_total = new_total;
     }
+
+    // Print the clock
+    std::cout << "\n" << w.to_string() << "\n" << std::endl;
+
+    // Print and store the total time and memory
     auto t_bisim_done{boost::chrono::system_clock::now()};
     auto time_t_bisim_done{boost::chrono::system_clock::to_time_t(t_bisim_done)};
     std::tm *ptm_bisim_done{std::localtime(&time_t_bisim_done)};
-    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S") << " Time taken for the bisimulation: " << t_bisim_done - t_start_bisim << std::endl;
-    // pring timing
-    // w.stop_step();
-    auto total = w.get_times()[0].duration.zero();  // There might be a more elegant way to do this
     auto max_memory = w.get_times()[0].memory_in_kb;
     for (auto step : w.get_times())
     {
-        total += step.duration;
         max_memory = std::max(max_memory, step.memory_in_kb);
     }
-    graph_stats_output << ",\n    \"Total time taken (ms)\": " << boost::chrono::ceil<boost::chrono::milliseconds>(total).count()
-                       << ",\n    \"Maximum memory footprint (kb)\": " << max_memory << "\n}";
+    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S")
+              << " Time taken for the bisimulation = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_bisim_done - t_start_bisim).count() << " ms" << std::endl;
+    std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S")
+              << " Maximum memory footprint = " << max_memory << " kB" << std::endl;
+    graph_stats_output << ",\n    \"Total time taken (ms)\": " << boost::chrono::ceil<boost::chrono::milliseconds>(t_bisim_done - t_start_bisim).count()
+                       << ",\n    \"Maximum memory footprint (kB)\": " << max_memory << "\n}";
     graph_stats_output.flush();
-    std::cout << w.to_string() << std::endl;
-
-    // output.flush();
 }
 
 int main(int ac, char *av[])

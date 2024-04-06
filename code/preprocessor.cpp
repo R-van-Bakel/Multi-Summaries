@@ -19,6 +19,7 @@ const int BYTES_PER_PREDICATE = 4;
 
 // This variable should be set in main. If it is set to true, the code will assume the first line will look like "<.*> {" and the last line looks like "}".
 // If the first line looks like expected and "}" indicates the last line (i.e. there are no later lines), then our code will just ignore these lines.
+// This variable is set to true for the LOD laundromat dataset
 bool trigfile;
 
 // This variable should be set in main. It indicates whether or not we want to skip rdf-lists
@@ -173,11 +174,11 @@ void convert_graph(std::istream &inputstream,
         size_t suffix_len = suffix.size();
         if (line[0] == '<' && line.substr(line.size()-suffix_len, suffix_len) == "> {")
         {
-            std::cout << "Skipping the first line, because a .trig file has been provided. The fist line was: " << line << std::endl;
+            std::cout << "Skipping the first line, because a `trigfile` has been set to true. The fist line was: " << line << std::endl;
         }
         else
         {
-            throw MyException("A trig file has been provided, but the first line (without line break characters) did not have the form \"<.*> {\": " + line);
+            throw MyException("`trigfile` has been set to true, but the first line (without line break characters) did not have the form \"<.*> {\": " + line);
         }
     }
 
@@ -331,6 +332,7 @@ int main(int ac, char *av[])
     global.add_options()("input_file", po::value<std::string>(), "Input file, must contain n-triples");
     global.add_options()("output_path", po::value<std::string>(), "Output path");
     global.add_options()("skipRDFlists", "Makes the code ignore RDF lists");
+    global.add_options()("laundromat", "Set this flag to run on the LOD laundromat dataset");
     po::positional_options_description pos;
     pos.add("input_file", 1).add("output_path", 2);
 
@@ -347,20 +349,8 @@ int main(int ac, char *av[])
     // Set the `skipRDFlists` variable
     skipRDFlists = vm.count("skipRDFlists");
 
-    // Check the file extension and set the `trigfile` variable accordingly
-    std::string data_extension = std::filesystem::path(input_file).extension().string();
-    if (data_extension == ".nt")
-    {
-        trigfile = false;
-    }
-    else if (data_extension == ".trig")
-    {
-        trigfile = true;
-    }
-    else
-    {
-        throw MyException("Please provide a \".nt\" file or a simple \".trig\" file that contains ntriples data.");
-    }
+    // Set the `trigfile` variable
+    trigfile = vm.count("laundromat");
     
     std::ifstream infile(input_file);
     std::ofstream outfile(output_path + "/binary_encoding.bin", std::ifstream::out);
