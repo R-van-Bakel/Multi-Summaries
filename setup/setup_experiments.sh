@@ -337,7 +337,7 @@ sed -i 's/\r//g' \$preprocessor_job
 chmod +x \$preprocessor_job
 
 # Queueing slurm script or ask to execute directly
-if [ ! type sbatch &> /dev/null ]; then
+if [ ! command -v sbatch &> /dev/null ]; then
   echo Queueing slurm script
   echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
   (cd \$output_dir; sbatch \$preprocessor_job)
@@ -514,7 +514,7 @@ sed -i 's/\r//g' \$bisimulator_job
 chmod +x \$bisimulator_job
 
 # Queueing slurm script or ask to execute directly
-if [ ! type sbatch &> /dev/null ]; then
+if [ ! command -v sbatch &> /dev/null ]; then
   echo Queueing slurm script
   echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
   (cd \$output_dir; sbatch \$bisimulator_job)
@@ -688,7 +688,7 @@ sed -i 's/\r//g' \$postprocessor_job
 chmod +x \$postprocessor_job
 
 # Queueing slurm script or ask to execute directly
-if [ ! type sbatch &> /dev/null ]; then
+if [ ! command -v sbatch &> /dev/null ]; then
   echo Queueing slurm script
   echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
   (cd \$output_dir; sbatch \$postprocessor_job)
