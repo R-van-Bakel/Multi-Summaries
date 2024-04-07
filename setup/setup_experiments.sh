@@ -162,9 +162,6 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiling successful" >> $log
 # Create the experiment scripts, along with their config files
 mkdir ../$git_hash/scripts/
 
-# We will use this variable to escape "EOF" within a multiline cat command. This allows us to create scripts that can in turn create other scripts
-ESCAPE_TRICK=
-
 # Create the config for the preprocessor experiment
 echo Creating preprocessor.config
 echo $(date) $(hostname) "${logging_process}.Info: Creating preprocessor.config" >> $log_file
@@ -180,6 +177,7 @@ output=slurm_preprocessor.out
 nodelist=
 skipRDFlists=false
 laundromat=false
+lz4_command=/usr/local/lz4
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -245,13 +243,6 @@ case \$skipRDFlists in
   *) echo "skipRDFlists has been set to \\"\$skipRDFlists\\" in preprocessor.config. Please change it to \"true\" or \"false\" instead"; exit 1 ;;
 esac
 
-# Set a boolean based on the value of laundromat
-case \$laundromat in
-  'true') forlaundromat=' --laundromat' ;;
-  'false') forlaundromat='' ;;
-  *) echo "laundromat has been set to \\"\$laundromat\\" in preprocessor.config. Please change it to \"true\" or \"false\" instead"; exit 1 ;;
-esac
-
 # Print the settings
 echo Using the following settings:
 echo job_name=\$job_name
@@ -263,6 +254,7 @@ echo output=\$output
 echo nodelist=\$nodelist
 echo skipRDFlists=\$skipRDFlists
 echo laundromat=\$laundromat
+echo lz4_command=\$lz4_command
 
 # Ask the user to run the experiment with the aforementioned settings
 while true; do
@@ -280,10 +272,27 @@ done
 # Create a directory for the experiments
 dataset_path="\${1}"
 dataset_file="\${1##*/}"
+# Remove the extra extension from the LOD Laundromat file (.trig.lz4)
 dataset_name="\${dataset_file%.*}"
+if [ \$laundromat == "true" ]; then
+  dataset_name="\${dataset_name%.*}"
+fi
 dataset_path_absolute=\$(realpath \$dataset_path)/
 output_dir=../\$dataset_name/
 mkdir \$output_dir
+
+# Use a different set of commands for the LOD Laundromat dataset, because it compressed with lz4
+if [ \$laundromat == "true" ]; then
+  preprocessor_command=\$(cat << EOM
+mkfifo ttl_buffer
+/usr/bin/time -v \$lz4_command -d -c \$dataset_path -d -c > ttl_buffer &
+../executables/preprocessor \$dataset_path ./\$skiplists
+rm ./ttl_buffer
+EOM
+  )
+else
+  preprocessor_command="/usr/bin/time -v ../executables/preprocessor \$dataset_path ./\$skiplists"
+fi
 
 # Create a log file for the experiments
 log_file=\${output_dir}experiments.log
@@ -302,23 +311,24 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: skipRDFlists=\$skipRDFlists" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: laundromat=\$laundromat" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: lz4_command=\$lz4_command" >> \$log_file
 
 # Create the slurm script
 echo Creating slurm script
 echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
 preprocessor_job=\${output_dir}slurm_preprocessor.sh
 touch \$preprocessor_job
-cat >\$preprocessor_job << EOF
+cat >\$preprocessor_job << EOF2
 #!/bin/bash
 #SBATCH --job-name=\$job_name
 #SBATCH --time=\$time
-#SBATCH -N=\$N
+#SBATCH -N \$N
 #SBATCH --ntasks-per-node=\$ntasks_per_node
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/preprocessor \$dataset_path ./\$skiplists\$forlaundromat
-${ESCAPE_TRICK}EOF
+\$preprocessor_command
+EOF2
 
 # Make sure the file will have Unix style line endings
 sed -i 's/\r//g' \$preprocessor_job
@@ -485,17 +495,17 @@ echo Creating slurm script
 echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
 bisimulator_job=\${output_dir}slurm_bisimulator.sh
 touch \$bisimulator_job
-cat >\$bisimulator_job << EOF
+cat >\$bisimulator_job << EOF2
 #!/bin/bash
 #SBATCH --job-name=\$job_name
 #SBATCH --time=\$time
-#SBATCH -N=\$N
+#SBATCH -N \$N
 #SBATCH --ntasks-per-node=\$ntasks_per_node
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
 /usr/bin/time -v ../executables/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./
-${ESCAPE_TRICK}EOF
+EOF2
 
 # Make sure the file will have Unix style line endings
 sed -i 's/\r//g' \$bisimulator_job
@@ -659,17 +669,17 @@ echo Creating slurm script
 echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
 postprocessor_job=\${output_dir}slurm_postprocessor.sh
 touch \$postprocessor_job
-cat >\$postprocessor_job << EOF
+cat >\$postprocessor_job << EOF2
 #!/bin/bash
 #SBATCH --job-name=\$job_name
 #SBATCH --time=\$time
-#SBATCH -N=\$N
+#SBATCH -N \$N
 #SBATCH --ntasks-per-node=\$ntasks_per_node
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
 /usr/bin/time -v ../executables/postprocessor ./
-${ESCAPE_TRICK}EOF
+EOF2
 
 # Make sure the file will have Unix style line endings
 sed -i 's/\r//g' \$postprocessor_job
