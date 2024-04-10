@@ -292,7 +292,7 @@ if [ \$laundromat == "true" ]; then
   preprocessor_command=\$(cat << EOM
 mkfifo ttl_buffer
 /usr/bin/time -v \$lz4_command -d -c \$dataset_path -d -c > ttl_buffer &
-../executables/preprocessor \$dataset_path ./\$skiplists
+../executables/preprocessor \$dataset_path ./\$skiplists --laundromat
 rm ./ttl_buffer
 EOM
   )
