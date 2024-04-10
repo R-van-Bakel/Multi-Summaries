@@ -5,5 +5,5 @@
 <v1> <e4> <v3> .
 <v1> <e3> "123"^^<integer_type> .
 <v1> <e3> "een derde literal"@nl .
-_:ietsanders123@<>"" _:whatisthis? "een vierde literal"@nl^^<string_type> .
-_:iets\nanders123@<>"" _:whatisthis? "een \"vijfde\\\\\" literal\\"@nl^^<string_type> .
+_:ietsanders123@<>"" <_:whatisthis?> "een vierde literal"@nl^^<string_type> .
+_:iets\nanders123@<>"" <_:whatisthis?> "een \"vijfde\\\\\" literal\\"@nl^^<string_type> .

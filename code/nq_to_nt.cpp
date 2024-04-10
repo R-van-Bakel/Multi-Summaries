@@ -10,13 +10,13 @@ size_t* parse_triple(std::string line)
     char searching_char = '\0';
     size_t current_index = 0;
     bool search_for_qualifier = false;
-    bool escaped = false;
+    bool escaped;
     for (size_t i = 0; i < line.length(); ++i)
     {
         // We have separate code for string qualifiers (e.g. @nl)
         if (!search_for_qualifier)
         {
-            // In this case we do not know if the next part is an entity, literal, or starting with an underscore
+            // In this case we do not know if the next part is an entity, literal, or a blank node
             if (!searching_char)
             {
                 switch (line[i])
@@ -104,13 +104,13 @@ size_t* parse_quad(std::string line)
     char searching_char = '\0';
     size_t current_index = 0;
     bool search_for_qualifier = false;
-    bool escaped = false;
+    bool escaped;
     for (size_t i = 0; i < line.length(); ++i)
     {
         // We have separate code for string qualifiers (e.g. @nl)
         if (!search_for_qualifier)
         {
-            // In this case we do not know if the next part is an entity, literal, or starting with an underscore
+            // In this case we do not know if the next part is an entity, literal, or a blank node
             if (!searching_char)
             {
                 switch (line[i])
@@ -218,7 +218,7 @@ int main(int ac, char *av[])
     std::ifstream infile(input_file);
     std::ofstream outfile(output_file, std::ifstream::out);
 
-        if (!infile.is_open())
+    if (!infile.is_open())
     {
         perror("error while opening file");
     }

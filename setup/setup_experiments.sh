@@ -201,6 +201,12 @@ function handle_error() {
   local error_line=\$BASH_LINENO
   local error_command=\$BASH_COMMAND
 
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
+
   # Log the error details
   echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
   echo "Exiting with code: 1"
@@ -412,6 +418,12 @@ function handle_error() {
   local error_line=\$BASH_LINENO
   local error_command=\$BASH_COMMAND
 
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
+
   # Log the error details
   echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
   echo "Exiting with code: 1"
@@ -588,6 +600,12 @@ function handle_error() {
   local error_code=\$?
   local error_line=\$BASH_LINENO
   local error_command=\$BASH_COMMAND
+
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
 
   # Log the error details
   echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"

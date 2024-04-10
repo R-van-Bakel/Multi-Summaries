@@ -39,6 +39,99 @@ public:
     }
 };
 
+std::vector<std::string::iterator> parse_tuple(std::string &line)
+{
+    std::vector<std::string::iterator> indices;
+    char searching_char = '\0';
+    bool search_for_qualifier = false;
+    bool escaped;
+    for (std::string::iterator i = line.begin(); i != line.end(); ++i)
+    {
+        // We have separate code for string qualifiers (e.g. @nl)
+        if (!search_for_qualifier)
+        {
+            // In this case we do not know if the next part is an entity, literal, or a blank node
+            if (!searching_char)
+            {
+                switch (*i)
+                {
+                    case '<':
+                        indices.push_back(i);
+                        searching_char = '>';
+                        break;
+                    case '"':
+                        indices.push_back(i);
+                        searching_char = '"';
+                        break;
+                    case '_':
+                        indices.push_back(i);
+                        searching_char = ' ';
+                        break;
+                }
+            }
+            // In this case we know exacly what the next character we are searching for is
+            else if (*i == searching_char)
+            {
+                switch (searching_char)
+                {
+                case '>':
+                    // If the next character is not a space, ignore this character
+                    if (!(*(i+1) == ' '))
+                    {
+                        break;
+                    }
+                    // For entities and relations the end of contents iterator coincides with the end of qualifiers iterator
+                    indices.push_back(i);
+                    indices.push_back(i);
+                    searching_char = '\0';
+                    break;
+                case ' ':
+                    // For blank nodes the end of contents iterator coincides with the end of qualifiers iterator
+                    indices.push_back(i-1);
+                    indices.push_back(i-1);
+                    searching_char = '\0';
+                    break;
+                case '"':
+                    // Literals may contain escaped " characters
+                    escaped = false;
+                    std::string::iterator previous_index = i-1;
+                    while (*previous_index == '\\')
+                    {
+                        escaped = !escaped;
+                        previous_index--;
+                    }
+                    if (escaped)
+                    {
+                        break;
+                    }
+                    // else
+                    searching_char = '\0';
+                    // Push the end of contents iterator
+                    indices.push_back(i);
+                    if (*(i+1) == ' ')
+                    {
+                        // In this case the end of qualifiers iterator coincides with the end of contents iterator
+                        indices.push_back(i);
+                    }
+                    else
+                    {
+                        // In this case there is literal qualifier information
+                        search_for_qualifier = true;
+                    }
+                    break;
+                }
+            }
+        }
+        else if (*i == ' ')
+        {
+            // Push the end of qualifiers iterator (for literals)
+            indices.push_back(i-1);
+            search_for_qualifier = false;
+        }
+    }
+    return indices;
+}
+
 template <typename T>
 class IDMapper
 {
@@ -207,77 +300,66 @@ void convert_graph(std::istream &inputstream,
                 continue;
             }
         }
-        if (!(*(line.cend() - 1) == '.'))
+        
+        // Get a vector of indices to the start and end of each element in the tuple
+        std::vector<std::string::iterator> string_indices = parse_tuple(line);
+
+        // Check if we got the expected amount of iterators
+        if (!(string_indices.size() == 9))
         {
-            throw MyException("The line '" + original_line + "' did not end in a period(.)");
-        }
-        if (!(*(line.cend() - 2) == ' '))
-        {
-            throw MyException("The line '" + original_line + "' did not end in a space before the period(.)");
-        }
-        line = line.substr(0, line.length() - 2);
-        boost::trim(line);
-
-        // subject
-        // split in 2 pieces
-        size_t delimeter_start1 = line.find("> <");
-        std::string subject = line.substr(0, delimeter_start1);
-        size_t offset_delimeter_start1 = delimeter_start1 + std::string("> <").size();
-        std::string predicate_object = line.substr(offset_delimeter_start1, line.size() - offset_delimeter_start1);
-
-        if (subject[0] != '<')
-        {
-            throw MyException("The subject '" + subject + "' did not start with a '<'");
-        }
-        // The closing bracket is already off
-        subject = subject.substr(1, subject.size());
-
-        // predicate
-        // split in 2 pieces
-
-        // std::vector<std::string> parts2;
-        // boost::iter_split(parts2, predicate_object, boost::first_finder("> "));
-        size_t delimeter_start2 = predicate_object.find("> ");
-        std::string predicate = predicate_object.substr(0, delimeter_start2);
-        size_t offset_delimeter_start2 = delimeter_start2 + std::string("> ").size();
-        std::string object_literal_or_entity = predicate_object.substr(offset_delimeter_start2, predicate_object.size() - offset_delimeter_start2);
-
-        if (predicate[0] == '<' || *(predicate.cend() - 1) == '>')
-        {
-            throw MyException("The predicate '" + predicate + "' did start with a double '<' or end with a double '>'");
+            throw MyException("Wrong number of iterators returned by `parse_tuple`: expected 9 (3 each for subject, predicate and object), but got "
+                              + std::to_string(string_indices.size()) + " instead");
         }
 
-        // object
-        // final part is the object
-        boost::trim(object_literal_or_entity);
+        // Get to subject, predicate and object from the provided indices
+        // Note that we ignore the end of qualifiers iterators at positions 2, 5 and 8
+        std::string subject = std::string(string_indices[0], string_indices[1]+1);
+        std::string predicate = std::string(string_indices[3], string_indices[4]+1);
+        std::string object = std::string(string_indices[6], string_indices[7]+1);
 
-        std::string object;
-        if (object_literal_or_entity[0] == '"')
+        // Remove the angle brackets for enitites and remove the underscores for blank nodes
+        if (subject.front() == '<' && subject.back() == '>')
         {
-            // it is a literal
-            object = bisimulation_string;
+            subject = subject.substr(1, subject.size()-2);
         }
-        else if (object_literal_or_entity[0] == '<')
+        else if (subject.substr(0, 2) == "_:")
         {
-            // it is an entity
-            if (!( *(object_literal_or_entity.cend() - 1) == '>'))
-            {
-                throw MyException("The object '" + object_literal_or_entity + "' started with a '<' , but did not end with a '>'");
-            }
-            // Exclude the first (<) and last characters (>)
-            object = object_literal_or_entity.substr(1, object_literal_or_entity.size() - 2);
+            subject = subject.substr(2, subject.size()-2);
         }
         else
         {
-            throw MyException("The object '" + object_literal_or_entity + "' did not start with \" or <");
+            throw MyException("The subject on line " + std::to_string(line_counter) + " could not be identified as an entity or blank node");
         }
 
-        // subject
-        node_index subject_index = node_ID_Mapper.getID(subject);
-        // object
-        node_index object_index = node_ID_Mapper.getID(object);
-        // edge
-        edge_type edge_index = edge_ID_Mapper.getID(predicate);
+        // Remove the angle brackets and for relations
+        if (predicate.front() == '<' && predicate.back() == '>')
+        {
+            predicate = predicate.substr(1, predicate.size()-2);
+        }
+        else
+        {
+            throw MyException("The predicate on line " + std::to_string(line_counter) + " could not be identified as a relation");
+        }
+
+        // Remove the angle brackets and for enitites, remove the underscores for blank nodes and remove the double quotes for literals
+        if (object.front() == '<' && object.back() == '>')
+        {
+            object = object.substr(1, object.size()-2);
+        }
+        else if (object.substr(0, 2) == "_:")
+        {
+            object = object.substr(2, object.size()-2);
+        }
+        else if (object.front() == '"' && object.back() == '"')
+        {
+            object = object.substr(1, object.size()-2);
+        }
+        else
+        {
+            throw MyException("The object on line " + std::to_string(line_counter) + " could not be identified as an entity, blank node or literal");
+        }
+
+        // If we want to skip RDF lists
         if (skipRDFlists)
         {
             if (predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
@@ -302,8 +384,14 @@ void convert_graph(std::istream &inputstream,
                 continue;
             }
         }
-        // output the line
-        // This should be binary writing instead.
+
+        // subject
+        node_index subject_index = node_ID_Mapper.getID(subject);
+        // object
+        node_index object_index = node_ID_Mapper.getID(object);
+        // edge
+        edge_type edge_index = edge_ID_Mapper.getID(predicate);
+        // Write the indices in our binary format
         write_uint_ENTITY_little_endian(outputstream, subject_index);
         write_uint_PREDICATE_little_endian(outputstream, edge_index);
         write_uint_ENTITY_little_endian(outputstream, object_index);
