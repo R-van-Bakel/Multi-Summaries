@@ -528,6 +528,20 @@ func (b *SignatureBuilder) Build() *Signature {
 	return NewSignature(dst)
 }
 
+func (this *Signature) Equals(other *Signature) bool {
+	// only if the signature is equal, this option is a real match
+	if len(this.pieces) != len(other.pieces) {
+		return False
+	}
+	// The pieces in a signature are sorted, we use that here.
+	for i := 0; i < len(option.s.pieces); i++ {
+		if option.s.pieces[i] != new_signature.pieces[i] {
+			return False
+		}
+	}
+	return True
+}
+
 type SignatureBlockMap struct {
 	mapping map[uint64][]struct {
 		s     *Signature
@@ -548,21 +562,11 @@ func NewSignatureBlockMap() SignatureBlockMap {
 func (M *SignatureBlockMap) Put(new_signature *Signature, index nodeIndex) {
 	hash := new_signature.Hash()
 	possible_options := M.mapping[hash]
-OptionLoop:
 	for _, option := range possible_options {
-		// only if the signature is equal, this option is a real match
-		if len(option.s.pieces) != len(new_signature.pieces) {
-			continue
+		if option.s.Equals(new_signature) {
+			option.block = append(option.block, index)
+			return
 		}
-		// The pieces in a signature are sorted, we use that here.
-		for i := 0; i < len(option.s.pieces); i++ {
-			if option.s.pieces[i] != new_signature.pieces[i] {
-				continue OptionLoop
-			}
-		}
-		// all compared equal, we have a match!
-		option.block = append(option.block, index)
-		return
 	}
 	// not found, add a new one
 	newEntry := struct {
@@ -604,6 +608,41 @@ func (M *SignatureBlockMap) GetBlocks() []Block {
 		}
 	}
 	return blocks
+}
+
+/*
+Merge the other_M into this_M. The otherM object will be modified and can no longer be used
+*/
+func (thisM *SignatureBlockMap) MergeDestructive(otherM *SignatureBlockMap) {
+	for otherSignatureHash, otherOptions := range otherM.mapping {
+
+		thisOptions := thisM.mapping[signatureHash]
+
+		for _, option := range possible_options {
+			if option.s.Equals(new_signature) {
+				option.block = append(option.block, index)
+				return
+			}
+		}
+		// not found, add a new one
+		newEntry := struct {
+			s     *Signature
+			block Block
+		}{
+			s:     new_signature,
+			block: make([]uint64, 1, 1),
+		}
+		newEntry.block[0] = index
+
+		newEntryList := make([]struct {
+			s     *Signature
+			block Block
+		}, 1, 1)
+		newEntryList[0] = newEntry
+
+		M.mapping[hash] = newEntryList
+
+	}
 }
 
 // Because our signatures are complex, we do a custom hash first and will then iterate over potential candidates
@@ -675,9 +714,52 @@ func PartialKBisimulation(g *Graph, kBlock []BlockPtr, kMinOneMapper Node2BlockM
 	}
 
 	return newSingletons, // new nodes which have become singletons
-		freeBlocks, // blocks in kBlock freed by this function
+		newBlockIndex, // blocks in kBlock freed by this function
 		newBlocks, // The mapping to these blocks still needs to be written
 		dirtyBlocks // blocks marked as dirty by this function. Needs merging with the ones from parallel calls.
+}
+
+const min_chunk_size = 100
+
+// TODO correct naming convention too camelcase
+
+func processBlock(kBlock []BlockPtr, block_index blockIndex, g *Graph, blocks_channel chan BlockPtr, free_blocks_channel chan blockIndex, singletons_channel chan nodeIndex) {
+
+	block_size := blockIndex(len(*kBlock[block_index]))
+
+	// chunk_size := min(min_chunk_size, block_size)
+
+	// chunk_count := uint64(block_size / chunk_size) + 1 // We are working with only positive numbers, so we can just truncate
+
+	// We create the channel the inner threads will use to communicate with this thread
+	signature_buffer_size := min(block_size, 1000)
+	signatures := make(chan SignatureBlockMap, signature_buffer_size)
+
+	// Process all chunk of size min_chunk_size
+	for i := uint64(0); i < chunk_count-1; i++ {
+		go processChunk(uint64(i*chunk_size), uint64((i+1)*chunk_size-1), kBlock, signatures, g)
+	}
+	// Process the last chunk, which may be smaller than chunk_size if block_size/min_chunk_size would leave a remainder
+	go processChunk(chunk_count*chunk_size, block_size-1, kBlock, signatures, g)
+
+	// Listen to the signatures channel and exit if all the inner threads are done
+
+}
+
+func processChunk(chunk_start uint64, chunk_stop uint64, kBlock []BlockPtr, signatures chan SignatureBlockMap, g *Graph) {
+
+}
+
+func makeSingletonsThread(singletons_channel chan nodeIndex, new_singletons []nodeIndex) {
+
+}
+
+func makeBlocksThread(kBlock []BlockPtr, new_blocks []BlockPtr, blocks_channel chan BlockPtr, free_blocks_channel chan blockIndex) {
+
+}
+
+func MultiThreadKBisimulation(g *Graph, kBlock []BlockPtr, kMinOneMapper Node2BlockMapper, myDirtyBlocks []blockIndex, freeBlocksInput chan blockIndex, minSupport uint64) {
+
 }
 
 // func GetKBisimulation(g *Graph, kMinusOneOutcome *KBisimulationOutcome, minSupport int) *KBisimulationOutcome {
