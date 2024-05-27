@@ -481,7 +481,7 @@ func (b *SignatureBuilder) AddPiece(label edgeType, block blockIndex) {
 
 	if b.deduplicate {
 		// we do a quick dedup so we avoid sorting them later. It is expected that reasonably often duplicates are in order already
-		if b.unsorted_pieces[len(b.unsorted_pieces)-1].block == block && b.unsorted_pieces[len(b.unsorted_pieces)-1].label == label {
+		if len(b.unsorted_pieces) > 0 && b.unsorted_pieces[len(b.unsorted_pieces)-1].block == block && b.unsorted_pieces[len(b.unsorted_pieces)-1].label == label {
 			// nothing to be added
 			return
 		}
@@ -528,18 +528,18 @@ func (b *SignatureBuilder) Build() *Signature {
 	return NewSignature(dst)
 }
 
-func (this *Signature) Equals(other *Signature) bool {
+func (signature *Signature) Equals(other *Signature) bool {
 	// only if the signature is equal, this option is a real match
-	if len(this.pieces) != len(other.pieces) {
-		return False
+	if len(signature.pieces) != len(other.pieces) {
+		return false
 	}
 	// The pieces in a signature are sorted, we use that here.
-	for i := 0; i < len(option.s.pieces); i++ {
-		if option.s.pieces[i] != new_signature.pieces[i] {
-			return False
+	for i := 0; i < len(signature.pieces); i++ {
+		if signature.pieces[i] != other.pieces[i] {
+			return false
 		}
 	}
-	return True
+	return true
 }
 
 type SignatureBlockMap struct {
@@ -574,14 +574,14 @@ func (M *SignatureBlockMap) Put(new_signature *Signature, index nodeIndex) {
 		block Block
 	}{
 		s:     new_signature,
-		block: make([]uint64, 1, 1),
+		block: make([]uint64, 1),
 	}
 	newEntry.block[0] = index
 
 	newEntryList := make([]struct {
 		s     *Signature
 		block Block
-	}, 1, 1)
+	}, 1)
 	newEntryList[0] = newEntry
 
 	M.mapping[hash] = newEntryList
@@ -611,37 +611,30 @@ func (M *SignatureBlockMap) GetBlocks() []Block {
 }
 
 /*
-Merge the other_M into this_M. The otherM object will be modified and can no longer be used
+Merge the other_M into this_M. The otherM object will be modified, some parts will be borrowed and it must no longer be used
 */
 func (thisM *SignatureBlockMap) MergeDestructive(otherM *SignatureBlockMap) {
 	for otherSignatureHash, otherOptions := range otherM.mapping {
 
-		thisOptions := thisM.mapping[signatureHash]
-
-		for _, option := range possible_options {
-			if option.s.Equals(new_signature) {
-				option.block = append(option.block, index)
-				return
+		thisOptions, ok := thisM.mapping[otherSignatureHash]
+		if !ok {
+			// Add as a fresh entry
+			thisM.mapping[otherSignatureHash] = otherOptions
+			continue
+		}
+		// We have an existing entry with the same signatureHash, the otherOptions need to be merged into thisOptions
+		// We have to check all pairs, short cutting if found
+	OtherOptionsLoop:
+		for _, otherOption := range otherOptions {
+			for _, thisOption := range thisOptions {
+				if otherOption.s.Equals(thisOption.s) {
+					thisOption.block = append(thisOption.block, otherOption.block...)
+					continue OtherOptionsLoop
+				}
 			}
+			// We have not found a match with one of the existing options, add a new one
+			thisM.mapping[otherSignatureHash] = append(thisM.mapping[otherSignatureHash], otherOption)
 		}
-		// not found, add a new one
-		newEntry := struct {
-			s     *Signature
-			block Block
-		}{
-			s:     new_signature,
-			block: make([]uint64, 1, 1),
-		}
-		newEntry.block[0] = index
-
-		newEntryList := make([]struct {
-			s     *Signature
-			block Block
-		}, 1, 1)
-		newEntryList[0] = newEntry
-
-		M.mapping[hash] = newEntryList
-
 	}
 }
 
@@ -713,10 +706,10 @@ func PartialKBisimulation(g *Graph, kBlock []BlockPtr, kMinOneMapper Node2BlockM
 		}
 	}
 
-	return newSingletons, // new nodes which have become singletons
-		newBlockIndex, // blocks in kBlock freed by this function
-		newBlocks, // The mapping to these blocks still needs to be written
-		dirtyBlocks // blocks marked as dirty by this function. Needs merging with the ones from parallel calls.
+	// return newSingletons, // new nodes which have become singletons
+	// 	newBlockIndex, // blocks in kBlock freed by this function
+	// 	newBlocks, // The mapping to these blocks still needs to be written
+	//		dirtyBlocks // blocks marked as dirty by this function. Needs merging with the ones from parallel calls.
 }
 
 const min_chunk_size = 100
@@ -727,9 +720,9 @@ func processBlock(kBlock []BlockPtr, block_index blockIndex, g *Graph, blocks_ch
 
 	block_size := blockIndex(len(*kBlock[block_index]))
 
-	// chunk_size := min(min_chunk_size, block_size)
+	chunk_size := min(min_chunk_size, block_size)
 
-	// chunk_count := uint64(block_size / chunk_size) + 1 // We are working with only positive numbers, so we can just truncate
+	chunk_count := uint64(block_size/chunk_size) + 1 // We are working with only positive numbers, so we can just truncate
 
 	// We create the channel the inner threads will use to communicate with this thread
 	signature_buffer_size := min(block_size, 1000)
