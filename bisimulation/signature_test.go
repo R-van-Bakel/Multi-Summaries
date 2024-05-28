@@ -58,9 +58,14 @@ func dedup[V interface {
 }
 
 func TestSignatureBlockMapCreation(t *testing.T) {
-
+	var amount int
+	if testing.Short() {
+		amount = 8
+	} else {
+		amount = 9
+	}
 	labels := []uint32{0, 1, 1, 2, 3, 4, 4, 5}
-	for i := 1; i < 8; i++ {
+	for i := 1; i < amount; i++ {
 		more := make([]uint32, 0, len(labels))
 		for _, label := range labels {
 			more = append(more, label*uint32(i))
@@ -68,12 +73,12 @@ func TestSignatureBlockMapCreation(t *testing.T) {
 		labels = append(labels, more...)
 	}
 	blocks := []uint64{5000, 5100, 5000, 5100, 5100, 5500, 5600, 12500}
-	for i := 1; i < 8; i++ {
-		more := make([]uint32, 0, len(labels))
-		for _, label := range labels {
-			more = append(more, label*uint32(i))
+	for i := 1; i < amount; i++ {
+		more := make([]uint64, 0, len(blocks))
+		for _, block := range blocks {
+			more = append(more, block*uint64(i))
 		}
-		labels = append(labels, more...)
+		blocks = append(blocks, more...)
 	}
 	for _, deduplicate := range []bool{true, false} {
 
