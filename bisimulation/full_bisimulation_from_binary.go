@@ -28,6 +28,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"sync"
 
 	"github.com/bits-and-blooms/bitset"
 )
@@ -259,13 +260,13 @@ func (d *SimpleDirtyBlockContainer) SetDirty(index blockIndex) {
 
 type Node2BlockMapper interface {
 	/**
-	 * get_block returns a positive numebr only in case the block really exists.
+	 * get_block returns a positive number only in case the block really exists.
 	 * If it is a singleton, a (singleton specific) negative number will be returned.
 	 */
 	GetBlock(nodeIndex) blockIndex
 	Clear()
 	SingletonCount() uint64
-	ModifiableCopy() MappingNode2BlockMapper
+	ModifiableCopy() *MappingNode2BlockMapper
 	FreeBlockCount() uint64
 }
 
@@ -291,11 +292,11 @@ func (mapper *AllToZeroNode2BlockMapper) Clear() {
 	// Do nothing.
 }
 
-func (mapper *AllToZeroNode2BlockMapper) ModifiableCopy() MappingNode2BlockMapper {
+func (mapper *AllToZeroNode2BlockMapper) ModifiableCopy() *MappingNode2BlockMapper {
 	node_to_block := make([]nodeIndex, mapper.maxNodeIndex) // filled with zeroes by default
 	empty_dirty := []uint64{}
 
-	return *NewMappingNode2BlockMapper(node_to_block, 0, empty_dirty)
+	return NewMappingNode2BlockMapper(node_to_block, 0, empty_dirty)
 }
 
 func (mapper *AllToZeroNode2BlockMapper) SingletonCount() nodeIndex {
@@ -323,8 +324,8 @@ func NewMappingNode2BlockMapper(nodeToBlock []blockIndex, singletonCount uint64,
 }
 
 // FreeBlockCount implements the Node2BlockMapper interface for MappingNode2BlockMapper.
-func (m *MappingNode2BlockMapper) FreeBlockCount() int {
-	return len(m.freeBlockIndices)
+func (m *MappingNode2BlockMapper) FreeBlockCount() uint64 {
+	return uint64(len(m.freeBlockIndices))
 }
 
 // SingletonCount implements the Node2BlockMapper interface for MappingNode2BlockMapper.
@@ -712,46 +713,211 @@ func PartialKBisimulation(g *Graph, kBlock []BlockPtr, kMinOneMapper Node2BlockM
 	//		dirtyBlocks // blocks marked as dirty by this function. Needs merging with the ones from parallel calls.
 }
 
-const min_chunk_size = 100
+const minChunkSize = 100
 
-// TODO correct naming convention too camelcase
+func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, currentBlockIndex blockIndex, blocksChannel chan []BlockPtr, freeBlocksChannel chan blockIndex, singletonsChannel chan BlockPtr, largeBlocksChannel chan BlockPtr) {
 
-func processBlock(kBlock []BlockPtr, block_index blockIndex, g *Graph, blocks_channel chan BlockPtr, free_blocks_channel chan blockIndex, singletons_channel chan nodeIndex) {
+	currentBlock := (*kBlock)[currentBlockIndex]
 
-	block_size := blockIndex(len(*kBlock[block_index]))
+	blockSize := blockIndex(len(*currentBlock))
 
-	chunk_size := min(min_chunk_size, block_size)
+	chunkSize := min(minChunkSize, blockSize)
 
-	chunk_count := uint64(block_size/chunk_size) + 1 // We are working with only positive numbers, so we can just truncate
+	chunkCount := uint64(blockSize/chunkSize) + 1 // We are working with only positive numbers, so we can just truncate
 
 	// We create the channel the inner threads will use to communicate with this thread
-	signature_buffer_size := min(block_size, 1000)
-	signatures := make(chan SignatureBlockMap, signature_buffer_size)
+	signatureBufferSize := chunkCount
+	signatures := make(chan SignatureBlockMap, signatureBufferSize)
 
-	// Process all chunk of size min_chunk_size
-	for i := uint64(0); i < chunk_count-1; i++ {
-		go processChunk(uint64(i*chunk_size), uint64((i+1)*chunk_size-1), kBlock, signatures, g)
+	// Process all chunk of size chunkSize
+	for i := uint64(0); i < chunkCount-1; i++ {
+		go processChunk(uint64(i*chunkSize), uint64((i+1)*chunkSize-1), currentBlock, kMinOneMapper, signatures, g)
 	}
-	// Process the last chunk, which may be smaller than chunk_size if block_size/min_chunk_size would leave a remainder
-	go processChunk(chunk_count*chunk_size, block_size-1, kBlock, signatures, g)
+	// Process the last chunk, which may be smaller than chunk_size if blockSize/chunkSize would leave a remainder
+	go processChunk(chunkSize*chunkSize, blockSize-1, currentBlock, kMinOneMapper, signatures, g)
 
-	// Listen to the signatures channel and exit if all the inner threads are done
+	// Listen to the signatures channel for all messages
+	M := NewSignatureBlockMap()
+	for i := uint64(0); i < chunkCount; i++ {
+		m := <-signatures
+		M.MergeDestructive(&m)
+	}
 
+	// Accumulate the singletons before sending them all together
+	newSingletons := make(Block, 0)
+
+	// We will use these variables to keep track of the largest block
+	var largestBlock BlockPtr
+	largestSize := 0
+
+	// Here we store pointers to the created blocks
+	newBlocks := make([]BlockPtr, 0)
+
+	// If there is only one key in the mapping, then all the nodes have the same signature, meaning the current block did not split
+	if len(M.mapping) == 1 {
+		singletonsChannel <- &newSingletons
+		blocksChannel <- newBlocks
+		emptyBlock := make(Block, 0)
+		largeBlocksChannel <- &emptyBlock
+		return
+	}
+
+	// We go over all newly created blocks
+	for _, newBlock := range M.GetBlocks() {
+		// if singleton, make it a singleton in the mapping
+		if len(newBlock) == 1 {
+			newSingletons = append(newSingletons, newBlock[0])
+			continue
+		}
+
+		// Keep track of the largest block, we ignore singletons because they will be written to a separate channel anyway
+		if len(newBlock) > largestSize {
+			// Write the old largest block directly if there is a free index, else store it in newBlocks
+			if largestSize > 0 {
+				select {
+				case freeIndex := <-freeBlocksChannel:
+					(*kBlock)[freeIndex] = largestBlock
+				default:
+					newBlocks = append(newBlocks, largestBlock)
+				}
+			}
+			largestBlock = &newBlock
+			largestSize = len(newBlock)
+		} else {
+			// Write the new block directly if there is a free index, else store it in newBlocks
+			select {
+			case freeIndex := <-freeBlocksChannel:
+				(*kBlock)[freeIndex] = &newBlock
+			default:
+				newBlocks = append(newBlocks, &newBlock)
+			}
+		}
+	}
+
+	// Write the largest block directly into the current block (this is safe since the current thread is the only one accessing this block)
+	// If no block larger than a singleton is found, then the current block must have split into only singletons, allowing us to reuse the block index
+	if largestSize > 0 {
+		(*kBlock)[currentBlockIndex] = largestBlock
+		largeBlocksChannel <- (*kBlock)[currentBlockIndex]
+	} else {
+		emptyBlock := make(Block, 0)
+		largeBlocksChannel <- &emptyBlock
+		freeBlocksChannel <- currentBlockIndex
+	}
+
+	// Write the remaining blocks and singletons to the blocksChannel and singletonsChannel respectively
+	singletonsChannel <- &newSingletons
+	blocksChannel <- newBlocks
 }
 
-func processChunk(chunk_start uint64, chunk_stop uint64, kBlock []BlockPtr, signatures chan SignatureBlockMap, g *Graph) {
+func processChunk(chunk_start uint64, chunk_stop uint64, currentBlock BlockPtr, kMinOneMapper Node2BlockMapper, signatures chan SignatureBlockMap, g *Graph) {
+	m := NewSignatureBlockMap()
+	for _, node := range (*currentBlock)[chunk_start:chunk_stop] {
+		signatureBuilder := NewSignatureBuilder(true)
 
+		for _, edge_info := range g.nodes[node].edges {
+			to_block := kMinOneMapper.GetBlock(edge_info.target)
+			signatureBuilder.AddPiece(edge_info.label, to_block)
+		}
+		signature := signatureBuilder.Build()
+		m.Put(signature, node)
+	}
+	signatures <- m
 }
 
-func makeSingletonsThread(singletons_channel chan nodeIndex, new_singletons []nodeIndex) {
-
+func readSingletonsChannel(singletonsChannel chan BlockPtr, newSingletons *Block, kMapper *MappingNode2BlockMapper, blockCount int, singletonCount *int, wg *sync.WaitGroup) {
+	for i := 0; i < blockCount; i++ {
+		singletonBlock := <-singletonsChannel
+		*newSingletons = append(*newSingletons, *singletonBlock...)
+		for _, node := range *singletonBlock {
+			kMapper.OverwriteMapping(node, uint64(*singletonCount))
+			*singletonCount++
+		}
+	}
+	(*wg).Done()
 }
 
-func makeBlocksThread(kBlock []BlockPtr, new_blocks []BlockPtr, blocks_channel chan BlockPtr, free_blocks_channel chan blockIndex) {
-
+func readBlocksChannel(kBlock *[]BlockPtr, blocksChannel chan []BlockPtr, newBlocks *[]BlockPtr, freeBlocksChannel chan blockIndex, kMapper *MappingNode2BlockMapper, blockCount int, wg *sync.WaitGroup) {
+	newIndex := blockCount
+	for i := 0; i < blockCount; i++ {
+		blockSlice := <-blocksChannel
+		for _, block := range blockSlice {
+			select {
+			case freeIndex := <-freeBlocksChannel:
+				(*kBlock)[freeIndex] = block
+			default:
+				*newBlocks = append(*newBlocks, block)
+			}
+			for _, node := range *block {
+				kMapper.OverwriteMapping(node, -(uint64(newIndex))) // TODO see if this does what we expect. We should probably change the bIndex parameter to an int64
+			}
+			newIndex++
+		}
+	}
+	(*wg).Done()
 }
 
-func MultiThreadKBisimulation(g *Graph, kBlock []BlockPtr, kMinOneMapper Node2BlockMapper, myDirtyBlocks []blockIndex, freeBlocksInput chan blockIndex, minSupport uint64) {
+func readLargeBlocksChannel(largeBlocksChannel chan BlockPtr, changedBlocks *[]BlockPtr, blockCount int, wg *sync.WaitGroup) {
+	for i := 0; i < blockCount; i++ {
+		block := <-largeBlocksChannel
+		*changedBlocks = append(*changedBlocks, block)
+	}
+	(*wg).Done()
+}
+
+// func updateKMapper(kMapper *MappingNode2BlockMapper, block BlockPtr, newIndex int) {
+// 	for _, node := range *block {
+// 		kMapper.OverwriteMapping(node, uint64(newIndex))
+// 	}
+// }
+
+// func largestBlockMarkDirty(g *Graph, kBlock *[]BlockPtr, kMapper *MappingNode2BlockMapper, block blockIndex) {
+// 	for _, node := range *block {
+// 		kMapper.OverwriteMapping(node, uint64(newIndex))
+// 	}
+// }
+
+func MultiThreadKBisimulation(g *Graph, kBlock *[]BlockPtr, kMinOneMapper *MappingNode2BlockMapper, myDirtyBlocks []blockIndex, freeBlocksInput chan blockIndex, minSupport uint64, singletonCount int) {
+	blockCount := len(*kBlock)
+
+	// Make the channels we use for communicating with the threads
+	// TODO We may want to reduce their initial capacity
+	blocksChannel := make(chan []BlockPtr, blockCount)
+	freeBlocksChannel := make(chan blockIndex, blockCount)
+	largeBlocksChannel := make(chan BlockPtr, blockCount)
+	singletonsChannel := make(chan BlockPtr, blockCount)
+
+	// Spawn threads for each block (which in turn will spawn threads for every chunk)
+	for i := 0; i < blockCount; i++ {
+		go processBlock(kBlock, kMinOneMapper, g, blockIndex(i), blocksChannel, freeBlocksChannel, singletonsChannel, largeBlocksChannel)
+	}
+
+	// The new Node2BlockMapper
+	kMapper := (*kMinOneMapper).ModifiableCopy()
+
+	// We want all threads to be done before marking dirty blocks. We achieve this with a waitgroup
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	// Read the new singletons from the channel and store them locally
+	newSingletons := make(Block, 0)
+	go readSingletonsChannel(singletonsChannel, &newSingletons, kMapper, blockCount, &singletonCount, &wg)
+
+	// Read the new blocks from the channel and store them locally
+	newBlocks := make([]BlockPtr, 0)
+	go readBlocksChannel(kBlock, blocksChannel, &newBlocks, freeBlocksChannel, kMapper, blockCount, &wg)
+
+	// Read the changed (reused) blocks from the channel and store them locally
+	changedBlocks := make([]BlockPtr, 0)
+	go readLargeBlocksChannel(largeBlocksChannel, &changedBlocks, blockCount, &wg)
+
+	// We mark the dirty blocks
+	wg.Wait()
+	for _, block := range newBlocks {
+		for _, node := range *block {
+			
+		}
+	}
 
 }
 
