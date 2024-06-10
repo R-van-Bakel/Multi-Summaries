@@ -1,6 +1,8 @@
 package bisimulation
 
 import (
+	"fmt"
+	"os"
 	"testing"
 )
 
@@ -11,8 +13,8 @@ func TestSignatureEqualsAndHash(t *testing.T) {
 
 		for labelID := 0; labelID < 100; labelID++ {
 			for blockID := 123; blockID < 140; blockID++ {
-				s1b.AddPiece(uint32(labelID), uint64(blockID))
-				s2b.AddPiece(uint32(labelID), uint64(blockID))
+				s1b.AddPiece(uint32(labelID), int64(blockID))
+				s2b.AddPiece(uint32(labelID), int64(blockID))
 				s1 := s1b.Build()
 				s2 := s2b.Build()
 				if !s1.Equals(s2) {
@@ -25,7 +27,7 @@ func TestSignatureEqualsAndHash(t *testing.T) {
 		}
 		// add all again to test whether deduplication works as expected
 		for labelID := 0; labelID < 100; labelID++ {
-			for _, blockID := range []uint64{123, 128, 128, 130} {
+			for _, blockID := range []int64{123, 128, 128, 130} {
 				s1b.AddPiece(uint32(labelID), blockID)
 				s2b.AddPiece(uint32(labelID), blockID)
 				s1 := s1b.Build()
@@ -89,7 +91,7 @@ func TestSignatureBlockMapCreation(t *testing.T) {
 				for _, label := range labels[:lastLabel] {
 					for _, node := range blocks[:lastBlock] {
 						sb := NewSignatureBuilder(deduplicate)
-						sb.AddPiece(label, node)
+						sb.AddPiece(label, int64(node))
 						sbm.Put(sb.Build(), uint64(label)*node)
 					}
 				}
@@ -141,7 +143,7 @@ func TestSignatureBlockMapMerge(t *testing.T) {
 				for _, label := range labels[:lastLabel] {
 					for _, node := range blocks[:(lastBlock / 2)] {
 						sb := NewSignatureBuilder(deduplicate)
-						sb.AddPiece(label, node)
+						sb.AddPiece(label, int64(node))
 						sbm1.Put(sb.Build(), uint64(label)*node)
 					}
 				}
@@ -151,7 +153,7 @@ func TestSignatureBlockMapMerge(t *testing.T) {
 				for _, label := range labels[:lastLabel] {
 					for _, node := range blocks[(lastBlock / 2):lastBlock] {
 						sb := NewSignatureBuilder(deduplicate)
-						sb.AddPiece(label, node)
+						sb.AddPiece(label, int64(node))
 						sbm2.Put(sb.Build(), uint64(label)*node)
 					}
 				}
@@ -176,4 +178,29 @@ func TestSignatureBlockMapMerge(t *testing.T) {
 
 	}
 
+}
+
+func TestConcurrentStepZero(t *testing.T) {
+	graphFile, err := os.Open("../output/Laurence_Fishburne_Custom_Shuffled_Extra_Edges/binary_encoding.bin")
+	if err != nil {
+		fmt.Println("Error while opening the graph binary")
+		panic(err)
+	}
+
+	graphFileInfo, err := graphFile.Stat()
+	if err != nil {
+		fmt.Println("Error while getting the size of the graph binary")
+		panic(err)
+	}
+
+	if graphFileInfo.Size()%14 != 0 {
+		panic("The graph binary was not a multiple of 14 bytes")
+	}
+
+	graphSize := graphFileInfo.Size() / 14
+	g := NewGraph(graphSize)
+
+	g.ReadFromStream(graphFile)
+
+	MultiThreadKBisimulationStepZero(g)
 }

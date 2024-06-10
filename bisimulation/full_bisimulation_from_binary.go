@@ -45,9 +45,11 @@ func main() {
 type edgeType = uint32
 type nodeIndex = uint64 // is assumed to be uint64, see check above
 type blockIndex = nodeIndex
+type blockOrSingletonIndex = int64
 
 const BYTES_PER_ENTITY = 5
 const BYTES_PER_PREDICATE = 4
+const MAX_INT = uint64(^uint64(0) >> 1)
 
 type Edge struct {
 	label  edgeType
@@ -67,13 +69,63 @@ func (n *Node) AddEdge(label edgeType, target nodeIndex) {
 	n.edges = append(n.edges, Edge{label: label, target: target})
 }
 
+// Our custom implementation for sets used for calculating the reverse index
+type NodeHashSet struct {
+	members map[nodeIndex]bool
+}
+
+func NewNodeHashSet() *NodeHashSet {
+	members := make(map[nodeIndex]bool)
+	return &NodeHashSet{members: members}
+}
+
+func (hs *NodeHashSet) Add(node nodeIndex) {
+	hs.members[node] = true
+}
+
+func (hs *NodeHashSet) ToSlice() []nodeIndex {
+	keys := make([]nodeIndex, len(hs.members))
+	i := 0
+	for k := range hs.members {
+		keys[i] = k
+		i++
+	}
+	return keys
+}
+
+// Our custom implementation for sets used for marking dirty blocks
+type BlockHashSet struct {
+	members map[blockIndex]bool
+}
+
+func NewBlockHashSet() *BlockHashSet {
+	members := make(map[blockIndex]bool)
+	return &BlockHashSet{members: members}
+}
+
+func (hs *BlockHashSet) Add(block blockIndex) {
+	hs.members[block] = true
+}
+
+func (hs *BlockHashSet) ToSlice() []blockIndex {
+	keys := make([]blockIndex, len(hs.members))
+	i := 0
+	for k := range hs.members {
+		keys[i] = k
+		i++
+	}
+	return keys
+}
+
 type Graph struct {
-	nodes []Node
+	nodes   []Node
+	reverse map[nodeIndex][]nodeIndex
 }
 
 func NewGraph(expected_size int64) *Graph {
 	nodes := make([]Node, 0, expected_size)
-	return &Graph{nodes: nodes}
+	reverse := make(map[nodeIndex][]nodeIndex, expected_size)
+	return &Graph{nodes: nodes, reverse: reverse}
 
 }
 
@@ -100,6 +152,35 @@ func (g *Graph) Resize(n nodeIndex) {
 
 func (g *Graph) GetSize() nodeIndex {
 	return uint64(len(g.nodes))
+}
+
+func (g *Graph) GetParents(childNode nodeIndex) []nodeIndex {
+	return g.reverse[childNode]
+}
+
+func (g *Graph) CreateReverseIndex() {
+	if len(g.reverse) != 0 {
+		panic("computing the reverse while this has been computed before. Probably a programming error")
+	}
+	numberOfNodes := g.GetSize()
+	uniqueIndex := make(map[nodeIndex]*NodeHashSet, numberOfNodes)
+
+	var sourceID nodeIndex
+	var targetID nodeIndex
+
+	for sourceID = 0; sourceID < numberOfNodes; sourceID++ {
+		node := g.nodes[sourceID]
+		for _, edge := range node.edges {
+			targetID := edge.target
+			uniqueIndex[targetID].Add(targetID)
+		}
+	}
+
+	for targetID = 0; targetID < numberOfNodes; targetID++ {
+		for sourceID := range uniqueIndex[targetID].members {
+			g.reverse[targetID] = append(g.reverse[targetID], sourceID)
+		}
+	}
 }
 
 // class Graph
@@ -194,7 +275,7 @@ func (g *Graph) ReadFromStream(r io.Reader) error {
 		} else {
 			largest = object_index
 		}
-		g.Resize(largest + 1)
+		g.Resize(largest + 1) // TODO Is this correct?
 
 		g.nodes[subject_index].AddEdge(edge_label, object_index)
 		if line_counter%1000000 == 0 {
@@ -263,7 +344,7 @@ type Node2BlockMapper interface {
 	 * get_block returns a positive number only in case the block really exists.
 	 * If it is a singleton, a (singleton specific) negative number will be returned.
 	 */
-	GetBlock(nodeIndex) blockIndex
+	GetBlock(nodeIndex) blockOrSingletonIndex // Previously blockIndex, but we need negative numbers to indicate singletons
 	Clear()
 	SingletonCount() uint64
 	ModifiableCopy() *MappingNode2BlockMapper
@@ -281,7 +362,10 @@ func NewAllToZeroNode2BlockMapper(maxNodeIndex nodeIndex) *AllToZeroNode2BlockMa
 	return &AllToZeroNode2BlockMapper{maxNodeIndex: maxNodeIndex}
 }
 
-func (mapper *AllToZeroNode2BlockMapper) GetBlock(nIndex nodeIndex) blockIndex {
+func (mapper *AllToZeroNode2BlockMapper) GetBlock(nIndex nodeIndex) blockOrSingletonIndex {
+	if nIndex > uint64(MAX_INT) {
+		panic("Tried to get a block index lager than MAX_INT (maximum int64 value)")
+	}
 	if nIndex >= mapper.maxNodeIndex {
 		logger.Panicf("requested an index higher than the maxNodeIndex %d", mapper.maxNodeIndex)
 	}
@@ -339,8 +423,11 @@ func (m *MappingNode2BlockMapper) OverwriteMapping(nIndex nodeIndex, bIndex bloc
 }
 
 // GetBlock implements the Node2BlockMapper interface for MappingNode2BlockMapper.
-func (m *MappingNode2BlockMapper) GetBlock(nIndex nodeIndex) blockIndex {
-	return m.nodeToBlock[nIndex]
+func (m *MappingNode2BlockMapper) GetBlock(nIndex nodeIndex) blockOrSingletonIndex {
+	if nIndex > uint64(MAX_INT) {
+		panic("Tried to get a block index lager than MAX_INT (maximum int64 value)")
+	}
+	return blockOrSingletonIndex(m.nodeToBlock[nIndex])
 }
 
 // Clear implements the Node2BlockMapper interface for MappingNode2BlockMapper.
@@ -399,7 +486,7 @@ func (kbo *KBisimulationOutcome) ClearIndices() {
 }
 
 // GetBlockIDForNode returns the block ID for a given node.
-func (kbo *KBisimulationOutcome) GetBlockIDForNode(node nodeIndex) uint64 {
+func (kbo *KBisimulationOutcome) GetBlockIDForNode(node nodeIndex) blockOrSingletonIndex {
 	return kbo.NodeToBlock.GetBlock(node)
 }
 
@@ -418,6 +505,24 @@ func (kbo *KBisimulationOutcome) NonSingletonBlockCount() uint64 {
 // TotalBlocks calculates the total number of blocks.
 func (kbo *KBisimulationOutcome) TotalBlocks() uint64 {
 	return kbo.SingletonBlockCount() + kbo.NonSingletonBlockCount()
+}
+
+type ConcurrentKBisimulationOutcome struct {
+	Blocks      []BlockPtr
+	DirtyBlocks []blockIndex
+	// If the block for the node is not a singleton, this contains the block index.
+	// Otherwise, this will contain a negative number unique for that singleton
+	NodeToBlock Node2BlockMapper
+	freeBlocks  chan blockIndex
+}
+
+func NewConcurrentKBisimulationOutcome(blocks []BlockPtr, dirtyBlocks []nodeIndex, nodeToBlock Node2BlockMapper, freeBlocks chan blockIndex) *ConcurrentKBisimulationOutcome {
+	return &ConcurrentKBisimulationOutcome{
+		Blocks:      blocks,
+		DirtyBlocks: dirtyBlocks,
+		NodeToBlock: nodeToBlock,
+		freeBlocks:  freeBlocks,
+	}
 }
 
 // Get0Bisimulation computes 0-bisimulation for a given graph.
@@ -442,7 +547,7 @@ func Get0Bisimulation(g *Graph) *KBisimulationOutcome {
 
 type SignaturePiece struct {
 	label edgeType
-	block blockIndex
+	block blockOrSingletonIndex
 }
 
 type Signature struct {
@@ -460,7 +565,17 @@ func (s *Signature) Hash() uint64 {
 	for _, piece := range s.pieces {
 		binary.LittleEndian.PutUint32(b[0:4], piece.label)
 		hash.Write(b[0:4])
-		binary.LittleEndian.PutUint64(b, piece.block)
+
+		// Convert potential negative indices into positive ones
+		// TODO check if this is valid
+		var block uint64
+		if piece.block >= 0 {
+			block = uint64(piece.block)
+		} else {
+			block = MAX_INT + uint64(-piece.block)
+		}
+
+		binary.LittleEndian.PutUint64(b, block)
 		hash.Write(b)
 	}
 	return hash.Sum64()
@@ -478,7 +593,7 @@ func NewSignatureBuilder(deduplicate bool) SignatureBuilder {
 	}
 }
 
-func (b *SignatureBuilder) AddPiece(label edgeType, block blockIndex) {
+func (b *SignatureBuilder) AddPiece(label edgeType, block blockOrSingletonIndex) {
 
 	if b.deduplicate {
 		// we do a quick dedup so we avoid sorting them later. It is expected that reasonably often duplicates are in order already
@@ -877,19 +992,31 @@ func readLargeBlocksChannel(largeBlocksChannel chan BlockPtr, changedBlocks *[]B
 // 	}
 // }
 
-func MultiThreadKBisimulation(g *Graph, kBlock *[]BlockPtr, kMinOneMapper *MappingNode2BlockMapper, myDirtyBlocks []blockIndex, freeBlocksInput chan blockIndex, minSupport uint64, singletonCount int) {
+func MultiThreadKBisimulationStepZero(g *Graph) {
+	numberOfNodes := g.GetSize()
+	blockData := make([]nodeIndex, numberOfNodes)
+	for i := range blockData {
+		blockData[i] = uint64(i)
+	}
+}
+
+func MultiThreadKBisimulation(g *Graph, kMinOneOutcome ConcurrentKBisimulationOutcome, minSupport uint64, singletonCount int) ConcurrentKBisimulationOutcome {
+	kBlock := &kMinOneOutcome.Blocks
+	dirtyBlocks := &kMinOneOutcome.DirtyBlocks
+	kMinOneMapper := &kMinOneOutcome.NodeToBlock
+	freeBlocksChannel := kMinOneOutcome.freeBlocks
+
 	blockCount := len(*kBlock)
 
 	// Make the channels we use for communicating with the threads
 	// TODO We may want to reduce their initial capacity
 	blocksChannel := make(chan []BlockPtr, blockCount)
-	freeBlocksChannel := make(chan blockIndex, blockCount)
 	largeBlocksChannel := make(chan BlockPtr, blockCount)
 	singletonsChannel := make(chan BlockPtr, blockCount)
 
 	// Spawn threads for each block (which in turn will spawn threads for every chunk)
-	for i := 0; i < blockCount; i++ {
-		go processBlock(kBlock, kMinOneMapper, g, blockIndex(i), blocksChannel, freeBlocksChannel, singletonsChannel, largeBlocksChannel)
+	for _, dirtyBlock := range *dirtyBlocks {
+		go processBlock(kBlock, *kMinOneMapper, g, dirtyBlock, blocksChannel, freeBlocksChannel, singletonsChannel, largeBlocksChannel)
 	}
 
 	// The new Node2BlockMapper
@@ -911,14 +1038,35 @@ func MultiThreadKBisimulation(g *Graph, kBlock *[]BlockPtr, kMinOneMapper *Mappi
 	changedBlocks := make([]BlockPtr, 0)
 	go readLargeBlocksChannel(largeBlocksChannel, &changedBlocks, blockCount, &wg)
 
-	// We mark the dirty blocks
+	// We use a custom hash set to mark the dirty blocks
+	newDirtyBlocksSet := NewBlockHashSet()
 	wg.Wait()
+
+	// We first look through all newly created blocks, then we find the nodes pointing to these blocks and finally we mark the blocks containig the respective nodes as dirty
 	for _, block := range newBlocks {
 		for _, node := range *block {
-			
+			for _, nodeID := range g.reverse[node] {
+				potentialDirtyBlock := kMapper.GetBlock(nodeID)
+				// We may get singletons (represented by negative numbers), but we do not need to mark them, since they can not split
+				if potentialDirtyBlock >= 0 {
+					newDirtyBlocksSet.Add(uint64(potentialDirtyBlock))
+				}
+			}
+		}
+	}
+	// Secondly we do the same with the changed blocks (the ones that were overwritten instead of newly created)
+	for _, block := range changedBlocks {
+		for _, node := range *block {
+			for _, blockID := range g.reverse[node] {
+				newDirtyBlocksSet.Add(blockID)
+			}
 		}
 	}
 
+	newKBlock := append(*kBlock, newBlocks...)
+	newDirtyBlocks := newDirtyBlocksSet.ToSlice()
+
+	return ConcurrentKBisimulationOutcome{Blocks: newKBlock, DirtyBlocks: newDirtyBlocks, NodeToBlock: kMapper, freeBlocks: freeBlocksChannel}
 }
 
 // func GetKBisimulation(g *Graph, kMinusOneOutcome *KBisimulationOutcome, minSupport int) *KBisimulationOutcome {
