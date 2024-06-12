@@ -2,6 +2,7 @@ package bisimulation
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"testing"
 )
@@ -44,14 +45,72 @@ func TestSignatureEqualsAndHash(t *testing.T) {
 
 }
 
-func testUniqSortedDestructive(t *testing.T) {
-	// rng := rand.New(rand.NewSource(4564))
-	// previous := int64(rng.Int31())
-	// for length := 0; length < 100; length++{
-	// 	// duplicate or not?
-	// 	SignaturePiece{}
-	// }
-	t.Fatal("Test not yet implemented")
+func TestUniqSortedDestructive(t *testing.T) {
+	rng := rand.New(rand.NewSource(4564))
+
+	for length := 0; length < 100; length++ {
+		for _retry := 0; _retry < 5; _retry++ {
+
+			items := make([]int, 0, length)
+			previous := 0
+			first := true
+			for i := 0; i < length; i++ {
+				// duplicate or not?
+				if first {
+					previous = 1
+				}
+
+				duplicate := rng.Intn(2) == 1
+				if !duplicate && !first {
+					previous += 1
+				}
+				items = append(items, previous)
+				first = false
+			}
+			items = uniqSortedDestructive(items)
+			if len(items) != previous {
+				t.Fatal("The number of deduplicated items is not as expected. ")
+			}
+			for i := 0; i < previous-1; i++ { // -1 because we check with the next one
+				if items[i] == items[i+1] {
+					t.Fatal("Did not correctly deduplicate")
+				}
+			}
+		}
+	}
+}
+
+func BenchmarkUniqSortedDestructive(outer_b *testing.B) {
+	rng := rand.New(rand.NewSource(4564))
+
+	for length := 0; length < 100000; length += 10000 {
+		for retry := 0; retry < 5; retry++ {
+			outer_b.Run(fmt.Sprintf("input_size_%d_retry_%d", length, retry),
+
+				func(b *testing.B) {
+					b.StopTimer()
+					items := make([]int, 0, length)
+					previous := 0
+					first := true
+					for i := 0; i < length; i++ {
+						// duplicate or not?
+						if first {
+							previous = 1
+						}
+
+						duplicate := rng.Intn(2) == 1
+						if !duplicate && !first {
+							previous += 1
+						}
+						items = append(items, previous)
+						first = false
+					}
+					b.StartTimer()
+					_ = uniqSortedDestructive(items)
+
+				})
+		}
+	}
 }
 
 func dedup[V interface {

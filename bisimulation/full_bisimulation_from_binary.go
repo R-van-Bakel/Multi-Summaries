@@ -644,17 +644,15 @@ func uniqSortedDestructive[V interface {
 		return sortedPieces
 	}
 	current_last := 0
-	modified := false
 	for i := 1; i < len(sortedPieces); i++ {
 		if sortedPieces[current_last] == sortedPieces[i] {
 			continue
 		}
 		// it is not a duplicate
 		current_last += 1
-		sortedPieces[current_last] = sortedPieces[i]
-		modified = true
+		sortedPieces[current_last] = sortedPieces[i] // note: we could check whether current_last == i, and avoid overwriting. But probably that test will have about the same cost as just going ahead.
 	}
-	if !modified {
+	if current_last+1 == len(sortedPieces) {
 		return sortedPieces
 	} else {
 		dst_truncated := make([]V, current_last+1)
