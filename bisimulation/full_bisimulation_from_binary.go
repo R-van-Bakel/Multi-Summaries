@@ -625,23 +625,42 @@ func (b *SignatureBuilder) Build() *Signature {
 	})
 
 	if b.deduplicate {
-		// deduplicate in place
-		current_last := 0
-		for i := 1; i < len(dst); i++ {
-			if dst[i] == dst[current_last] {
-				continue
-			}
-			// it is not a duplicate
-			dst[current_last+1] = dst[i]
-			current_last += 1
-		}
-
-		dst_truncated := make([]SignaturePiece, current_last+1)
-		copy(dst_truncated, dst[:current_last+1])
-		dst = dst_truncated
+		dst = uniqSortedDestructive(dst)
 	}
 
 	return NewSignature(dst)
+}
+
+/*
+Removes duplicates from the list, assuming it is sorted to start with.
+The provided list cannot be used after this operation (might be modified, or reused as a return value)
+*/
+func uniqSortedDestructive[V interface {
+	comparable
+}](sortedPieces []V) []V {
+
+	// deduplicate in place
+	if len(sortedPieces) == 0 {
+		return sortedPieces
+	}
+	current_last := 0
+	modified := false
+	for i := 1; i < len(sortedPieces); i++ {
+		if sortedPieces[current_last] == sortedPieces[i] {
+			continue
+		}
+		// it is not a duplicate
+		current_last += 1
+		sortedPieces[current_last] = sortedPieces[i]
+		modified = true
+	}
+	if !modified {
+		return sortedPieces
+	} else {
+		dst_truncated := make([]V, current_last+1)
+		copy(dst_truncated, sortedPieces[:current_last+1])
+		return dst_truncated
+	}
 }
 
 func (signature *Signature) Equals(other *Signature) bool {

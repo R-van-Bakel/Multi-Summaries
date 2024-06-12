@@ -44,6 +44,16 @@ func TestSignatureEqualsAndHash(t *testing.T) {
 
 }
 
+func testUniqSortedDestructive(t *testing.T) {
+	// rng := rand.New(rand.NewSource(4564))
+	// previous := int64(rng.Int31())
+	// for length := 0; length < 100; length++{
+	// 	// duplicate or not?
+	// 	SignaturePiece{}
+	// }
+	t.Fatal("Test not yet implemented")
+}
+
 func dedup[V interface {
 	comparable
 }](original []V) []V {
