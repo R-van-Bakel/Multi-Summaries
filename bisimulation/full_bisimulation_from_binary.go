@@ -368,7 +368,7 @@ func (mapper *AllToZeroNode2BlockMapper) GetBlock(nIndex nodeIndex) blockOrSingl
 	if nIndex > uint64(MAX_INT) {
 		panic("Tried to get a block index lager than MAX_INT (maximum int64 value)")
 	}
-	if nIndex >= mapper.maxNodeIndex {
+	if nIndex > mapper.maxNodeIndex {
 		logger.Panicf("requested an index higher than the maxNodeIndex %d", mapper.maxNodeIndex)
 	}
 	return 0
@@ -881,7 +881,7 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 
 	chunkSize := min(minChunkSize, blockSize)
 
-	chunkCount := uint64(blockSize/chunkSize) + 1 // We are working with only positive numbers, so we can just truncate
+	chunkCount := uint64(blockSize / chunkSize) // We are working with only positive numbers, so we can just truncate
 
 	// We create the channel the inner threads will use to communicate with this thread
 	signatureBufferSize := chunkCount
@@ -892,7 +892,7 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 		go processChunk(uint64(i*chunkSize), uint64((i+1)*chunkSize-1), currentBlock, kMinOneMapper, signatures, g)
 	}
 	// Process the last chunk, which may be smaller than chunk_size if blockSize/chunkSize would leave a remainder
-	go processChunk(chunkSize*chunkSize, blockSize-1, currentBlock, kMinOneMapper, signatures, g)
+	go processChunk((chunkCount-1)*chunkSize, blockSize-1, currentBlock, kMinOneMapper, signatures, g)
 
 	// Listen to the signatures channel for all messages. We can initialize this signature map with the first map read from the signatures channel
 	M := <-signatures

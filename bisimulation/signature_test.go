@@ -284,7 +284,7 @@ func TestPut(t *testing.T) {
 
 func TestConcurrentStepZero(t *testing.T) {
 	// Open the binary graph file
-	graphFile, err := os.Open("../output/BSBM-40000/binary_encoding.bin")
+	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
 	if err != nil {
 		fmt.Println("Error while opening the graph binary")
 		panic(err)
@@ -325,7 +325,7 @@ func TestConcurrentStepZero(t *testing.T) {
 
 func TestConcurrentStepOne(t *testing.T) {
 	// Open the binary graph file
-	graphFile, err := os.Open("../output/BSBM-40000/binary_encoding.bin")
+	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
 	if err != nil {
 		fmt.Println("Error while opening the graph binary")
 		panic(err)
@@ -372,7 +372,7 @@ func TestConcurrentStepOne(t *testing.T) {
 
 func TestConcurrent(t *testing.T) {
 	// Open the binary graph file
-	graphFile, err := os.Open("../output/BSBM-40000/binary_encoding.bin")
+	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
 	if err != nil {
 		fmt.Println("Error while opening the graph binary")
 		panic(err)
@@ -422,5 +422,5 @@ func TestConcurrent(t *testing.T) {
 		}
 		k++
 	}
-	fmt.Printf("Successfully ran bisimulation for k=%d levels.\n", k)
+	fmt.Printf("Successfully ran bisimulation for k=%d levels. THIS DOES NOT MEAN IT RAN CORRECTLY PER SE.\n", k)
 }
