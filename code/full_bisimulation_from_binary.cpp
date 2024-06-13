@@ -514,7 +514,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
     std::shared_ptr<MappingNode2BlockMapper> k_node_to_block = k_minus_one_outcome.node_to_block->modifyable_copy();
 
     // We collect all nodes from split blocks. In the end we mark all blocks which target these as dirty.
-    boost::unordered_flat_set<node_index> nodes_from_split_blocks;
+    boost::unordered_flat_set<node_index> nodes_from_split_blocks; //TODO: there seems to be no reason why this would have to be a set, since all the nodes on the split blocks can only be in one location anyway.
 
     // we first do dirty blocks of size 2 because if they split, they cause two singletons and a gap (freeblock) in the list of blocks
     // These freeblocks can be filled if larger blocks are split.
@@ -524,7 +524,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
         for (auto iter = k_minus_one_outcome.dirty_blocks.cbegin(); iter != k_minus_one_outcome.dirty_blocks.cend(); iter++)
         {
             block_index dirty_block_index = *iter;
-            BlockPtr dirty_block = k_minus_one_outcome.blocks[dirty_block_index];
+            BlockPtr dirty_block = k_blocks[dirty_block_index];
             size_t dirty_block_size = dirty_block->size();
 
             if (dirty_block_size != 2)
@@ -580,7 +580,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
     for (auto iter = k_minus_one_outcome.dirty_blocks.cbegin(); iter != k_minus_one_outcome.dirty_blocks.cend(); iter++)
     {
         block_index dirty_block_index = *iter;
-        BlockPtr dirty_block = k_minus_one_outcome.blocks[dirty_block_index];
+        BlockPtr dirty_block = k_blocks[dirty_block_index];
         size_t dirty_block_size = dirty_block->size();
 
         if (dirty_block_size == 2 || dirty_block_size <= min_support)

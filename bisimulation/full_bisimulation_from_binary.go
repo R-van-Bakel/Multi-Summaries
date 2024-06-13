@@ -368,7 +368,7 @@ func (mapper *AllToZeroNode2BlockMapper) GetBlock(nIndex nodeIndex) blockOrSingl
 	if nIndex > uint64(MAX_INT) {
 		panic("Tried to get a block index lager than MAX_INT (maximum int64 value)")
 	}
-	if nIndex > mapper.maxNodeIndex {
+	if nIndex >= mapper.maxNodeIndex {
 		logger.Panicf("requested an index higher than the maxNodeIndex %d", mapper.maxNodeIndex)
 	}
 	return 0
