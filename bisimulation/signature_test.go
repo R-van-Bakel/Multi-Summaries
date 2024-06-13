@@ -1,7 +1,9 @@
 package bisimulation
 
 import (
+	"bufio"
 	"fmt"
+	"math/rand"
 	"os"
 	"testing"
 )
@@ -42,6 +44,74 @@ func TestSignatureEqualsAndHash(t *testing.T) {
 		}
 	}
 
+}
+
+func TestUniqSortedDestructive(t *testing.T) {
+	rng := rand.New(rand.NewSource(4564))
+
+	for length := 0; length < 100; length++ {
+		for _retry := 0; _retry < 5; _retry++ {
+
+			items := make([]int, 0, length)
+			previous := 0
+			first := true
+			for i := 0; i < length; i++ {
+				// duplicate or not?
+				if first {
+					previous = 1
+				}
+
+				duplicate := rng.Intn(2) == 1
+				if !duplicate && !first {
+					previous += 1
+				}
+				items = append(items, previous)
+				first = false
+			}
+			items = uniqSortedDestructive(items)
+			if len(items) != previous {
+				t.Fatal("The number of deduplicated items is not as expected. ")
+			}
+			for i := 0; i < previous-1; i++ { // -1 because we check with the next one
+				if items[i] == items[i+1] {
+					t.Fatal("Did not correctly deduplicate")
+				}
+			}
+		}
+	}
+}
+
+func BenchmarkUniqSortedDestructive(outer_b *testing.B) {
+	rng := rand.New(rand.NewSource(4564))
+
+	for length := 0; length < 100000; length += 10000 {
+		for retry := 0; retry < 5; retry++ {
+			outer_b.Run(fmt.Sprintf("input_size_%d_retry_%d", length, retry),
+
+				func(b *testing.B) {
+					b.StopTimer()
+					items := make([]int, 0, length)
+					previous := 0
+					first := true
+					for i := 0; i < length; i++ {
+						// duplicate or not?
+						if first {
+							previous = 1
+						}
+
+						duplicate := rng.Intn(2) == 1
+						if !duplicate && !first {
+							previous += 1
+						}
+						items = append(items, previous)
+						first = false
+					}
+					b.StartTimer()
+					_ = uniqSortedDestructive(items)
+
+				})
+		}
+	}
 }
 
 func dedup[V interface {
@@ -180,27 +250,177 @@ func TestSignatureBlockMapMerge(t *testing.T) {
 
 }
 
+func TestPut(t *testing.T) {
+	m := NewSignatureBlockMap()
+
+	sortedPieces1 := make([]SignaturePiece, 0)
+	sortedPieces1 = append(sortedPieces1, SignaturePiece{label: 0, block: 0}, SignaturePiece{label: 0, block: 1}, SignaturePiece{label: 1, block: 2})
+	var signature1 *Signature = NewSignature(sortedPieces1)
+
+	sortedPieces2 := make([]SignaturePiece, 0)
+	sortedPieces2 = append(sortedPieces2, SignaturePiece{label: 3, block: 2}, SignaturePiece{label: 2, block: 1})
+	var signature2 *Signature = NewSignature(sortedPieces2)
+
+	node1 := nodeIndex(3)
+	node2 := nodeIndex(7)
+	node3 := nodeIndex(0)
+	node4 := nodeIndex(15)
+
+	m.Put(signature1, node1)
+	m.Put(signature1, node2)
+	m.Put(signature2, node3)
+	m.Put(signature2, node4)
+
+	// We expect the following blocks: [[3,7][0,15]]
+	if len(m.GetBlocks()) == 2 && len(m.GetBlocks()[0]) == 2 && len(m.GetBlocks()[1]) == 2 {
+		if m.GetBlocks()[0][0] == 3 && m.GetBlocks()[0][1] == 7 && m.GetBlocks()[1][0] == 0 && m.GetBlocks()[1][1] == 15 {
+			return
+		}
+	}
+	panic("The result was not as expected")
+}
+
+// ###### Integration tests ######
+
 func TestConcurrentStepZero(t *testing.T) {
-	graphFile, err := os.Open("../output/Laurence_Fishburne_Custom_Shuffled_Extra_Edges/binary_encoding.bin")
+	// Open the binary graph file
+	graphFile, err := os.Open("../output/BSBM-40000/binary_encoding.bin")
 	if err != nil {
 		fmt.Println("Error while opening the graph binary")
 		panic(err)
 	}
 
+	// Try to read off the meta data from the binary
 	graphFileInfo, err := graphFile.Stat()
 	if err != nil {
 		fmt.Println("Error while getting the size of the graph binary")
 		panic(err)
 	}
 
+	// A check for if the data is stored correctly
 	if graphFileInfo.Size()%14 != 0 {
-		panic("The graph binary was not a multiple of 14 bytes")
+		panic("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
 	}
 
+	// Get and print the graph size
 	graphSize := graphFileInfo.Size() / 14
-	g := NewGraph(graphSize)
+	fmt.Printf("Graph size: %d triples\n", graphSize)
 
-	g.ReadFromStream(graphFile)
+	// We make a rough estimate of how many nodes are in the graph
+	nodeCountEstimate := graphSize // This would assume a sparse graph where on avergage there is one new node per triple
 
+	// Create a new graph object with some memory pre-allocated
+	g := NewGraph(nodeCountEstimate)
+
+	// Read the binary data into the graph
+	bufReader := bufio.NewReaderSize(graphFile, 1<<14)
+	g.ReadFromStream(bufReader)
+
+	// Calculate the reverse index
+	g.CreateReverseIndex()
+
+	// Perform the zeroth step in our k-forward bisimulation algorithm
 	MultiThreadKBisimulationStepZero(g)
+}
+
+func TestConcurrentStepOne(t *testing.T) {
+	// Open the binary graph file
+	graphFile, err := os.Open("../output/BSBM-40000/binary_encoding.bin")
+	if err != nil {
+		fmt.Println("Error while opening the graph binary")
+		panic(err)
+	}
+
+	// Try to read off the meta data from the binary
+	graphFileInfo, err := graphFile.Stat()
+	if err != nil {
+		fmt.Println("Error while getting the size of the graph binary")
+		panic(err)
+	}
+
+	// A check for if the data is stored correctly
+	if graphFileInfo.Size()%14 != 0 {
+		panic("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
+	}
+
+	// Get and print the graph size
+	graphSize := graphFileInfo.Size() / 14
+	fmt.Printf("Graph size: %d triples\n", graphSize)
+
+	// We make a rough estimate of how many nodes are in the graph
+	nodeCountEstimate := graphSize // This would assume a sparse graph where on avergage there is one new node per triple
+
+	// Create a new graph object with some memory pre-allocated
+	g := NewGraph(nodeCountEstimate)
+
+	// Read the binary data into the graph
+	bufReader := bufio.NewReaderSize(graphFile, 1<<14)
+	g.ReadFromStream(bufReader)
+
+	// Calculate the reverse index
+	g.CreateReverseIndex()
+
+	// Perform the zeroth step in our k-forward bisimulation algorithm
+	outcomeK := MultiThreadKBisimulationStepZero(g)
+
+	// Set the minimum support parameter
+	var minSupport uint64 = 0
+
+	// Perform a proper bisimulation step
+	MultiThreadKBisimulationStep(g, outcomeK, minSupport)
+}
+
+func TestConcurrent(t *testing.T) {
+	// Open the binary graph file
+	graphFile, err := os.Open("../output/BSBM-40000/binary_encoding.bin")
+	if err != nil {
+		fmt.Println("Error while opening the graph binary")
+		panic(err)
+	}
+
+	// Try to read off the meta data from the binary
+	graphFileInfo, err := graphFile.Stat()
+	if err != nil {
+		fmt.Println("Error while getting the size of the graph binary")
+		panic(err)
+	}
+
+	// A check for if the data is stored correctly
+	if graphFileInfo.Size()%14 != 0 {
+		panic("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
+	}
+
+	// Get and print the graph size
+	graphSize := graphFileInfo.Size() / 14
+	fmt.Printf("Graph size: %d triples\n", graphSize)
+
+	// We make a rough estimate of how many nodes are in the graph
+	nodeCountEstimate := graphSize // This would assume a sparse graph where on avergage there is one new node per triple
+
+	// Create a new graph object with some memory pre-allocated
+	g := NewGraph(nodeCountEstimate)
+
+	// Read the binary data into the graph
+	bufReader := bufio.NewReaderSize(graphFile, 1<<14)
+	g.ReadFromStream(bufReader)
+
+	// Calculate the reverse index
+	g.CreateReverseIndex()
+
+	// Perform the zeroth step in our k-forward bisimulation algorithm
+	outcomeK := MultiThreadKBisimulationStepZero(g)
+
+	// Set the minimum support parameter
+	var minSupport uint64 = 0
+
+	// Perform the full bisimulation
+	k := 0
+	for {
+		outcomeK = MultiThreadKBisimulationStep(g, outcomeK, minSupport)
+		if len(outcomeK.DirtyBlocks) == 0 {
+			break
+		}
+		k++
+	}
+	fmt.Printf("Successfully ran bisimulation for k=%d levels.\n", k)
 }

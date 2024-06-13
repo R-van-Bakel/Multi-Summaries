@@ -23,6 +23,7 @@ package bisimulation
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
@@ -165,6 +166,11 @@ func (g *Graph) CreateReverseIndex() {
 	numberOfNodes := g.GetSize()
 	uniqueIndex := make(map[nodeIndex]*NodeHashSet, numberOfNodes)
 
+	var i uint64
+	for i = 0; i < numberOfNodes; i++ {
+		uniqueIndex[i] = NewNodeHashSet()
+	}
+
 	var sourceID nodeIndex
 	var targetID nodeIndex
 
@@ -255,7 +261,7 @@ func (g *Graph) ReadFromStream(r io.Reader) error {
 	line_counter := uint64(0)
 
 	var read_error error = nil
-	for read_error == nil {
+	for {
 		line_counter++
 		subject_index, read_error := readUintENTITYLittleEndian(r)
 		if read_error != nil {
@@ -269,13 +275,9 @@ func (g *Graph) ReadFromStream(r io.Reader) error {
 		if read_error != nil {
 			break
 		}
-		var largest nodeIndex = 0
-		if subject_index > object_index {
-			largest = subject_index
-		} else {
-			largest = object_index
-		}
-		g.Resize(largest + 1) // TODO Is this correct?
+
+		largest := max(subject_index, object_index)
+		g.Resize(largest + 1)
 
 		g.nodes[subject_index].AddEdge(edge_label, object_index)
 		if line_counter%1000000 == 0 {
@@ -507,21 +509,40 @@ func (kbo *KBisimulationOutcome) TotalBlocks() uint64 {
 	return kbo.SingletonBlockCount() + kbo.NonSingletonBlockCount()
 }
 
+type FBLSChannels struct {
+	freeBlocksChannel  chan blockIndex
+	blocksChannel      chan []BlockPtr
+	largeBlocksChannel chan BlockPtr
+	singletonsChannel  chan BlockPtr
+}
+
+func NewFBLSChannels(freeBlocksBufferSize int, blocksChannelBufferSize int, largeBlocksChannelBufferSize int, singletonsChannelBufferSize int) FBLSChannels {
+	freeBlocksChannel := make(chan blockIndex, freeBlocksBufferSize)
+	blocksChannel := make(chan []BlockPtr, blocksChannelBufferSize)
+	largeBlocksChannel := make(chan BlockPtr, largeBlocksChannelBufferSize)
+	singletonsChannel := make(chan BlockPtr, singletonsChannelBufferSize)
+	return FBLSChannels{freeBlocksChannel: freeBlocksChannel, blocksChannel: blocksChannel, largeBlocksChannel: largeBlocksChannel, singletonsChannel: singletonsChannel}
+}
+
 type ConcurrentKBisimulationOutcome struct {
 	Blocks      []BlockPtr
 	DirtyBlocks []blockIndex
-	// If the block for the node is not a singleton, this contains the block index.
-	// Otherwise, this will contain a negative number unique for that singleton
-	NodeToBlock Node2BlockMapper
-	freeBlocks  chan blockIndex
+	// If the block for the node is not a singleton, NodeToBlock contains the block index.
+	// Otherwise, it will contain a negative number unique for that singleton
+	NodeToBlock    Node2BlockMapper
+	freeBlocks     []blockIndex
+	channels       FBLSChannels
+	singletonCount uint64
 }
 
-func NewConcurrentKBisimulationOutcome(blocks []BlockPtr, dirtyBlocks []nodeIndex, nodeToBlock Node2BlockMapper, freeBlocks chan blockIndex) *ConcurrentKBisimulationOutcome {
+func NewConcurrentKBisimulationOutcome(blocks []BlockPtr, dirtyBlocks []nodeIndex, nodeToBlock Node2BlockMapper, freeBlocks []blockIndex, channels FBLSChannels, singletonCount uint64) *ConcurrentKBisimulationOutcome {
 	return &ConcurrentKBisimulationOutcome{
-		Blocks:      blocks,
-		DirtyBlocks: dirtyBlocks,
-		NodeToBlock: nodeToBlock,
-		freeBlocks:  freeBlocks,
+		Blocks:         blocks,
+		DirtyBlocks:    dirtyBlocks,
+		NodeToBlock:    nodeToBlock,
+		freeBlocks:     freeBlocks,
+		channels:       channels,
+		singletonCount: singletonCount,
 	}
 }
 
@@ -609,8 +630,13 @@ func (b *SignatureBuilder) AddPiece(label edgeType, block blockOrSingletonIndex)
 func (b *SignatureBuilder) Build() *Signature {
 	// minimize the space used by the signature
 
+	// if len(b.unsorted_pieces) == 0 {
+	// 	log.Panicln("The number of pieces for this signature is 0, which is not possible.")
+	// }
+
 	if len(b.unsorted_pieces) == 0 {
-		log.Panicln("The number of pieces for this signature is 0, which is not possible.")
+		dst := make([]SignaturePiece, 0)
+		return NewSignature(dst)
 	}
 
 	var dst []SignaturePiece
@@ -625,23 +651,40 @@ func (b *SignatureBuilder) Build() *Signature {
 	})
 
 	if b.deduplicate {
-		// deduplicate in place
-		current_last := 0
-		for i := 1; i < len(dst); i++ {
-			if dst[i] == dst[current_last] {
-				continue
-			}
-			// it is not a duplicate
-			dst[current_last+1] = dst[i]
-			current_last += 1
-		}
-
-		dst_truncated := make([]SignaturePiece, current_last+1)
-		copy(dst_truncated, dst[:current_last+1])
-		dst = dst_truncated
+		dst = uniqSortedDestructive(dst)
 	}
 
 	return NewSignature(dst)
+}
+
+/*
+Removes duplicates from the list, assuming it is sorted to start with.
+The provided list cannot be used after this operation (might be modified, or reused as a return value)
+*/
+func uniqSortedDestructive[V interface {
+	comparable
+}](sortedPieces []V) []V {
+
+	// deduplicate in place
+	if len(sortedPieces) == 0 {
+		return sortedPieces
+	}
+	current_last := 0
+	for i := 1; i < len(sortedPieces); i++ {
+		if sortedPieces[current_last] == sortedPieces[i] {
+			continue
+		}
+		// it is not a duplicate
+		current_last += 1
+		sortedPieces[current_last] = sortedPieces[i] // note: we could check whether current_last == i, and avoid overwriting. But probably that test will have about the same cost as just going ahead.
+	}
+	if current_last+1 == len(sortedPieces) {
+		return sortedPieces
+	} else {
+		dst_truncated := make([]V, current_last+1)
+		copy(dst_truncated, sortedPieces[:current_last+1])
+		return dst_truncated
+	}
 }
 
 func (signature *Signature) Equals(other *Signature) bool {
@@ -678,12 +721,13 @@ func NewSignatureBlockMap() SignatureBlockMap {
 func (M *SignatureBlockMap) Put(new_signature *Signature, index nodeIndex) {
 	hash := new_signature.Hash()
 	possible_options := M.mapping[hash]
-	for _, option := range possible_options {
-		if option.s.Equals(new_signature) {
-			option.block = append(option.block, index)
+	for i := 0; i < len(possible_options); i++ {
+		if possible_options[i].s.Equals(new_signature) {
+			possible_options[i].block = append(possible_options[i].block, index)
 			return
 		}
 	}
+
 	// not found, add a new one
 	newEntry := struct {
 		s     *Signature
@@ -831,7 +875,6 @@ func PartialKBisimulation(g *Graph, kBlock []BlockPtr, kMinOneMapper Node2BlockM
 const minChunkSize = 100
 
 func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, currentBlockIndex blockIndex, blocksChannel chan []BlockPtr, freeBlocksChannel chan blockIndex, singletonsChannel chan BlockPtr, largeBlocksChannel chan BlockPtr) {
-
 	currentBlock := (*kBlock)[currentBlockIndex]
 
 	blockSize := blockIndex(len(*currentBlock))
@@ -851,9 +894,9 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 	// Process the last chunk, which may be smaller than chunk_size if blockSize/chunkSize would leave a remainder
 	go processChunk(chunkSize*chunkSize, blockSize-1, currentBlock, kMinOneMapper, signatures, g)
 
-	// Listen to the signatures channel for all messages
-	M := NewSignatureBlockMap()
-	for i := uint64(0); i < chunkCount; i++ {
+	// Listen to the signatures channel for all messages. We can initialize this signature map with the first map read from the signatures channel
+	M := <-signatures
+	for i := uint64(0); i < chunkCount-1; i++ {
 		m := <-signatures
 		M.MergeDestructive(&m)
 	}
@@ -925,11 +968,10 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 	blocksChannel <- newBlocks
 }
 
-func processChunk(chunk_start uint64, chunk_stop uint64, currentBlock BlockPtr, kMinOneMapper Node2BlockMapper, signatures chan SignatureBlockMap, g *Graph) {
+func processChunk(chunkStart uint64, chunkStop uint64, currentBlock BlockPtr, kMinOneMapper Node2BlockMapper, signatures chan SignatureBlockMap, g *Graph) {
 	m := NewSignatureBlockMap()
-	for _, node := range (*currentBlock)[chunk_start:chunk_stop] {
+	for _, node := range (*currentBlock)[chunkStart:chunkStop] {
 		signatureBuilder := NewSignatureBuilder(true)
-
 		for _, edge_info := range g.nodes[node].edges {
 			to_block := kMinOneMapper.GetBlock(edge_info.target)
 			signatureBuilder.AddPiece(edge_info.label, to_block)
@@ -940,7 +982,7 @@ func processChunk(chunk_start uint64, chunk_stop uint64, currentBlock BlockPtr, 
 	signatures <- m
 }
 
-func readSingletonsChannel(singletonsChannel chan BlockPtr, newSingletons *Block, kMapper *MappingNode2BlockMapper, blockCount int, singletonCount *int, wg *sync.WaitGroup) {
+func readSingletonsChannel(singletonsChannel chan BlockPtr, newSingletons *Block, kMapper *MappingNode2BlockMapper, blockCount int, singletonCount *uint64, wg *sync.WaitGroup) {
 	for i := 0; i < blockCount; i++ {
 		singletonBlock := <-singletonsChannel
 		*newSingletons = append(*newSingletons, *singletonBlock...)
@@ -980,6 +1022,17 @@ func readLargeBlocksChannel(largeBlocksChannel chan BlockPtr, changedBlocks *[]B
 	(*wg).Done()
 }
 
+func fillFreeBlocksChannel(freeBlocks *[]blockIndex, freeBlocksChannel chan blockIndex, wgFreeBlocks *sync.WaitGroup) {
+	// Put the slice content into the channel
+	for _, freeBlock := range *freeBlocks {
+		freeBlocksChannel <- freeBlock
+	}
+
+	// Empty the slice
+	*freeBlocks = make([]blockIndex, 0)
+	wgFreeBlocks.Done()
+}
+
 // func updateKMapper(kMapper *MappingNode2BlockMapper, block BlockPtr, newIndex int) {
 // 	for _, node := range *block {
 // 		kMapper.OverwriteMapping(node, uint64(newIndex))
@@ -992,39 +1045,74 @@ func readLargeBlocksChannel(largeBlocksChannel chan BlockPtr, changedBlocks *[]B
 // 	}
 // }
 
-func MultiThreadKBisimulationStepZero(g *Graph) {
+func MultiThreadKBisimulationStepZero(g *Graph) *ConcurrentKBisimulationOutcome {
+	// Put all nodes into one large block
 	numberOfNodes := g.GetSize()
-	blockData := make([]nodeIndex, numberOfNodes)
+	blockData := make(Block, numberOfNodes)
 	for i := range blockData {
 		blockData[i] = uint64(i)
 	}
+
+	// Make the block index to node map
+	expectedBlocksSize := 100
+	blocks := make([]BlockPtr, 0, expectedBlocksSize)
+	blocks = append(blocks, &blockData)
+
+	// Make the slice for containing dirty block indices
+	expectedDirtyBlocksSize := 100
+	dirtyBlocks := make([]blockIndex, 0, expectedDirtyBlocksSize)
+	dirtyBlocks = append(dirtyBlocks, 0)
+
+	// Make the node to block mapper
+	node2BlockMapper := NewAllToZeroNode2BlockMapper(numberOfNodes - 1)
+
+	// Make the free blocks buffer
+	expectedFreeBlocksSize := 100
+	freeBlocks := make([]blockIndex, 0, expectedFreeBlocksSize)
+
+	// Setup the channels, which we will reuse for later steps
+	freeBlocksBufferSize := 100
+	blocksChannelBufferSize := 100
+	largeBlocksChannelBufferSize := 100
+	singletonsChannelBufferSize := 100
+	channels := NewFBLSChannels(freeBlocksBufferSize, blocksChannelBufferSize, largeBlocksChannelBufferSize, singletonsChannelBufferSize)
+
+	// Set the singleton count to 0. This assumes a graph with more than one node
+	singletonCount := uint64(0)
+
+	return NewConcurrentKBisimulationOutcome(blocks, dirtyBlocks, node2BlockMapper, freeBlocks, channels, singletonCount)
 }
 
-func MultiThreadKBisimulation(g *Graph, kMinOneOutcome ConcurrentKBisimulationOutcome, minSupport uint64, singletonCount int) ConcurrentKBisimulationOutcome {
-	kBlock := &kMinOneOutcome.Blocks
-	dirtyBlocks := &kMinOneOutcome.DirtyBlocks
-	kMinOneMapper := &kMinOneOutcome.NodeToBlock
-	freeBlocksChannel := kMinOneOutcome.freeBlocks
+func MultiThreadKBisimulationStep(g *Graph, kMinOneOutcome *ConcurrentKBisimulationOutcome, minSupport uint64) *ConcurrentKBisimulationOutcome {
+	kBlock := kMinOneOutcome.Blocks
+	dirtyBlocks := kMinOneOutcome.DirtyBlocks
+	kMinOneMapper := kMinOneOutcome.NodeToBlock
+	freeBlocks := kMinOneOutcome.freeBlocks
+	singletonCount := kMinOneOutcome.singletonCount
 
-	blockCount := len(*kBlock)
+	// Reuse the old channels
+	freeBlocksChannel := kMinOneOutcome.channels.freeBlocksChannel
+	blocksChannel := kMinOneOutcome.channels.blocksChannel
+	largeBlocksChannel := kMinOneOutcome.channels.largeBlocksChannel
+	singletonsChannel := kMinOneOutcome.channels.singletonsChannel
 
-	// Make the channels we use for communicating with the threads
-	// TODO We may want to reduce their initial capacity
-	blocksChannel := make(chan []BlockPtr, blockCount)
-	largeBlocksChannel := make(chan BlockPtr, blockCount)
-	singletonsChannel := make(chan BlockPtr, blockCount)
+	// Fill the free blocks channel
+	var wgFreeBlocks sync.WaitGroup
+	wgFreeBlocks.Add(1)
+	go fillFreeBlocksChannel(&freeBlocks, freeBlocksChannel, &wgFreeBlocks)
 
 	// Spawn threads for each block (which in turn will spawn threads for every chunk)
-	for _, dirtyBlock := range *dirtyBlocks {
-		go processBlock(kBlock, *kMinOneMapper, g, dirtyBlock, blocksChannel, freeBlocksChannel, singletonsChannel, largeBlocksChannel)
+	for _, dirtyBlock := range dirtyBlocks {
+		go processBlock(&kBlock, kMinOneMapper, g, dirtyBlock, blocksChannel, freeBlocksChannel, singletonsChannel, largeBlocksChannel)
 	}
 
 	// The new Node2BlockMapper
-	kMapper := (*kMinOneMapper).ModifiableCopy()
+	kMapper := (kMinOneMapper).ModifiableCopy()
 
 	// We want all threads to be done before marking dirty blocks. We achieve this with a waitgroup
 	var wg sync.WaitGroup
 	wg.Add(3)
+	blockCount := len(kBlock)
 
 	// Read the new singletons from the channel and store them locally
 	newSingletons := make(Block, 0)
@@ -1032,7 +1120,7 @@ func MultiThreadKBisimulation(g *Graph, kMinOneOutcome ConcurrentKBisimulationOu
 
 	// Read the new blocks from the channel and store them locally
 	newBlocks := make([]BlockPtr, 0)
-	go readBlocksChannel(kBlock, blocksChannel, &newBlocks, freeBlocksChannel, kMapper, blockCount, &wg)
+	go readBlocksChannel(&kBlock, blocksChannel, &newBlocks, freeBlocksChannel, kMapper, blockCount, &wg)
 
 	// Read the changed (reused) blocks from the channel and store them locally
 	changedBlocks := make([]BlockPtr, 0)
@@ -1063,10 +1151,28 @@ func MultiThreadKBisimulation(g *Graph, kMinOneOutcome ConcurrentKBisimulationOu
 		}
 	}
 
-	newKBlock := append(*kBlock, newBlocks...)
+	newKBlock := append(kBlock, newBlocks...)
+
 	newDirtyBlocks := newDirtyBlocksSet.ToSlice()
 
-	return ConcurrentKBisimulationOutcome{Blocks: newKBlock, DirtyBlocks: newDirtyBlocks, NodeToBlock: kMapper, freeBlocks: freeBlocksChannel}
+	for _, dirtyBlock := range newDirtyBlocks {
+		fmt.Println(dirtyBlock)
+	}
+
+	// Flush freeblocks channel
+	// TODO this is in principle not guaranteed to fully empty the channel if threads are still trying to write to it
+	wgFreeBlocks.Wait()
+	freeBlocksChannelEmpty := false
+	for !freeBlocksChannelEmpty {
+		select {
+		case freeBlock := <-freeBlocksChannel:
+			freeBlocks = append(freeBlocks, freeBlock)
+		default:
+			freeBlocksChannelEmpty = true
+		}
+	}
+
+	return NewConcurrentKBisimulationOutcome(newKBlock, newDirtyBlocks, kMapper, freeBlocks, kMinOneOutcome.channels, singletonCount)
 }
 
 // func GetKBisimulation(g *Graph, kMinusOneOutcome *KBisimulationOutcome, minSupport int) *KBisimulationOutcome {
