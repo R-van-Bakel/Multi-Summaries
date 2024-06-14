@@ -23,7 +23,6 @@ package bisimulation
 import (
 	"bufio"
 	"encoding/binary"
-	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
@@ -178,7 +177,7 @@ func (g *Graph) CreateReverseIndex() {
 		node := g.nodes[sourceID]
 		for _, edge := range node.edges {
 			targetID := edge.target
-			uniqueIndex[targetID].Add(targetID)
+			uniqueIndex[targetID].Add(sourceID)
 		}
 	}
 
@@ -354,22 +353,22 @@ type Node2BlockMapper interface {
 }
 
 type AllToZeroNode2BlockMapper struct {
-	maxNodeIndex nodeIndex
+	graphNodeCount nodeIndex
 }
 
-func NewAllToZeroNode2BlockMapper(maxNodeIndex nodeIndex) *AllToZeroNode2BlockMapper {
-	if maxNodeIndex < 2 {
+func NewAllToZeroNode2BlockMapper(graphNodeCount nodeIndex) *AllToZeroNode2BlockMapper {
+	if graphNodeCount < 2 {
 		logger.Panicf("the graph has only one, or zero nodes, breaking the precondition for using the AllToZeroNode2BlockMapper. It assumes there will not be any singletons")
 	}
-	return &AllToZeroNode2BlockMapper{maxNodeIndex: maxNodeIndex}
+	return &AllToZeroNode2BlockMapper{graphNodeCount: graphNodeCount}
 }
 
 func (mapper *AllToZeroNode2BlockMapper) GetBlock(nIndex nodeIndex) blockOrSingletonIndex {
 	if nIndex > uint64(MAX_INT) {
 		panic("Tried to get a block index lager than MAX_INT (maximum int64 value)")
 	}
-	if nIndex > mapper.maxNodeIndex {
-		logger.Panicf("requested an index higher than the maxNodeIndex %d", mapper.maxNodeIndex)
+	if nIndex >= mapper.graphNodeCount {
+		logger.Panicf("requested an index higher than or equal to the graphNodeCount %d", mapper.graphNodeCount)
 	}
 	return 0
 }
@@ -379,7 +378,7 @@ func (mapper *AllToZeroNode2BlockMapper) Clear() {
 }
 
 func (mapper *AllToZeroNode2BlockMapper) ModifiableCopy() *MappingNode2BlockMapper {
-	node_to_block := make([]nodeIndex, mapper.maxNodeIndex) // filled with zeroes by default
+	node_to_block := make([]blockOrSingletonIndex, mapper.graphNodeCount) // filled with zeroes by default
 	empty_dirty := []uint64{}
 
 	return NewMappingNode2BlockMapper(node_to_block, 0, empty_dirty)
@@ -394,14 +393,14 @@ func (mapper *AllToZeroNode2BlockMapper) FreeBlockCount() uint64 {
 }
 
 type MappingNode2BlockMapper struct {
-	nodeToBlock      []blockIndex
+	nodeToBlock      []blockOrSingletonIndex
 	singletonCounter uint64
 	freeBlockIndices []blockIndex // Assuming stack behavior is required, could implement using slice
 }
 
 // NewMappingNode2BlockMapper creates a new instance of MappingNode2BlockMapper.
 // Assumes freeBlockIndices is a slice for simplicity.
-func NewMappingNode2BlockMapper(nodeToBlock []blockIndex, singletonCount uint64, freeBlockIndices []blockIndex) *MappingNode2BlockMapper {
+func NewMappingNode2BlockMapper(nodeToBlock []blockOrSingletonIndex, singletonCount uint64, freeBlockIndices []blockIndex) *MappingNode2BlockMapper {
 	return &MappingNode2BlockMapper{
 		nodeToBlock:      nodeToBlock,
 		singletonCounter: singletonCount,
@@ -420,7 +419,7 @@ func (m *MappingNode2BlockMapper) SingletonCount() uint64 {
 }
 
 // OverwriteMapping updates the block mapping for a given node index.
-func (m *MappingNode2BlockMapper) OverwriteMapping(nIndex nodeIndex, bIndex blockIndex) {
+func (m *MappingNode2BlockMapper) OverwriteMapping(nIndex nodeIndex, bIndex blockOrSingletonIndex) {
 	m.nodeToBlock[nIndex] = bIndex
 }
 
@@ -434,7 +433,7 @@ func (m *MappingNode2BlockMapper) GetBlock(nIndex nodeIndex) blockOrSingletonInd
 
 // Clear implements the Node2BlockMapper interface for MappingNode2BlockMapper.
 func (m *MappingNode2BlockMapper) Clear() {
-	m.nodeToBlock = []blockIndex{}
+	m.nodeToBlock = []blockOrSingletonIndex{}
 	m.singletonCounter = 0
 	m.freeBlockIndices = []blockIndex{}
 }
@@ -442,7 +441,7 @@ func (m *MappingNode2BlockMapper) Clear() {
 // ModifiableCopy implements the Node2BlockMapper interface for MappingNode2BlockMapper.
 // This creates a deep copy of the mapper.
 func (m *MappingNode2BlockMapper) ModifiableCopy() *MappingNode2BlockMapper {
-	nodeToBlockCopy := make([]blockIndex, len(m.nodeToBlock))
+	nodeToBlockCopy := make([]blockOrSingletonIndex, len(m.nodeToBlock))
 	copy(nodeToBlockCopy, m.nodeToBlock)
 
 	freeBlockIndicesCopy := make([]blockIndex, len(m.freeBlockIndices))
@@ -461,7 +460,7 @@ func (m *MappingNode2BlockMapper) PutIntoSingleton(node nodeIndex) {
 	// 	logger.Panicf("Tried to create a singleton from node %d which already was a singleton. This is nearly certainly a mistake in the code.", node)
 	// }
 	m.singletonCounter++
-	m.nodeToBlock[node] = -blockIndex(m.singletonCounter) // Negative value as per requirement.
+	m.nodeToBlock[node] = -blockOrSingletonIndex(m.singletonCounter) // Negative value as per requirement.
 }
 
 type KBisimulationOutcome struct {
@@ -913,23 +912,25 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 
 	// If there is only one key in the mapping, then all the nodes have the same signature, meaning the current block did not split
 	if len(M.mapping) == 1 {
-		singletonsChannel <- &newSingletons
-		blocksChannel <- newBlocks
+		singletonsChannel <- &newSingletons // This should be empty
+		blocksChannel <- newBlocks          // This should be empty
 		emptyBlock := make(Block, 0)
-		largeBlocksChannel <- &emptyBlock
+		largeBlocksChannel <- &emptyBlock // This should be empty
 		return
 	}
 
 	// We go over all newly created blocks
 	for _, newBlock := range M.GetBlocks() {
+		newBlockOnStack := make(Block, 0)
+		newBlockOnStack = append(newBlockOnStack, newBlock...) // We do this because every newBlock would actually shares the same adress (as opposed to each newBlockOnStack having a unique adress)
 		// if singleton, make it a singleton in the mapping
-		if len(newBlock) == 1 {
-			newSingletons = append(newSingletons, newBlock[0])
+		if len(newBlockOnStack) == 1 {
+			newSingletons = append(newSingletons, newBlockOnStack[0])
 			continue
 		}
 
 		// Keep track of the largest block, we ignore singletons because they will be written to a separate channel anyway
-		if len(newBlock) > largestSize {
+		if len(newBlockOnStack) > largestSize {
 			// Write the old largest block directly if there is a free index, else store it in newBlocks
 			if largestSize > 0 {
 				select {
@@ -939,15 +940,15 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 					newBlocks = append(newBlocks, largestBlock)
 				}
 			}
-			largestBlock = &newBlock
-			largestSize = len(newBlock)
+			largestBlock = &newBlockOnStack
+			largestSize = len(newBlockOnStack)
 		} else {
 			// Write the new block directly if there is a free index, else store it in newBlocks
 			select {
 			case freeIndex := <-freeBlocksChannel:
-				(*kBlock)[freeIndex] = &newBlock
+				(*kBlock)[freeIndex] = &newBlockOnStack
 			default:
-				newBlocks = append(newBlocks, &newBlock)
+				newBlocks = append(newBlocks, &newBlockOnStack)
 			}
 		}
 	}
@@ -987,8 +988,8 @@ func readSingletonsChannel(singletonsChannel chan BlockPtr, newSingletons *Block
 		singletonBlock := <-singletonsChannel
 		*newSingletons = append(*newSingletons, *singletonBlock...)
 		for _, node := range *singletonBlock {
-			kMapper.OverwriteMapping(node, uint64(*singletonCount))
 			*singletonCount++
+			kMapper.OverwriteMapping(node, int64(-*singletonCount))
 		}
 	}
 	(*wg).Done()
@@ -1006,7 +1007,7 @@ func readBlocksChannel(kBlock *[]BlockPtr, blocksChannel chan []BlockPtr, newBlo
 				*newBlocks = append(*newBlocks, block)
 			}
 			for _, node := range *block {
-				kMapper.OverwriteMapping(node, -(uint64(newIndex))) // TODO see if this does what we expect. We should probably change the bIndex parameter to an int64
+				kMapper.OverwriteMapping(node, (int64(newIndex)))
 			}
 			newIndex++
 		}
@@ -1064,7 +1065,7 @@ func MultiThreadKBisimulationStepZero(g *Graph) *ConcurrentKBisimulationOutcome 
 	dirtyBlocks = append(dirtyBlocks, 0)
 
 	// Make the node to block mapper
-	node2BlockMapper := NewAllToZeroNode2BlockMapper(numberOfNodes - 1)
+	node2BlockMapper := NewAllToZeroNode2BlockMapper(numberOfNodes)
 
 	// Make the free blocks buffer
 	expectedFreeBlocksSize := 100
@@ -1110,34 +1111,34 @@ func MultiThreadKBisimulationStep(g *Graph, kMinOneOutcome *ConcurrentKBisimulat
 	kMapper := (kMinOneMapper).ModifiableCopy()
 
 	// We want all threads to be done before marking dirty blocks. We achieve this with a waitgroup
-	var wg sync.WaitGroup
-	wg.Add(3)
-	blockCount := len(kBlock)
+	var wgChannelReaders sync.WaitGroup
+	wgChannelReaders.Add(3)
+	dirtyBlockCount := len(dirtyBlocks)
 
 	// Read the new singletons from the channel and store them locally
 	newSingletons := make(Block, 0)
-	go readSingletonsChannel(singletonsChannel, &newSingletons, kMapper, blockCount, &singletonCount, &wg)
+	go readSingletonsChannel(singletonsChannel, &newSingletons, kMapper, dirtyBlockCount, &singletonCount, &wgChannelReaders)
 
 	// Read the new blocks from the channel and store them locally
 	newBlocks := make([]BlockPtr, 0)
-	go readBlocksChannel(&kBlock, blocksChannel, &newBlocks, freeBlocksChannel, kMapper, blockCount, &wg)
+	go readBlocksChannel(&kBlock, blocksChannel, &newBlocks, freeBlocksChannel, kMapper, dirtyBlockCount, &wgChannelReaders)
 
 	// Read the changed (reused) blocks from the channel and store them locally
 	changedBlocks := make([]BlockPtr, 0)
-	go readLargeBlocksChannel(largeBlocksChannel, &changedBlocks, blockCount, &wg)
+	go readLargeBlocksChannel(largeBlocksChannel, &changedBlocks, dirtyBlockCount, &wgChannelReaders)
 
 	// We use a custom hash set to mark the dirty blocks
 	newDirtyBlocksSet := NewBlockHashSet()
-	wg.Wait()
+	wgChannelReaders.Wait()
 
 	// We first look through all newly created blocks, then we find the nodes pointing to these blocks and finally we mark the blocks containig the respective nodes as dirty
 	for _, block := range newBlocks {
 		for _, node := range *block {
-			for _, nodeID := range g.reverse[node] {
-				potentialDirtyBlock := kMapper.GetBlock(nodeID)
+			for _, parentID := range g.reverse[node] {
+				potentialDirtyBlockID := kMapper.GetBlock(parentID)
 				// We may get singletons (represented by negative numbers), but we do not need to mark them, since they can not split
-				if potentialDirtyBlock >= 0 {
-					newDirtyBlocksSet.Add(uint64(potentialDirtyBlock))
+				if potentialDirtyBlockID >= 0 {
+					newDirtyBlocksSet.Add(uint64(potentialDirtyBlockID)) // This cast is safe as we skip any negative indices
 				}
 			}
 		}
@@ -1145,8 +1146,12 @@ func MultiThreadKBisimulationStep(g *Graph, kMinOneOutcome *ConcurrentKBisimulat
 	// Secondly we do the same with the changed blocks (the ones that were overwritten instead of newly created)
 	for _, block := range changedBlocks {
 		for _, node := range *block {
-			for _, blockID := range g.reverse[node] {
-				newDirtyBlocksSet.Add(blockID)
+			for _, parentID := range g.reverse[node] {
+				potentialDirtyBlockID := kMapper.GetBlock(parentID)
+				// We may get singletons (represented by negative numbers), but we do not need to mark them, since they can not split
+				if potentialDirtyBlockID >= 0 {
+					newDirtyBlocksSet.Add(uint64(potentialDirtyBlockID)) // This cast is safe as we skip any negative indices
+				}
 			}
 		}
 	}
@@ -1155,9 +1160,8 @@ func MultiThreadKBisimulationStep(g *Graph, kMinOneOutcome *ConcurrentKBisimulat
 
 	newDirtyBlocks := newDirtyBlocksSet.ToSlice()
 
-	for _, dirtyBlock := range newDirtyBlocks {
-		fmt.Println(dirtyBlock)
-	}
+	// for _, block := range newDirtyBlocks {
+	// }
 
 	// Flush freeblocks channel
 	// TODO this is in principle not guaranteed to fully empty the channel if threads are still trying to write to it

@@ -277,7 +277,7 @@ func TestPut(t *testing.T) {
 			return
 		}
 	}
-	panic("The result was not as expected")
+	t.Fatal("The result was not as expected")
 }
 
 // ###### Integration tests ######
@@ -287,19 +287,19 @@ func TestConcurrentStepZero(t *testing.T) {
 	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
 	if err != nil {
 		fmt.Println("Error while opening the graph binary")
-		panic(err)
+		t.Fatal(err)
 	}
 
 	// Try to read off the meta data from the binary
 	graphFileInfo, err := graphFile.Stat()
 	if err != nil {
 		fmt.Println("Error while getting the size of the graph binary")
-		panic(err)
+		t.Fatal(err)
 	}
 
 	// A check for if the data is stored correctly
 	if graphFileInfo.Size()%14 != 0 {
-		panic("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
+		t.Fatal("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
 	}
 
 	// Get and print the graph size
@@ -328,19 +328,19 @@ func TestConcurrentStepOne(t *testing.T) {
 	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
 	if err != nil {
 		fmt.Println("Error while opening the graph binary")
-		panic(err)
+		t.Fatal(err)
 	}
 
 	// Try to read off the meta data from the binary
 	graphFileInfo, err := graphFile.Stat()
 	if err != nil {
 		fmt.Println("Error while getting the size of the graph binary")
-		panic(err)
+		t.Fatal(err)
 	}
 
 	// A check for if the data is stored correctly
 	if graphFileInfo.Size()%14 != 0 {
-		panic("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
+		t.Fatal("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
 	}
 
 	// Get and print the graph size
@@ -375,19 +375,19 @@ func TestConcurrent(t *testing.T) {
 	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
 	if err != nil {
 		fmt.Println("Error while opening the graph binary")
-		panic(err)
+		t.Fatal(err)
 	}
 
 	// Try to read off the meta data from the binary
 	graphFileInfo, err := graphFile.Stat()
 	if err != nil {
 		fmt.Println("Error while getting the size of the graph binary")
-		panic(err)
+		t.Fatal(err)
 	}
 
 	// A check for if the data is stored correctly
 	if graphFileInfo.Size()%14 != 0 {
-		panic("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
+		t.Fatal("The graph binary was not a multiple of 14 bytes (5 for subject, 4 for relation, 5 for object)")
 	}
 
 	// Get and print the graph size
