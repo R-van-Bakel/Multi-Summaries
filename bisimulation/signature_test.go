@@ -372,7 +372,7 @@ func TestConcurrentStepOne(t *testing.T) {
 
 func TestConcurrent(t *testing.T) {
 	// Open the binary graph file
-	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
+	graphFile, err := os.Open("./test_data/BSBM-40000_binary_encoding.bin")
 	if err != nil {
 		fmt.Println("Error while opening the graph binary")
 		t.Fatal(err)
@@ -392,7 +392,7 @@ func TestConcurrent(t *testing.T) {
 
 	// Get and print the graph size
 	graphSize := graphFileInfo.Size() / 14
-	fmt.Printf("Graph size: %d triples\n", graphSize)
+	logger.Printf("Graph size: %d triples\n", graphSize)
 
 	// We make a rough estimate of how many nodes are in the graph
 	nodeCountEstimate := graphSize // This would assume a sparse graph where on avergage there is one new node per triple
@@ -407,6 +407,8 @@ func TestConcurrent(t *testing.T) {
 	// Calculate the reverse index
 	g.CreateReverseIndex()
 
+	logger.Printf("Graph size: %d nodes\n", g.GetSize())
+
 	// Perform the zeroth step in our k-forward bisimulation algorithm
 	outcomeK := MultiThreadKBisimulationStepZero(g)
 
@@ -417,10 +419,12 @@ func TestConcurrent(t *testing.T) {
 	k := 0
 	for {
 		outcomeK = MultiThreadKBisimulationStep(g, outcomeK, minSupport)
+		k++
+		logger.Printf("(k=%d) Block count:     %d\n", k, len((*outcomeK).Blocks))
+		logger.Printf("(k=%d) Singelton count: %d\n\n", k, (*outcomeK).singletonCount)
 		if len(outcomeK.DirtyBlocks) == 0 {
 			break
 		}
-		k++
 	}
-	fmt.Printf("Successfully ran bisimulation for k=%d levels. THIS DOES NOT MEAN IT RAN CORRECTLY PER SE.\n", k)
+	fmt.Printf("Successfully ran bisimulation for k=%d levels (i.e. k=%d is a fixed point). THIS DOES NOT MEAN IT RAN CORRECTLY PER SE.\n", k, k-1)
 }

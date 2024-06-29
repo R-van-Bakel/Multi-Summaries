@@ -186,6 +186,7 @@ func (g *Graph) CreateReverseIndex() {
 			g.reverse[targetID] = append(g.reverse[targetID], sourceID)
 		}
 	}
+	logger.Println("Done creating reverse index")
 }
 
 // class Graph
@@ -283,9 +284,11 @@ func (g *Graph) ReadFromStream(r io.Reader) error {
 			logger.Printf("Done with %d triples\n", line_counter)
 		}
 	}
-	if read_error != io.EOF {
+	if read_error != io.EOF && read_error != nil {
+		logger.Printf("DEBUG Lil error: %v", read_error)
 		return read_error
 	}
+	logger.Println("Done reading graph")
 	// #ifdef CREATE_REVERSE_INDEX
 	//     g.compute_reverse_index();
 	// #endif
@@ -785,9 +788,9 @@ func (thisM *SignatureBlockMap) MergeDestructive(otherM *SignatureBlockMap) {
 		// We have to check all pairs, short cutting if found
 	OtherOptionsLoop:
 		for _, otherOption := range otherOptions {
-			for _, thisOption := range thisOptions {
-				if otherOption.s.Equals(thisOption.s) {
-					thisOption.block = append(thisOption.block, otherOption.block...)
+			for i := 0; i < len(thisOptions); i++ { // Changed this to a regular for loop, because a for each loop makes copies, instead of referencing the original data
+				if otherOption.s.Equals(thisOptions[i].s) {
+					thisOptions[i].block = append(thisOptions[i].block, otherOption.block...)
 					continue OtherOptionsLoop
 				}
 			}
@@ -881,6 +884,11 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 	chunkSize := min(minChunkSize, blockSize)
 
 	chunkCount := uint64(blockSize / chunkSize) // We are working with only positive numbers, so we can just truncate
+	// If there is a remainder, we will spawn an extra thread of the final smaller chunk
+	if blockSize%chunkSize != 0 {
+		chunkCount += 1
+	}
+	// fmt.Printf("DEBUG chunk count: %d\n", chunkCount)
 
 	// We create the channel the inner threads will use to communicate with this thread
 	signatureBufferSize := chunkCount
@@ -888,17 +896,20 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 
 	// Process all chunk of size chunkSize
 	for i := uint64(0); i < chunkCount-1; i++ {
-		go processChunk(uint64(i*chunkSize), uint64((i+1)*chunkSize-1), currentBlock, kMinOneMapper, signatures, g)
+		go processChunk(uint64(i*chunkSize), uint64((i+1)*chunkSize), currentBlock, kMinOneMapper, signatures, g)
 	}
 	// Process the last chunk, which may be smaller than chunk_size if blockSize/chunkSize would leave a remainder
-	go processChunk((chunkCount-1)*chunkSize, blockSize-1, currentBlock, kMinOneMapper, signatures, g)
+	go processChunk((chunkCount-1)*chunkSize, blockSize, currentBlock, kMinOneMapper, signatures, g)
 
 	// Listen to the signatures channel for all messages. We can initialize this signature map with the first map read from the signatures channel
 	M := <-signatures
+	// fmt.Printf("DEBUG m: %v\n", M)
 	for i := uint64(0); i < chunkCount-1; i++ {
 		m := <-signatures
+		// fmt.Printf("DEBUG m: %v\n", m)
 		M.MergeDestructive(&m)
 	}
+	// fmt.Printf("DEBUG M: %v\n", M)
 
 	// Accumulate the singletons before sending them all together
 	newSingletons := make(Block, 0)
@@ -1175,7 +1186,6 @@ func MultiThreadKBisimulationStep(g *Graph, kMinOneOutcome *ConcurrentKBisimulat
 			freeBlocksChannelEmpty = true
 		}
 	}
-
 	return NewConcurrentKBisimulationOutcome(newKBlock, newDirtyBlocks, kMapper, freeBlocks, kMinOneOutcome.channels, singletonCount)
 }
 
