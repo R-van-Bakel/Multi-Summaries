@@ -352,7 +352,7 @@ void convert_graph(std::istream &inputstream,
         }
         else if (object.front() == '"' && object.back() == '"')
         {
-            object = object.substr(1, object.size()-2);
+            object = bisimulation_string;
         }
         else
         {
