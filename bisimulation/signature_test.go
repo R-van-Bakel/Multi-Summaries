@@ -286,14 +286,14 @@ func TestConcurrentStepZero(t *testing.T) {
 	// Open the binary graph file
 	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
 	if err != nil {
-		fmt.Println("Error while opening the graph binary")
+		logger.Println("Error while opening the graph binary")
 		t.Fatal(err)
 	}
 
 	// Try to read off the meta data from the binary
 	graphFileInfo, err := graphFile.Stat()
 	if err != nil {
-		fmt.Println("Error while getting the size of the graph binary")
+		logger.Println("Error while getting the size of the graph binary")
 		t.Fatal(err)
 	}
 
@@ -304,7 +304,7 @@ func TestConcurrentStepZero(t *testing.T) {
 
 	// Get and print the graph size
 	graphSize := graphFileInfo.Size() / 14
-	fmt.Printf("Graph size: %d triples\n", graphSize)
+	logger.Printf("Graph size: %d triples\n", graphSize)
 
 	// We make a rough estimate of how many nodes are in the graph
 	nodeCountEstimate := graphSize // This would assume a sparse graph where on avergage there is one new node per triple
@@ -327,14 +327,14 @@ func TestConcurrentStepOne(t *testing.T) {
 	// Open the binary graph file
 	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
 	if err != nil {
-		fmt.Println("Error while opening the graph binary")
+		logger.Println("Error while opening the graph binary")
 		t.Fatal(err)
 	}
 
 	// Try to read off the meta data from the binary
 	graphFileInfo, err := graphFile.Stat()
 	if err != nil {
-		fmt.Println("Error while getting the size of the graph binary")
+		logger.Println("Error while getting the size of the graph binary")
 		t.Fatal(err)
 	}
 
@@ -345,7 +345,7 @@ func TestConcurrentStepOne(t *testing.T) {
 
 	// Get and print the graph size
 	graphSize := graphFileInfo.Size() / 14
-	fmt.Printf("Graph size: %d triples\n", graphSize)
+	logger.Printf("Graph size: %d triples\n", graphSize)
 
 	// We make a rough estimate of how many nodes are in the graph
 	nodeCountEstimate := graphSize // This would assume a sparse graph where on avergage there is one new node per triple
@@ -370,18 +370,47 @@ func TestConcurrentStepOne(t *testing.T) {
 	MultiThreadKBisimulationStep(g, outcomeK, minSupport)
 }
 
-func TestConcurrent(t *testing.T) {
+type ConcurrentTestResults struct {
+	blockCounts     []nodeIndex
+	singletonCounts []nodeIndex
+	fixedPoint      uint32
+}
+
+func NewConcurrentTestResults(blockCounts []nodeIndex, singletonCounts []nodeIndex, fixedPoint uint32) ConcurrentTestResults {
+	return ConcurrentTestResults{
+		blockCounts:     blockCounts,
+		singletonCounts: singletonCounts,
+		fixedPoint:      fixedPoint,
+	}
+}
+
+func compareResults(results ConcurrentTestResults, expectedResults ConcurrentTestResults, t *testing.T) {
+	if results.fixedPoint != expectedResults.fixedPoint {
+		t.Fatal("Mismatched fixed point")
+	}
+	var i uint32
+	for i = 0; i > results.fixedPoint+1; i++ {
+		if results.blockCounts[i] != expectedResults.blockCounts[i] {
+			t.Fatal("Mismatched block counts")
+		}
+		if results.singletonCounts[i] != expectedResults.singletonCounts[i] {
+			t.Fatal("Mismatched singleton counts")
+		}
+	}
+}
+
+func RunConcurrent(file_path string, t *testing.T) ConcurrentTestResults {
 	// Open the binary graph file
-	graphFile, err := os.Open("./test_data/BSBM-40000_binary_encoding.bin")
+	graphFile, err := os.Open(file_path)
 	if err != nil {
-		fmt.Println("Error while opening the graph binary")
+		logger.Println("Error while opening the graph binary")
 		t.Fatal(err)
 	}
 
 	// Try to read off the meta data from the binary
 	graphFileInfo, err := graphFile.Stat()
 	if err != nil {
-		fmt.Println("Error while getting the size of the graph binary")
+		logger.Println("Error while getting the size of the graph binary")
 		t.Fatal(err)
 	}
 
@@ -415,16 +444,75 @@ func TestConcurrent(t *testing.T) {
 	// Set the minimum support parameter
 	var minSupport uint64 = 0
 
+	blockCounts := make([]nodeIndex, 0)
+	singletonCounts := make([]nodeIndex, 0)
+
 	// Perform the full bisimulation
-	k := 0
+	var k uint32 = 0
+	var blockCount nodeIndex
+	var singletonCount nodeIndex
+	var previousBlockCount nodeIndex = 0
+	var previousSingletonCount nodeIndex = 0
 	for {
 		outcomeK = MultiThreadKBisimulationStep(g, outcomeK, minSupport)
 		k++
-		logger.Printf("(k=%d) Block count:     %d\n", k, len((*outcomeK).Blocks))
-		logger.Printf("(k=%d) Singelton count: %d\n\n", k, (*outcomeK).singletonCount)
-		if len(outcomeK.DirtyBlocks) == 0 {
+		blockCount = nodeIndex(len((*outcomeK).Blocks)) - nodeIndex(len((*outcomeK).freeBlocks))
+		singletonCount = nodeIndex((*outcomeK).singletonCount)
+		logger.Printf("(k=%d) Block count:     %d\n", k, blockCount)
+		logger.Printf("(k=%d) Singelton count: %d\n\n", k, singletonCount)
+		blockCounts = append(blockCounts, blockCount)
+		singletonCounts = append(singletonCounts, singletonCount)
+		if blockCount == previousBlockCount && singletonCount == previousSingletonCount {
 			break
 		}
+		previousBlockCount = blockCount
+		previousSingletonCount = singletonCount
 	}
-	fmt.Printf("Successfully ran bisimulation for k=%d levels (i.e. k=%d is a fixed point). THIS DOES NOT MEAN IT RAN CORRECTLY PER SE.\n", k, k-1)
+	logger.Printf("Ran bisimulation on %s for k=%d levels (i.e. k=%d should be a fixed point).\n\n", file_path, k, k-1)
+	result := NewConcurrentTestResults(blockCounts, singletonCounts, k-1)
+	return result
+}
+
+func TestConcurrent(t *testing.T) {
+	simpleChainExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{1, 1, 1, 1, 1, 1, 1, 0, 0},
+		[]nodeIndex{1, 2, 3, 4, 5, 6, 7, 9, 9},
+		8)
+	simpleChainResult := RunConcurrent("./test_data/simple_chain_binary_encoding.bin", t)
+	compareResults(simpleChainResult, simpleChainExpectedResult, t)
+
+	simpleCycleExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{1, 1},
+		[]nodeIndex{1, 1},
+		1)
+	simpleCycleResult := RunConcurrent("./test_data/simple_cycle_binary_encoding.bin", t)
+	compareResults(simpleCycleResult, simpleCycleExpectedResult, t)
+
+	simpleCyclesExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{1, 1, 1, 2, 1, 1},
+		[]nodeIndex{1, 2, 3, 3, 5, 5},
+		5)
+	simpleCyclesResult := RunConcurrent("./test_data/simple_cycles_binary_encoding.bin", t)
+	compareResults(simpleCyclesResult, simpleCyclesExpectedResult, t)
+
+	simpleDagExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{1, 1, 1, 2, 3, 3},
+		[]nodeIndex{1, 2, 3, 3, 3, 3},
+		5)
+	simpleDagResult := RunConcurrent("./test_data/simple_dag_binary_encoding.bin", t)
+	compareResults(simpleDagResult, simpleDagExpectedResult, t)
+
+	simpleEdgeExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{0, 0},
+		[]nodeIndex{2, 2},
+		1)
+	simpleEdgeResult := RunConcurrent("./test_data/simple_edge_binary_encoding.bin", t)
+	compareResults(simpleEdgeResult, simpleEdgeExpectedResult, t)
+
+	toxicExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{2, 3, 4, 5, 5},
+		[]nodeIndex{0, 0, 0, 0, 0},
+		4)
+	toxicResult := RunConcurrent("./test_data/toxic_binary_encoding.bin", t)
+	compareResults(toxicResult, toxicExpectedResult, t)
 }

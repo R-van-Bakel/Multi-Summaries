@@ -259,6 +259,7 @@ func readUintPREDICATELittleEndian(r io.Reader) (edgeType, error) {
 func (g *Graph) ReadFromStream(r io.Reader) error {
 
 	line_counter := uint64(0)
+	largest := uint64(0)
 
 	var read_error error = nil
 	for {
@@ -276,16 +277,18 @@ func (g *Graph) ReadFromStream(r io.Reader) error {
 			break
 		}
 
-		largest := max(subject_index, object_index)
+		largest = max(subject_index, object_index)
 		g.Resize(largest + 1)
 
+		// fmt.Printf("DEBUG s p o: %d, %d, %d\n", subject_index, edge_label, object_index)
 		g.nodes[subject_index].AddEdge(edge_label, object_index)
 		if line_counter%1000000 == 0 {
 			logger.Printf("Done with %d triples\n", line_counter)
 		}
 	}
-	if read_error != io.EOF && read_error != nil {
-		logger.Printf("DEBUG Lil error: %v", read_error)
+	// fmt.Printf("DEBUG the largest node: %d\n", largest)
+	if read_error != io.EOF && read_error != nil { // TODO For some reason read_error still seems able to be equal to nil, so we check for it again
+		// logger.Printf("DEBUG Lil error: %v", read_error)
 		return read_error
 	}
 	logger.Println("Done reading graph")
@@ -924,9 +927,12 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 	// If there is only one key in the mapping, then all the nodes have the same signature, meaning the current block did not split
 	if len(M.mapping) == 1 {
 		singletonsChannel <- &newSingletons // This should be empty
-		blocksChannel <- newBlocks          // This should be empty
+		// fmt.Printf("DEBUG singleton block: %v\n", newSingletons)
+		blocksChannel <- newBlocks // This should be empty
+		// fmt.Printf("DEBUG block: %v\n", newBlocks)
 		emptyBlock := make(Block, 0)
 		largeBlocksChannel <- &emptyBlock // This should be empty
+		// fmt.Printf("DEBUG large block: %v\n", emptyBlock)
 		return
 	}
 
@@ -969,15 +975,19 @@ func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, 
 	if largestSize > 0 {
 		(*kBlock)[currentBlockIndex] = largestBlock
 		largeBlocksChannel <- (*kBlock)[currentBlockIndex]
+		// fmt.Printf("DEBUG large block: %v\n", *(*kBlock)[currentBlockIndex])
 	} else {
 		emptyBlock := make(Block, 0)
 		largeBlocksChannel <- &emptyBlock
+		// fmt.Printf("DEBUG large block: %v\n", emptyBlock)
 		freeBlocksChannel <- currentBlockIndex
 	}
 
 	// Write the remaining blocks and singletons to the blocksChannel and singletonsChannel respectively
 	singletonsChannel <- &newSingletons
+	// fmt.Printf("DEBUG singleton block: %v\n", newSingletons)
 	blocksChannel <- newBlocks
+	// fmt.Printf("DEBUG block: %v\n", newBlocks)
 }
 
 func processChunk(chunkStart uint64, chunkStop uint64, currentBlock BlockPtr, kMinOneMapper Node2BlockMapper, signatures chan SignatureBlockMap, g *Graph) {
