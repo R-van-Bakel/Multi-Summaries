@@ -22,12 +22,13 @@ package bisimulation
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/binary"
 	"hash/fnv"
 	"io"
 	"log"
 	"os"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/bits-and-blooms/bitset"
@@ -648,11 +649,12 @@ func (b *SignatureBuilder) Build() *Signature {
 	dst = make([]SignaturePiece, len(b.unsorted_pieces))
 	copy(dst, b.unsorted_pieces)
 
-	sort.Slice(dst, func(i, j int) bool {
-		if dst[i].label < dst[j].label {
-			return true
+	slices.SortFunc(dst, func(a, b SignaturePiece) int {
+		res := cmp.Compare(a.label, b.label)
+		if res != 0 {
+			return res
 		}
-		return dst[i].block < dst[j].block
+		return cmp.Compare(a.block, b.block)
 	})
 
 	if b.deduplicate {
@@ -880,6 +882,7 @@ func PartialKBisimulation(g *Graph, kBlock []BlockPtr, kMinOneMapper Node2BlockM
 const minChunkSize = 100
 
 func processBlock(kBlock *[]BlockPtr, kMinOneMapper Node2BlockMapper, g *Graph, currentBlockIndex blockIndex, blocksChannel chan []BlockPtr, freeBlocksChannel chan blockIndex, singletonsChannel chan BlockPtr, largeBlocksChannel chan BlockPtr) {
+	// fmt.Printf("DEBUG current block index: %d\n", currentBlockIndex)
 	currentBlock := (*kBlock)[currentBlockIndex]
 
 	blockSize := blockIndex(len(*currentBlock))
@@ -1102,6 +1105,8 @@ func MultiThreadKBisimulationStepZero(g *Graph) *ConcurrentKBisimulationOutcome 
 	// Set the singleton count to 0. This assumes a graph with more than one node
 	singletonCount := uint64(0)
 
+	// fmt.Printf("DEBUG block size %d\n", len(blocks))
+	// fmt.Printf("DEBUG blocks %v\n", *blocks[0])
 	return NewConcurrentKBisimulationOutcome(blocks, dirtyBlocks, node2BlockMapper, freeBlocks, channels, singletonCount)
 }
 
@@ -1122,6 +1127,11 @@ func MultiThreadKBisimulationStep(g *Graph, kMinOneOutcome *ConcurrentKBisimulat
 	var wgFreeBlocks sync.WaitGroup
 	wgFreeBlocks.Add(1)
 	go fillFreeBlocksChannel(&freeBlocks, freeBlocksChannel, &wgFreeBlocks)
+
+	// fmt.Println("DEBUG blocks:")
+	// for _, block := range kBlock {
+	// 	fmt.Printf("DEBUG %v\n", *block)
+	// }
 
 	// Spawn threads for each block (which in turn will spawn threads for every chunk)
 	for _, dirtyBlock := range dirtyBlocks {
@@ -1177,9 +1187,21 @@ func MultiThreadKBisimulationStep(g *Graph, kMinOneOutcome *ConcurrentKBisimulat
 		}
 	}
 
+	// Finally we look at the singletons
+	for _, node := range newSingletons {
+		for _, parentID := range g.reverse[node] {
+			potentialDirtyBlockID := kMapper.GetBlock(parentID)
+			// We may get singletons (represented by negative numbers), but we do not need to mark them, since they can not split
+			if potentialDirtyBlockID >= 0 {
+				newDirtyBlocksSet.Add(uint64(potentialDirtyBlockID)) // This cast is safe as we skip any negative indices
+			}
+		}
+	}
+
 	newKBlock := append(kBlock, newBlocks...)
 
 	newDirtyBlocks := newDirtyBlocksSet.ToSlice()
+	// fmt.Printf("DEBUG dirty blocks (new): %v\n", newDirtyBlocks)
 
 	// for _, block := range newDirtyBlocks {
 	// }

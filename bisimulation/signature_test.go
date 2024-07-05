@@ -14,7 +14,7 @@ func TestSignatureEqualsAndHash(t *testing.T) {
 		s2b := NewSignatureBuilder(deduplicate)
 
 		for labelID := 0; labelID < 100; labelID++ {
-			for blockID := 123; blockID < 140; blockID++ {
+			for blockID := 123; blockID < 140; blockID += 2 {
 				s1b.AddPiece(uint32(labelID), int64(blockID))
 				s2b.AddPiece(uint32(labelID), int64(blockID))
 				s1 := s1b.Build()
@@ -27,6 +27,23 @@ func TestSignatureEqualsAndHash(t *testing.T) {
 				}
 			}
 		}
+
+		// Now we go backward, this makes it such that things need to be resorted all the time
+		for labelID := 100; labelID > 0; labelID-- {
+			for blockID := 140; blockID > 123; blockID -= 2 {
+				s1b.AddPiece(uint32(labelID), int64(blockID))
+				s2b.AddPiece(uint32(labelID), int64(blockID))
+				s1 := s1b.Build()
+				s2 := s2b.Build()
+				if !s1.Equals(s2) {
+					t.Fatal("Signatures that must be equal did not compare equal")
+				}
+				if s1.Hash() != s2.Hash() {
+					t.Fatal("Signatures that must be equal did not give the same hash")
+				}
+			}
+		}
+
 		// add all again to test whether deduplication works as expected
 		for labelID := 0; labelID < 100; labelID++ {
 			for _, blockID := range []int64{123, 128, 128, 130} {
@@ -79,6 +96,29 @@ func TestUniqSortedDestructive(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestProblematicSortingCase(t *testing.T) {
+	b1 := NewSignatureBuilder(true)
+	b1.AddPiece(0, 0)
+	b1.AddPiece(1, 2)
+	b1.AddPiece(0, 3)
+	signature1 := b1.Build()
+
+	b2 := NewSignatureBuilder(true)
+	b2.AddPiece(0, 3)
+	b2.AddPiece(1, 2)
+	b2.AddPiece(0, 0)
+	signature2 := b2.Build()
+
+	if signature1.Hash() != signature2.Hash() {
+		t.Fatal("Signatures which are equal did not hash to the same value")
+	}
+
+	if !signature1.Equals(signature2) {
+		t.Fatal("Signatures which are equal do not compare equal")
+	}
+
 }
 
 func BenchmarkUniqSortedDestructive(outer_b *testing.B) {
@@ -284,7 +324,7 @@ func TestPut(t *testing.T) {
 
 func TestConcurrentStepZero(t *testing.T) {
 	// Open the binary graph file
-	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
+	graphFile, err := os.Open("./testdata/Fishburne_binary_encoding.bin")
 	if err != nil {
 		logger.Println("Error while opening the graph binary")
 		t.Fatal(err)
@@ -325,7 +365,7 @@ func TestConcurrentStepZero(t *testing.T) {
 
 func TestConcurrentStepOne(t *testing.T) {
 	// Open the binary graph file
-	graphFile, err := os.Open("./test_data/Fishburne_binary_encoding.bin")
+	graphFile, err := os.Open("./testdata/Fishburne_binary_encoding.bin")
 	if err != nil {
 		logger.Println("Error while opening the graph binary")
 		t.Fatal(err)
@@ -437,9 +477,14 @@ func RunConcurrent(file_path string, t *testing.T) ConcurrentTestResults {
 	g.CreateReverseIndex()
 
 	logger.Printf("Graph size: %d nodes\n", g.GetSize())
+	// fmt.Printf("DEBUG graph nodes: %v\n", g.nodes)
 
 	// Perform the zeroth step in our k-forward bisimulation algorithm
 	outcomeK := MultiThreadKBisimulationStepZero(g)
+	// fmt.Println("DEBUG outcome blocks")
+	// for _, block := range outcomeK.Blocks {
+	// 	fmt.Printf("DEBUG outcome block: %v\n", *block)
+	// }
 
 	// Set the minimum support parameter
 	var minSupport uint64 = 0
@@ -478,41 +523,125 @@ func TestConcurrent(t *testing.T) {
 		[]nodeIndex{1, 1, 1, 1, 1, 1, 1, 0, 0},
 		[]nodeIndex{1, 2, 3, 4, 5, 6, 7, 9, 9},
 		8)
-	simpleChainResult := RunConcurrent("./test_data/simple_chain_binary_encoding.bin", t)
+	simpleChainResult := RunConcurrent("./testdata/simple_chain_binary_encoding.bin", t)
 	compareResults(simpleChainResult, simpleChainExpectedResult, t)
 
 	simpleCycleExpectedResult := NewConcurrentTestResults(
 		[]nodeIndex{1, 1},
 		[]nodeIndex{1, 1},
 		1)
-	simpleCycleResult := RunConcurrent("./test_data/simple_cycle_binary_encoding.bin", t)
+	simpleCycleResult := RunConcurrent("./testdata/simple_cycle_binary_encoding.bin", t)
 	compareResults(simpleCycleResult, simpleCycleExpectedResult, t)
 
 	simpleCyclesExpectedResult := NewConcurrentTestResults(
 		[]nodeIndex{1, 1, 1, 2, 1, 1},
 		[]nodeIndex{1, 2, 3, 3, 5, 5},
 		5)
-	simpleCyclesResult := RunConcurrent("./test_data/simple_cycles_binary_encoding.bin", t)
+	simpleCyclesResult := RunConcurrent("./testdata/simple_cycles_binary_encoding.bin", t)
 	compareResults(simpleCyclesResult, simpleCyclesExpectedResult, t)
 
 	simpleDagExpectedResult := NewConcurrentTestResults(
 		[]nodeIndex{1, 1, 1, 2, 3, 3},
 		[]nodeIndex{1, 2, 3, 3, 3, 3},
 		5)
-	simpleDagResult := RunConcurrent("./test_data/simple_dag_binary_encoding.bin", t)
+	simpleDagResult := RunConcurrent("./testdata/simple_dag_binary_encoding.bin", t)
 	compareResults(simpleDagResult, simpleDagExpectedResult, t)
 
 	simpleEdgeExpectedResult := NewConcurrentTestResults(
 		[]nodeIndex{0, 0},
 		[]nodeIndex{2, 2},
 		1)
-	simpleEdgeResult := RunConcurrent("./test_data/simple_edge_binary_encoding.bin", t)
+	simpleEdgeResult := RunConcurrent("./testdata/simple_edge_binary_encoding.bin", t)
 	compareResults(simpleEdgeResult, simpleEdgeExpectedResult, t)
 
 	toxicExpectedResult := NewConcurrentTestResults(
 		[]nodeIndex{2, 3, 4, 5, 5},
 		[]nodeIndex{0, 0, 0, 0, 0},
 		4)
-	toxicResult := RunConcurrent("./test_data/toxic_binary_encoding.bin", t)
+	toxicResult := RunConcurrent("./testdata/toxic_binary_encoding.bin", t)
 	compareResults(toxicResult, toxicExpectedResult, t)
+
+	heterogeneousCycleExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{2, 2},
+		[]nodeIndex{1, 1},
+		1)
+	heterogeneousCycleResult := RunConcurrent("./testdata/heterogeneous_cycle_binary_encoding.bin", t)
+	compareResults(heterogeneousCycleResult, heterogeneousCycleExpectedResult, t)
+
+	heterogeneousHubsExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{2, 2},
+		[]nodeIndex{1, 1},
+		1)
+	heterogeneousHubsResult := RunConcurrent("./testdata/heterogeneous_hubs_binary_encoding.bin", t)
+	compareResults(heterogeneousHubsResult, heterogeneousHubsExpectedResult, t)
+
+	DMADExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{4, 5, 6, 6},
+		[]nodeIndex{1, 1, 1, 1},
+		3)
+	DMADResult := RunConcurrent("./testdata/DMAD_binary_encoding.bin", t)
+	compareResults(DMADResult, DMADExpectedResult, t)
+
+	simpleChainForkExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{2, 2, 2, 2, 2, 2, 2, 1, 1},
+		[]nodeIndex{0, 1, 2, 3, 4, 5, 6, 8, 8},
+		8)
+	simpleChainForkResult := RunConcurrent("./testdata/simple_chain_fork_binary_encoding.bin", t)
+	compareResults(simpleChainForkResult, simpleChainForkExpectedResult, t)
+
+	multiBlockExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{2, 3, 5, 5},
+		[]nodeIndex{1, 2, 5, 5},
+		3)
+	multiBlockResult := RunConcurrent("./testdata/multi_block_binary_encoding.bin", t)
+	compareResults(multiBlockResult, multiBlockExpectedResult, t)
+
+	multiBlockTreeExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{1, 2, 2},
+		[]nodeIndex{3, 3, 3},
+		2)
+	multiBlockTreeResult := RunConcurrent("./testdata/multi_block_tree_binary_encoding.bin", t)
+	compareResults(multiBlockTreeResult, multiBlockTreeExpectedResult, t)
+
+	simpleSelfLoopExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{0, 0},
+		[]nodeIndex{2, 2},
+		1)
+	simpleSelfLoopResult := RunConcurrent("./testdata/simple_self_loop_binary_encoding.bin", t)
+	compareResults(simpleSelfLoopResult, simpleSelfLoopExpectedResult, t)
+
+	simpleSmallCycleExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{1, 1},
+		[]nodeIndex{1, 1},
+		1)
+	simpleSmallCycleResult := RunConcurrent("./testdata/simple_small_cycle_binary_encoding.bin", t)
+	compareResults(simpleSmallCycleResult, simpleSmallCycleExpectedResult, t)
+
+	DMADSubgraph1ExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{2, 2},
+		[]nodeIndex{1, 1},
+		1)
+	DMADSubgraph1Result := RunConcurrent("./testdata/DMAD_subgraph1_binary_encoding.bin", t)
+	compareResults(DMADSubgraph1Result, DMADSubgraph1ExpectedResult, t)
+
+	DMADSubgraph2ExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{4, 5, 5},
+		[]nodeIndex{1, 1, 1},
+		2)
+	DMADSubgraph2Result := RunConcurrent("./testdata/DMAD_subgraph2_binary_encoding.bin", t)
+	compareResults(DMADSubgraph2Result, DMADSubgraph2ExpectedResult, t)
+
+	DMADSubgraph3ExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{3, 3},
+		[]nodeIndex{1, 1},
+		1)
+	DMADSubgraph3Result := RunConcurrent("./testdata/DMAD_subgraph3_binary_encoding.bin", t)
+	compareResults(DMADSubgraph3Result, DMADSubgraph3ExpectedResult, t)
+
+	DMADSubgraph4ExpectedResult := NewConcurrentTestResults(
+		[]nodeIndex{4, 4},
+		[]nodeIndex{1, 1},
+		1)
+	DMADSubgraph4Result := RunConcurrent("./testdata/DMAD_subgraph4_binary_encoding.bin", t)
+	compareResults(DMADSubgraph4Result, DMADSubgraph4ExpectedResult, t)
 }

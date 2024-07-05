@@ -1,5 +1,5 @@
 module bisimulation
 
-go 1.21
+go 1.22
 
 require github.com/bits-and-blooms/bitset v1.13.0
