@@ -955,7 +955,8 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
             k_node_to_block->freeblock_indices.push(dirty_block_index);
             // Add the split to the refines edges. Here 0 is used to indicates some (in this case all) nodes became singletons
             new_block_indices.push_back(0);
-            refines_edges.add_edge(Refines_Edge(dirty_block_index, new_block_indices));
+            // Add 1 to the dirty block index to be consistent with the new_block_indeces
+            refines_edges.add_edge(Refines_Edge(dirty_block_index+1, new_block_indices));
         }
     }
 
@@ -1520,7 +1521,7 @@ int main(int ac, char *av[])
     namespace po = boost::program_options;
 
     po::options_description global("Global options");
-    global.add_options()("input_file", po::value<std::string>(), "Input file, must contain n-triples");
+    global.add_options()("input_file", po::value<std::string>(), "Input file");
     global.add_options()("command", po::value<std::string>(), "command to execute");
     global.add_options()("commandargs", po::value<std::vector<std::string>>(), "Arguments for command");
     global.add_options()("strings", po::value<std::string>()->default_value("map_to_one_node"), "What to do with string values? Currently only map_to_one_node (which maps all strings to one node before applying the bisimulation).");

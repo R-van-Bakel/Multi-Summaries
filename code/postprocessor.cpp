@@ -1,16 +1,16 @@
 #include <fstream>
-#include <string>
-#include <boost/algorithm/string.hpp>
-#include <boost/unordered/unordered_flat_map.hpp>
-#include <iostream>
 #include <sstream>
-#include <boost/program_options.hpp>
+#include <iostream>
+#include <iomanip>
+#include <string>
 #include <vector>
 // For getting and printing the current datetime
 #define BOOST_CHRONO_HEADER_ONLY
 #include <boost/chrono.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/program_options.hpp>
+#include <boost/algorithm/string.hpp>
 #include <filesystem>
-#include <iomanip>
 
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_BLOCK = 4;
@@ -73,7 +73,7 @@ int main(int ac, char *av[])
     namespace po = boost::program_options;
 
     po::options_description global("Global options");
-    global.add_options()("input_path", po::value<std::string>(), "Input file, must contain n-triples");
+    global.add_options()("input_path", po::value<std::string>(), "Input file");
     po::positional_options_description pos;
     pos.add("input_path", 1);
 
