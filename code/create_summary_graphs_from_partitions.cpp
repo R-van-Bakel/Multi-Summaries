@@ -281,7 +281,7 @@ int64_t read_uint_BLOCK_OR_SINGLETON_little_endian(std::istream &inputstream)
     {
         result |= (int64_t(data[i]) & 0x00000000000000FFl) << (i * 8);
     }
-    // If this is true, then we are reading a negative number, meaning the high bit need to be set to 1
+    // If this is true, then we are reading a negative number, meaning the high bit needs to be set to 1
     if (int8_t(data[BYTES_PER_BLOCK_OR_SINGLETON-1]) < 0)
     {
         result |= 0xFFFFFF0000000000l;  // We need this conversion due to two's complement

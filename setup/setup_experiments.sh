@@ -119,7 +119,7 @@ fi
 
 # Create the directory for the compiled files and experiments
 git_hash=$(git rev-parse HEAD)
-echo "Creating directory from git hash"
+echo Creating directory from git hash: $git_hash
 mkdir ../$git_hash/
 mkdir ../$git_hash/executables/
 
@@ -136,7 +136,8 @@ echo $(date) $(hostname) "${logging_process}.Info: Creating compilation with the
 echo $(date) $(hostname) "${logging_process}.Info: boost_path=${boost_path}" >> $log_file
 echo $(date) $(hostname) "${logging_process}.Info: compiler_flags=${compiler_flags}" >> $log_file
 
-# Make sure we can run the compiler script
+# Remove carriage returns from the compiler script and make sure we can run it 
+sed -i 's/\r//g' ./compile.sh
 chmod +x ./compile.sh
 
 # Compile the preprocessor
@@ -154,6 +155,11 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiling bisimulator.cpp" >>
 echo Compiling postprocessor.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling postprocessor.cpp" >> $log_file
 ./compile.sh ../code/postprocessor.cpp ../$git_hash/executables/postprocessor
+
+# Compile the summary graph program
+echo Compiling create_summary_graphs_from_partitions.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Compiling create_summary_graphs_from_partitions.cpp" >> $log_file
+./compile.sh ../code/create_summary_graphs_from_partitions.cpp ../$git_hash/executables/create_summary_graphs_from_partitions
 
 # Echo that the compilation was successful
 echo Compiling successful
@@ -746,6 +752,189 @@ sed -i 's/\r//g' $postprocessor
 # Make sure the postprocessor can be executed
 chmod +x $postprocessor
 
+# Create the config for the summary graphs experiment
+echo Creating summary_graphs.config
+echo $(date) $(hostname) "${logging_process}.Info: Creating summary_graphs.config" >> $log_file
+summary_graphs_creator_config=../$git_hash/scripts/summary_graphs_creator.config
+touch $summary_graphs_creator_config
+cat >$summary_graphs_creator_config << EOF
+job_name=summary_graphs_creation
+time=01:00:00
+N=1
+ntasks_per_node=1
+partition=defq
+output=slurm_summary_graphs_creator.out
+nodelist=
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $summary_graphs_creator_config
+
+# Create the shell file for the summary graphs experiment
+echo Creating summary_graphs_creator.sh
+echo $(date) $(hostname) "${logging_process}.Info: Creating summary_graphs_creator.sh" >> $log_file
+summary_graphs_creator=../$git_hash/scripts/summary_graphs_creator.sh
+touch $summary_graphs_creator
+cat >$summary_graphs_creator << EOF
+#!/bin/bash
+
+# Using error handling code from https://linuxsimply.com/bash-scripting-tutorial/error-handling-and-debugging/error-handling/trap-err/
+##################################################
+
+# Define error handler function
+function handle_error() {
+  # Get information about the error
+  local error_code=\$?
+  local error_line=\$BASH_LINENO
+  local error_command=\$BASH_COMMAND
+
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
+
+  # Log the error details
+  echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
+  echo "Exiting with code: 1"
+
+  # Check if log_file has been set
+  if [[ ! -z "\$log_file" ]]; then
+    # Check log_file refers to an actual log file
+    if [[ -f "\$log_file" ]] && [[ \$log_file == *.log ]]; then
+      # If no process name has been set, then use "default"
+      if [[ -z "\$logging_process" ]]; then
+        logging_process=default
+      fi
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Error occurred on line \$error_line: \$error_command (exit code: \$error_code)" >> \$log_file
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+    fi
+  fi
+
+  # Optionally exit the script gracefully
+  exit 1
+}
+
+# Set the trap for any error (non-zero exit code)
+trap handle_error ERR
+
+##################################################
+
+# Check if a path to a dataset has been provided
+if [ \$# -eq 0 ]; then
+  echo 'Please provide a path to a dataset directory. This directory should have been created by preprocessor.sh'
+  exit 1
+fi
+
+# Load in the settings
+. ./summary_graphs_creator.config
+
+# Print the settings
+echo Using the following settings:
+echo job_name=\$job_name
+echo time=\$time
+echo N=\$N
+echo ntasks_per_node=\$ntasks_per_node
+echo partition=\$partition
+echo output=\$output
+echo nodelist=\$nodelist
+
+# Ask the user to run the experiment with the aforementioned settings
+while true; do
+  read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+  if [ \${REPLY,,} == "y" ]; then
+      break
+  elif [ \${REPLY,,} == "n" ]; then
+      echo $'Please change the settings in summary_graphs_creator.config\nAborting'
+      exit 1
+  else
+      echo 'Unrecognized response'
+  fi
+done
+
+# Create a directory for the experiments
+output_dir="\${1}"
+output_dir_absolute=\$(realpath \$output_dir)/
+
+# The log file for the experiments
+log_file=\${output_dir}experiments.log
+logging_process="Summary Graphs Creator"
+
+# Log the settings
+echo \$(date) \$(hostname) "\${logging_process}.Info: Creating summary graphs in: \${output_dir_absolute}" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: Using the following settings:" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: job_name=\$job_name" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: time=\$time" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: N=\$N" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_per_node" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
+
+# Create the slurm script
+echo Creating slurm script
+echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
+summary_graphs_creator_job=\${output_dir}slurm_summary_graphs_creator.sh
+touch \$summary_graphs_creator_job
+cat >\$summary_graphs_creator_job << EOF2
+#!/bin/bash
+#SBATCH --job-name=\$job_name
+#SBATCH --time=\$time
+#SBATCH -N \$N
+#SBATCH --ntasks-per-node=\$ntasks_per_node
+#SBATCH --partition=\$partition
+#SBATCH --output=\$output
+#SBATCH --nodelist=\$nodelist
+/usr/bin/time -v ../executables/create_summary_graphs_from_partitions ./
+EOF2
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' \$summary_graphs_creator_job
+
+# Make sure the summary graphs creator job script can be executed (in case of local execution)
+chmod +x \$summary_graphs_creator_job
+
+# Queueing slurm script or ask to execute directly
+sbatch_command=\$(command -v sbatch)
+if [ ! \$sbatch_command == '' ]; then
+  echo Queueing slurm script
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
+  (cd \$output_dir; sbatch \$summary_graphs_creator_job)
+  echo Summary graphs creator queued successfully, see \$output for the results
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Summary graphs creator queued successfully, see \$output for the results" >> \$log_file
+else
+  echo sbatch command not found
+  echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
+  while true; do
+    read -p \$'Would you like to directly run the summary graphs creator locally instead? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        echo Running slurm script directly
+        echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+        echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+        (cd \$output_dir; \$summary_graphs_creator_job)
+        echo Successfully ran summary graphs creator directly
+        echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran summary graphs creator directly" >> \$log_file
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Direct execution declined\nAborting'
+        echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+        echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $summary_graphs_creator
+
+# Make sure the summary graphs creator can be executed
+chmod +x $summary_graphs_creator
+
+
 # Echo that the script ended successfully
+(cd ../; working_directory=$(pwd); echo Everything set up in: $working_directory/$git_hash/)
 echo Setup ended successfully
 echo $(date) $(hostname) "${logging_process}.Info: Setup ended successfully" >> $log_file
