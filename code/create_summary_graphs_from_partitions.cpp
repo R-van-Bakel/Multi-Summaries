@@ -13,6 +13,7 @@
 #include <regex>
 #include <filesystem>
 #include <boost/algorithm/algorithm.hpp>
+#include <boost/algorithm/string.hpp>
 
 using edge_type = uint32_t;
 using node_index = uint64_t;
@@ -734,32 +735,32 @@ public:
             }
         }
     }
-    void write_graph_to_file_json(std::ostream &outputstream)
-    {
-        outputstream << "[";
-        bool first_line = true;
-        for (auto node_key_val: this->get_nodes())
-        {
-            block_or_singleton_index subject = node_key_val.first;
-            for (auto edge_key_val: node_key_val.second.get_edges())
-            {
-                edge_type predicate = edge_key_val.first;
-                for (block_or_singleton_index object: edge_key_val.second.get_objects())
-                {
-                    if (first_line)
-                    {
-                        first_line = false;
-                    }
-                    else
-                    {
-                        outputstream << ",";
-                    }
-                    outputstream << "\n    [" << subject << ", " << object << ", " << predicate << "]";
-                }
-            }
-        }
-        outputstream << "\n]";
-    }
+    // void write_graph_to_file_json(std::ostream &outputstream)
+    // {
+    //     outputstream << "[";
+    //     bool first_line = true;
+    //     for (auto node_key_val: this->get_nodes())
+    //     {
+    //         block_or_singleton_index subject = node_key_val.first;
+    //         for (auto edge_key_val: node_key_val.second.get_edges())
+    //         {
+    //             edge_type predicate = edge_key_val.first;
+    //             for (block_or_singleton_index object: edge_key_val.second.get_objects())
+    //             {
+    //                 if (first_line)
+    //                 {
+    //                     first_line = false;
+    //                 }
+    //                 else
+    //                 {
+    //                     outputstream << ",";
+    //                 }
+    //                 outputstream << "\n    [" << subject << ", " << object << ", " << predicate << "]";
+    //             }
+    //         }
+    //     }
+    //     outputstream << "\n]";
+    // }
 };
 
 int main(int ac, char *av[])
@@ -789,32 +790,54 @@ int main(int ac, char *av[])
     // std::string mapping_file = vm["mapping_file"].as<std::string>();
     std::string graph_file = experiment_directory + "binary_encoding.bin";
 
-    std::vector<std::string> outcome_files;
-    std::vector<std::string> mapping_files;
+    std::string graph_stats_file = experiment_directory + "ad_hoc_results/graph_stats.json";
+    std::ifstream graph_stats_file_stream(graph_stats_file);
+
+    std::string graph_stats_line;
+    std::string final_depth_string = "\"Final depth\"";
+    size_t k;
+    while (std::getline(graph_stats_file_stream, graph_stats_line))
+    {
+        boost::trim(graph_stats_line);
+        boost::erase_all(graph_stats_line, ",");
+        std::vector<std::string> result;
+        boost::split(result, graph_stats_line, boost::is_any_of(":"));
+        if (result[0] == final_depth_string)
+        {
+            std::stringstream sstream(result[1]);
+            sstream >> k;
+            break;
+        }
+    }
+    graph_stats_file_stream.close();
+    // std::cout << "DEBUG " << k << std::endl;
+
+    // std::vector<std::string> outcome_files;
+    // std::vector<std::string> mapping_files;
 
     std::string summary_graph_file_path_base = experiment_directory + "bisimulation/summary_graph-";
 
-    for (const auto& entry : std::filesystem::directory_iterator(experiment_directory + "bisimulation/")) {
-        std::string file_string = entry.path().filename().string();
-        if (std::regex_match(file_string, outcome_file_regex_pattern))
-        {
-            outcome_files.emplace_back(file_string);
-        }
-        else if (std::regex_match(file_string, mapping_file_regex_pattern))
-        {
-            mapping_files.emplace_back(file_string);
-        }
-    }
-    std::sort(outcome_files.begin(), outcome_files.end());
-    std::sort(mapping_files.begin(), mapping_files.end());
+    // for (const auto& entry : std::filesystem::directory_iterator(experiment_directory + "bisimulation/")) {
+    //     std::string file_string = entry.path().filename().string();
+    //     if (std::regex_match(file_string, outcome_file_regex_pattern))
+    //     {
+    //         outcome_files.emplace_back(file_string);
+    //     }
+    //     else if (std::regex_match(file_string, mapping_file_regex_pattern))
+    //     {
+    //         mapping_files.emplace_back(file_string);
+    //     }
+    // }
+    // std::sort(outcome_files.begin(), outcome_files.end());
+    // std::sort(mapping_files.begin(), mapping_files.end());
 
-    std::string blocks_file = experiment_directory + "bisimulation/" + outcome_files[0];
+    std::string blocks_file = experiment_directory + "bisimulation/outcome_condensed-0001.bin";
     std::string summary_graph_file_path_binary = summary_graph_file_path_base + "0001.bin";
-    std::string summary_graph_file_path_json = summary_graph_file_path_base + "0001.json";
+    // std::string summary_graph_file_path_json = summary_graph_file_path_base + "0001.json";
     // std::string condensed_summary_graph_file_path = experiment_directory + "bisimulation/summary_graph_condensed.bin";
 
     std::ofstream summary_graph_file_binary(summary_graph_file_path_binary, std::ios::trunc | std::ofstream::out);
-    std::ofstream summary_graph_file_json(summary_graph_file_path_json, std::ios::trunc | std::ofstream::out);
+    // std::ofstream summary_graph_file_json(summary_graph_file_path_json, std::ios::trunc | std::ofstream::out);
 
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
     Graph g;
@@ -908,9 +931,9 @@ int main(int ac, char *av[])
         }
     }
     gs.write_graph_to_file_binary(summary_graph_file_binary);
-    gs.write_graph_to_file_json(summary_graph_file_json);
+    // gs.write_graph_to_file_json(summary_graph_file_json);
     summary_graph_file_binary.close();
-    summary_graph_file_json.close();
+    // summary_graph_file_json.close();
     // std::ifstream summary_graph_file_input(summary_graph_file_path, std::ifstream::in);
     // const int BufferSize = 8 * 16184;
     // char _buffer[BufferSize];
@@ -933,28 +956,34 @@ int main(int ac, char *av[])
     //     }
     //     std::cout << "DEBUG spo (g2): " << subject_index << " " << edge_label << " " << object_index << std::endl;
     // }
-    size_t current_k = 2;
-    for (uint32_t i = 0; i < mapping_files.size()-1; i++) // We can ignore the last outcome, because its only purpose was to find the fixed point
+    for (uint32_t i = 2; i <= k; i++) // We can ignore the last outcome, because its only purpose was to find the fixed point
     {
         auto t_reverse_index_done{boost::chrono::system_clock::now()};
         auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
         std::tm *ptm_reverse_index_done{std::localtime(&time_t_reverse_index_done)};
 
-        std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S") << " Processing k=" << current_k << std::endl;
+        std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S") << " Processing k=" << i << std::endl;
 
-        current_k++;
-        std::string current_mapping = experiment_directory + "bisimulation/" + mapping_files[i];
-        std::string current_outcome = experiment_directory + "bisimulation/" + outcome_files[i+1];
+        std::ostringstream previous_i_stringstream;
+        previous_i_stringstream << std::setw(4) << std::setfill('0') << i-1;
+        std::string previous_i_string(previous_i_stringstream.str());
+
+        std::ostringstream i_stringstream;
+        i_stringstream << std::setw(4) << std::setfill('0') << i;
+        std::string i_string(i_stringstream.str());
+
+        std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_i_string + "to" + i_string + ".bin";
+        std::string current_outcome = experiment_directory + "bisimulation/outcome_condensed-" + i_string + ".bin";
         std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
         std::ifstream current_outcome_file(current_outcome, std::ifstream::in);
 
-        std::ostringstream k_next_stringstream;
-        k_next_stringstream << std::setw(4) << std::setfill('0') << i+2;
-        std::string k_next_string(k_next_stringstream.str());
+        // std::ostringstream k_next_stringstream;
+        // k_next_stringstream << std::setw(4) << std::setfill('0') << i+2;
+        // std::string k_next_string(k_next_stringstream.str());
 
-        std::string summary_graph_file_path = summary_graph_file_path_base + k_next_string + ".bin";
-        std::ofstream summary_graph_file_binary(summary_graph_file_path_base + k_next_string + ".bin", std::ios::trunc | std::ofstream::out);
-        std::ofstream summary_graph_file_json(summary_graph_file_path_base + k_next_string + ".json", std::ios::trunc | std::ofstream::out);
+        std::string summary_graph_file_path = summary_graph_file_path_base + i_string + ".bin";
+        std::ofstream summary_graph_file_binary(summary_graph_file_path_base + i_string + ".bin", std::ios::trunc | std::ofstream::out);
+        // std::ofstream summary_graph_file_json(summary_graph_file_path_base + i_string + ".json", std::ios::trunc | std::ofstream::out);
 
         boost::unordered_flat_set<block_index> split_block_incides;
         boost::unordered_flat_set<block_index> new_block_indices;
@@ -1118,6 +1147,6 @@ int main(int ac, char *av[])
             }
         }
         gs.write_graph_to_file_binary(summary_graph_file_binary);
-        gs.write_graph_to_file_json(summary_graph_file_json);
+        // gs.write_graph_to_file_json(summary_graph_file_json);
     }
 }

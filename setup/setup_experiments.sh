@@ -165,6 +165,25 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiling create_summary_grap
 echo Compiling successful
 echo $(date) $(hostname) "${logging_process}.Info: Compiling successful" >> $log_file
 
+# Copy the python binary loader program
+echo Copying python_binary_loader.py
+echo $(date) $(hostname) "${logging_process}.Info: Copying python_binary_loader.py" >> $log_file
+cp ../code/python_binary_loader.py ../$git_hash/executables/python_binary_loader.py
+
+# Copy the plot outcome results program
+echo Copying plot_outcome_results.py
+echo $(date) $(hostname) "${logging_process}.Info: Copying plot_outcome_results.py" >> $log_file
+cp ../code/plot_outcome_results.py ../$git_hash/executables/plot_outcome_results.py
+
+# Copy the plot summary graph results program
+echo Copying plot_summary_graph_results.py
+echo $(date) $(hostname) "${logging_process}.Info: Copying plot_summary_graph_results.py" >> $log_file
+cp ../code/plot_summary_graph_results.py ../$git_hash/executables/plot_summary_graph_results.py
+
+# Echo that the cpying was successful
+echo Copying successful
+echo $(date) $(hostname) "${logging_process}.Info: Copying successful" >> $log_file
+
 # Create the experiment scripts, along with their config files
 mkdir ../$git_hash/scripts/
 
@@ -489,7 +508,7 @@ while true; do
   fi
 done
 
-# Create a directory for the experiments
+# Select a directory for the experiments
 output_dir="\${1}"
 output_dir_absolute=\$(realpath \$output_dir)/
 
@@ -671,7 +690,7 @@ while true; do
   fi
 done
 
-# Create a directory for the experiments
+# Select a directory for the experiments
 output_dir="\${1}"
 output_dir_absolute=\$(realpath \$output_dir)/
 
@@ -852,7 +871,7 @@ while true; do
   fi
 done
 
-# Create a directory for the experiments
+# Select a directory for the experiments
 output_dir="\${1}"
 output_dir_absolute=\$(realpath \$output_dir)/
 
@@ -933,6 +952,281 @@ sed -i 's/\r//g' $summary_graphs_creator
 # Make sure the summary graphs creator can be executed
 chmod +x $summary_graphs_creator
 
+# Create the config for the python plotting scrips
+echo Creating plot_results.config
+echo $(date) $(hostname) "${logging_process}.Info: Creating plot_results.config" >> $log_file
+results_plotter_config=../$git_hash/scripts/results_plotter.config
+touch $results_plotter_config
+cat >$results_plotter_config << EOF
+job_name=plotting_results
+time=01:00:00
+N=1
+ntasks_per_node=1
+partition=defq
+output=slurm_results_plotter.out
+nodelist=
+k=-1
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $results_plotter_config
+
+# Create the shell file for the summary graphs experiment
+echo Creating results_plotter.sh
+echo $(date) $(hostname) "${logging_process}.Info: Creating results_plotter.sh" >> $log_file
+results_plotter=../$git_hash/scripts/results_plotter.sh
+touch $results_plotter
+cat >$results_plotter << EOF
+#!/bin/bash
+
+# Using error handling code from https://linuxsimply.com/bash-scripting-tutorial/error-handling-and-debugging/error-handling/trap-err/
+##################################################
+
+# Define error handler function
+function handle_error() {
+  # Get information about the error
+  local error_code=\$?
+  local error_line=\$BASH_LINENO
+  local error_command=\$BASH_COMMAND
+
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
+
+  # Log the error details
+  echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
+  echo "Exiting with code: 1"
+
+  # Check if log_file has been set
+  if [[ ! -z "\$log_file" ]]; then
+    # Check log_file refers to an actual log file
+    if [[ -f "\$log_file" ]] && [[ \$log_file == *.log ]]; then
+      # If no process name has been set, then use "default"
+      if [[ -z "\$logging_process" ]]; then
+        logging_process=default
+      fi
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Error occurred on line \$error_line: \$error_command (exit code: \$error_code)" >> \$log_file
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+    fi
+  fi
+
+  # Optionally exit the script gracefully
+  exit 1
+}
+
+# Set the trap for any error (non-zero exit code)
+trap handle_error ERR
+
+##################################################
+
+# Check if a path to a dataset has been provided
+if [ \$# -eq 0 ]; then
+  echo 'Please provide a path to a dataset directory. This directory should have been created by preprocessor.sh'
+  exit 1
+fi
+
+# Load in the settings
+. ./results_plotter.config
+
+# Print the settings
+echo Using the following settings:
+echo job_name=\$job_name
+echo time=\$time
+echo N=\$N
+echo ntasks_per_node=\$ntasks_per_node
+echo partition=\$partition
+echo output=\$output
+echo nodelist=\$nodelist
+echo k=\$k
+
+# Ask the user to run the experiment with the aforementioned settings
+while true; do
+  read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+  if [ \${REPLY,,} == "y" ]; then
+      break
+  elif [ \${REPLY,,} == "n" ]; then
+      echo $'Please change the settings in results_plotter.config\nAborting'
+      exit 1
+  else
+      echo 'Unrecognized response'
+  fi
+done
+
+# Select a directory for the experiments
+output_dir="\${1}"
+output_dir_absolute=\$(realpath \$output_dir)/
+
+# The log file for the experiments
+log_file=\${output_dir}experiments.log
+logging_process="Results Plotter"
+
+# Log the settings
+echo \$(date) \$(hostname) "\${logging_process}.Info: Plotting results in: \${output_dir_absolute}" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: Using the following settings:" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: job_name=\$job_name" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: time=\$time" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: N=\$N" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_per_node" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: k=\$k" >> \$log_file
+
+# Create the slurm script
+echo Creating slurm script
+echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
+results_plotter_job=\${output_dir}slurm_results_plotter.sh
+touch \$results_plotter_job
+cat >\$results_plotter_job << EOF2
+#!/bin/bash
+#SBATCH --job-name=\$job_name
+#SBATCH --time=\$time
+#SBATCH -N \$N
+#SBATCH --ntasks-per-node=\$ntasks_per_node
+#SBATCH --partition=\$partition
+#SBATCH --output=\$output
+#SBATCH --nodelist=\$nodelist
+working_directory=\\\$(pwd)
+source activate base
+source \\\$HOME/.bashrc
+conda activate
+/usr/bin/time -v python \\\$working_directory/../executables/plot_outcome_results.py \\\$working_directory/ \$k
+/usr/bin/time -v python \\\$working_directory/../executables/plot_summary_graph_results.py \\\$working_directory/ \$k
+EOF2
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' \$results_plotter_job
+
+# Make sure the results plotter job script can be executed (in case of local execution)
+chmod +x \$results_plotter_job
+
+# Queueing slurm script or ask to execute directly
+sbatch_command=\$(command -v sbatch)
+if [ ! \$sbatch_command == '' ]; then
+  echo Queueing slurm script
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
+  (cd \$output_dir; sbatch \$results_plotter_job)
+  echo Results plotter queued successfully, see \$output for the results
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Results plotter queued successfully, see \$output for the results" >> \$log_file
+else
+  echo sbatch command not found
+  echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
+  while true; do
+    read -p \$'Would you like to directly run the results plotter locally instead? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        echo Running slurm script directly
+        echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+        echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+        (cd \$output_dir; \$results_plotter_job)
+        echo Successfully ran results plotter directly
+        echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran results plotter directly" >> \$log_file
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Direct execution declined\nAborting'
+        echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+        echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $results_plotter
+
+# Make sure the summary graphs creator can be executed
+chmod +x $results_plotter
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $results_plotter_config
+
+# Create the shell file for running all experiments
+echo Creating run_all.sh
+echo $(date) $(hostname) "${logging_process}.Info: Creating run_all.sh" >> $log_file
+run_all=../$git_hash/scripts/run_all.sh
+touch $run_all
+cat >$run_all << EOF
+#!/bin/bash
+
+# Using error handling code from https://linuxsimply.com/bash-scripting-tutorial/error-handling-and-debugging/error-handling/trap-err/
+##################################################
+
+# Define error handler function
+function handle_error() {
+  # Get information about the error
+  local error_code=\$?
+  local error_line=\$BASH_LINENO
+  local error_command=\$BASH_COMMAND
+
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
+
+  # Log the error details
+  echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
+  echo "Exiting with code: 1"
+
+  # Check if log_file has been set
+  if [[ ! -z "\$log_file" ]]; then
+    # Check log_file refers to an actual log file
+    if [[ -f "\$log_file" ]] && [[ \$log_file == *.log ]]; then
+      # If no process name has been set, then use "default"
+      if [[ -z "\$logging_process" ]]; then
+        logging_process=default
+      fi
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Error occurred on line \$error_line:\ \$error_command (exit code: \$error_code)" >> \$log_file
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+    fi
+  fi
+
+  # Optionally exit the script gracefully
+  exit 1
+}
+
+# Set the trap for any error (non-zero exit code)
+trap handle_error ERR
+
+##################################################
+
+# Check if a path to a dataset has been provided
+if [ \$# -eq 0 ]; then
+  echo 'Please provide a path to an .nt file as argument'
+  exit 1
+fi
+
+dataset_path="\${1}"
+dataset_file="\${1##*/}"
+# Remove the extra extension from the LOD Laundromat file (.trig.lz4)
+dataset_name="\${dataset_file%.*}"
+if [ \$laundromat == "true" ]; then
+  dataset_name="\${dataset_name%.*}"
+fi
+dataset_path_absolute=\$(realpath \$dataset_path)/
+output_dir=../\$dataset_name/
+
+echo -e "\n##### SETTING UP PREPROCESSOR EXPERIMENT #####"
+./preprocessor.sh \$dataset_path
+echo -e "\n##### SETTING UP BISIMULATOR EXPERIMENT #####"
+./bisimulator.sh \$output_dir
+echo -e "\n##### SETTING UP POSTPROCESSOR EXPERIMENT #####"
+./postprocessor.sh \$output_dir
+echo -e "\n##### SETTING UP SUMMARY GRAPH CREATOR EXPERIMENT #####"
+./summary_graphs_creator.sh \$output_dir
+echo -e "\n##### SETTING UP RESULT PLOTTER EXPERIMENT #####"
+./results_plotter.sh \$output_dir
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $run_all
+
+# Make sure the run all script can be executed
+chmod +x $run_all
 
 # Echo that the script ended successfully
 (cd ../; working_directory=$(pwd); echo Everything set up in: $working_directory/$git_hash/)

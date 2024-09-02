@@ -1407,7 +1407,8 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     w.stop_step();
 
     int previous_total = 0;
-    for (auto i = 0;; i++)
+    int i = 0;
+    for (i = 0;; i++)
     {
         std::ostringstream k_stringstream;
         k_stringstream << std::setw(4) << std::setfill('0') << i;
@@ -1511,7 +1512,9 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     std::cout << std::put_time(ptm_bisim_done, "%Y/%m/%d %H:%M:%S")
               << " Maximum memory footprint = " << max_memory << " kB" << std::endl;
     graph_stats_output << ",\n    \"Total time taken (ms)\": " << boost::chrono::ceil<boost::chrono::milliseconds>(t_bisim_done - t_start_bisim).count()
-                       << ",\n    \"Maximum memory footprint (kB)\": " << max_memory << "\n}";
+                       << ",\n    \"Maximum memory footprint (kB)\": " << max_memory
+                       << ",\n    \"Final depth\": " << i //TODO make an implementation for a fixed k (instead of always doing the full bisimulation)
+                       << ",\n    \"Fixed point\": true" << "\n}"; //TODO make an implementation for a fixed k (instead of always doing the full bisimulation)
     graph_stats_output.flush();
 }
 
