@@ -1200,6 +1200,9 @@ if [ \$# -eq 0 ]; then
   exit 1
 fi
 
+# Load in the settings
+. ./preprocessor.config
+
 dataset_path="\${1}"
 dataset_file="\${1##*/}"
 # Remove the extra extension from the LOD Laundromat file (.trig.lz4)
