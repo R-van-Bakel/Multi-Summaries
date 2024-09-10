@@ -1229,7 +1229,7 @@ dataset_path="\${1}"
 dataset_file="\${1##*/}"
 # Remove the extra extension from the LOD Laundromat file (.trig.lz4)
 dataset_name="\${dataset_file%.*}"
-if [ \$laundromat == "true" ]; then
+if [ \$use_lz4 == "true" ]; then
   dataset_name="\${dataset_name%.*}"
 fi
 dataset_path_absolute=\$(realpath \$dataset_path)/
