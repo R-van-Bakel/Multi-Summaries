@@ -202,6 +202,7 @@ output=slurm_preprocessor.out
 nodelist=
 skipRDFlists=false
 laundromat=false
+use_lz4=false
 lz4_command=/usr/local/lz4
 EOF
 
@@ -267,11 +268,30 @@ fi
 # Load in the settings
 . ./preprocessor.config
 
+# Exit if laundromat is true with use_lz4 false
+if [ \$laundromat == "true" ] && [ \$use_lz4 == "false" ]; then
+  echo $'The laundromat dataset only works with lz4 enabled. This can be changed in preprocessor.config\nAborting'
+fi
+
 # Set a boolean based on the value of skipRDFlists
 case \$skipRDFlists in
   'true') skiplists=' --skipRDFlists' ;;
   'false') skiplists='' ;;
-  *) echo "skipRDFlists has been set to \\"\$skipRDFlists\\" in preprocessor.config. Please change it to \"true\" or \"false\" instead"; exit 1 ;;
+  *) echo "skipRDFlists has been set to \\"\$skipRDFlists\\" in preprocessor.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
+esac
+
+# Set a boolean based on the value of laundromat
+case \$laundromat in
+  'true') laundromat_flag=' --laundromat' ;;
+  'false') laundromat_flag='' ;;
+  *) echo "laundromat has been set to \\"\$laundromat\\" in preprocessor.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
+esac
+
+# Sanity check the value of use_lz4
+case \$use_lz4 in
+  'true');;
+  'false');;
+  *) echo "use_lz4 has been set to \\"\$use_lz4\\" in preprocessor.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
 esac
 
 # Print the settings
@@ -285,6 +305,7 @@ echo output=\$output
 echo nodelist=\$nodelist
 echo skipRDFlists=\$skipRDFlists
 echo laundromat=\$laundromat
+echo use_lz4=\$use_lz4
 echo lz4_command=\$lz4_command
 
 # Ask the user to run the experiment with the aforementioned settings
@@ -305,19 +326,19 @@ dataset_path="\${1}"
 dataset_file="\${1##*/}"
 # Remove the extra extension from the LOD Laundromat file (.trig.lz4)
 dataset_name="\${dataset_file%.*}"
-if [ \$laundromat == "true" ]; then
+if [ \$use_lz4 == "true" ]; then
   dataset_name="\${dataset_name%.*}"
 fi
 dataset_path_absolute=\$(realpath \$dataset_path)/
 output_dir=../\$dataset_name/
 mkdir \$output_dir
 
-# Use a different set of commands for the LOD Laundromat dataset, because it compressed with lz4
-if [ \$laundromat == "true" ]; then
+# Use a different set of commands for the LOD Laundromat and semopenalex datasets, because they are compressed with lz4
+if [ \$use_lz4 == "true" ]; then
   preprocessor_command=\$(cat << EOM
 mkfifo ttl_buffer
 /usr/bin/time -v \$lz4_command -d -c \$dataset_path -d -c > ttl_buffer &
-../executables/preprocessor ./ttl_buffer ./\$skiplists --laundromat
+../executables/preprocessor ./ttl_buffer ./\$skiplists\$laundromat_flag
 rm ./ttl_buffer
 EOM
   )
@@ -342,6 +363,7 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: skipRDFlists=\$skipRDFlists" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: laundromat=\$laundromat" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: use_lz4=\$use_lz4" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: lz4_command=\$lz4_command" >> \$log_file
 
 # Create the slurm script
