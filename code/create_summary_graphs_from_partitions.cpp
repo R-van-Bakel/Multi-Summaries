@@ -858,7 +858,7 @@ int main(int ac, char *av[])
         node_to_block_map[node] = -block_or_singleton_index(node) - 1;
     }
 
-    boost::unordered_flat_set<block_or_singleton_index> new_blocks;
+    // boost::unordered_flat_set<block_or_singleton_index> new_blocks;
 
     auto t_reverse_index_done{boost::chrono::system_clock::now()};
     auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
@@ -870,7 +870,7 @@ int main(int ac, char *av[])
     while (true)
     {
         block_index block = read_uint_BLOCK_little_endian(blocksfile);
-        new_blocks.emplace(block);
+        // new_blocks.emplace(block);
         if (blocksfile.eof())
         {
             break;
@@ -956,7 +956,7 @@ int main(int ac, char *av[])
     //     }
     //     std::cout << "DEBUG spo (g2): " << subject_index << " " << edge_label << " " << object_index << std::endl;
     // }
-    for (uint32_t i = 2; i <= k; i++) // We can ignore the last outcome, because its only purpose was to find the fixed point
+    for (uint32_t i = 2; i <= k; i++)  // We can ignore the last outcome, because its only purpose was to find the fixed point, otherwise include the last outcome
     {
         auto t_reverse_index_done{boost::chrono::system_clock::now()};
         auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
@@ -982,7 +982,7 @@ int main(int ac, char *av[])
         // std::string k_next_string(k_next_stringstream.str());
 
         std::string summary_graph_file_path = summary_graph_file_path_base + i_string + ".bin";
-        std::ofstream summary_graph_file_binary(summary_graph_file_path_base + i_string + ".bin", std::ios::trunc | std::ofstream::out);
+        std::ofstream summary_graph_file_binary(summary_graph_file_path, std::ios::trunc | std::ofstream::out);
         // std::ofstream summary_graph_file_json(summary_graph_file_path_base + i_string + ".json", std::ios::trunc | std::ofstream::out);
 
         boost::unordered_flat_set<block_index> split_block_incides;
@@ -1026,7 +1026,8 @@ int main(int ac, char *av[])
         boost::unordered_flat_set<node_index> old_nodes_in_split;
         boost::unordered_flat_set<node_index> new_nodes_in_split;
 
-        std::vector<Triple> removed_edges = gs.remove_split_blocks_edges(split_block_incides);  //TODO use these for storing the condensed format
+        gs.remove_split_blocks_edges(split_block_incides);
+        // std::vector<Triple> removed_edges = gs.remove_split_blocks_edges(split_block_incides);
         if (new_singletons_created)
         {
             for (block_or_singleton_index split_block: split_block_incides)

@@ -87,33 +87,55 @@ int main(int ac, char *av[])
     std::string input_path = vm["input_path"].as<std::string>();
     std::filesystem::create_directory(input_path + "post_hoc_results/");
 
-    uint32_t k = 1;
-    bool last_file = false;
+    std::string graph_stats_file = input_path + "ad_hoc_results/graph_stats.json";
+    std::ifstream graph_stats_file_stream(graph_stats_file);
+
+    // Automatically select the largest possible k
+    std::string graph_stats_line;
+    std::string final_depth_string = "\"Final depth\"";
+    size_t k;
+    while (std::getline(graph_stats_file_stream, graph_stats_line))
+    {
+        boost::trim(graph_stats_line);
+        boost::erase_all(graph_stats_line, ",");
+        std::vector<std::string> result;
+        boost::split(result, graph_stats_line, boost::is_any_of(":"));
+        if (result[0] == final_depth_string)
+        {
+            std::stringstream sstream(result[1]);
+            sstream >> k;
+            break;
+        }
+    }
+    graph_stats_file_stream.close();
+
+    // uint32_t k = 1;
+    // bool last_file = false;
     u_int64_t old_block_count = 0;
     u_int64_t old_split_count = 0;
 
-    while (!last_file)
+    for (size_t i = 1; i <= k; i++)
     {
         auto t_read{boost::chrono::system_clock::now()};
         auto time_t_read{boost::chrono::system_clock::to_time_t(t_read)};
         std::tm *ptm_read{std::localtime(&time_t_read)};
-        std::cout << std::put_time(ptm_read, "%Y/%m/%d %H:%M:%S") << " Reading outcome " << k << std::endl;
+        std::cout << std::put_time(ptm_read, "%Y/%m/%d %H:%M:%S") << " Reading outcome " << i << std::endl;
 
-        std::ostringstream k_stringstream;
-        k_stringstream << std::setw(4) << std::setfill('0') << k;
-        std::string k_string(k_stringstream.str());
+        std::ostringstream i_stringstream;
+        i_stringstream << std::setw(4) << std::setfill('0') << i;
+        std::string i_string(i_stringstream.str());
 
-        std::ostringstream k_next_stringstream;
-        k_next_stringstream << std::setw(4) << std::setfill('0') << k+1;
-        std::string k_next_string(k_next_stringstream.str());
+        std::ostringstream i_next_stringstream;
+        i_next_stringstream << std::setw(4) << std::setfill('0') << i+1;
+        std::string i_next_string(i_next_stringstream.str());
 
-        std::string input_file = input_path + "bisimulation/outcome_condensed-" + k_string + ".bin";
-        std::string output_file = input_path + "post_hoc_results/statistics_condensed-" + k_string + ".json";
+        std::string input_file = input_path + "bisimulation/outcome_condensed-" + i_string + ".bin";
+        std::string output_file = input_path + "post_hoc_results/statistics_condensed-" + i_string + ".json";
 
         std::ifstream infile(input_file, std::ifstream::in);
         std::ofstream outfile(output_file, std::ios::trunc | std::ofstream::out);
 
-        std::string mapping_file = input_path + "bisimulation/mapping-" + k_string + "to" + k_next_string + ".bin";
+        std::string mapping_file = input_path + "bisimulation/mapping-" + i_string + "to" + i_next_string + ".bin";
         std::ifstream mappingfile(mapping_file, std::ifstream::in);
 
         uint64_t disappeared_count = 0;
@@ -126,10 +148,10 @@ int main(int ac, char *av[])
             u_int64_t new_block_count = read_uint_BLOCK_little_endian(mappingfile);
             if (mappingfile.eof())
             {
-                if (split_count == 0)
-                {
-                    last_file = true;
-                }
+                // if (split_count == 0)
+                // {
+                //     last_file = true;
+                // }
                 break;
             }
             split_count++;
@@ -182,6 +204,5 @@ int main(int ac, char *av[])
         outfile << "\n}";
         old_block_count = old_block_count - old_split_count + block_count;
         old_split_count = split_count;
-        k++;
     }
 }
