@@ -19,11 +19,15 @@ using edge_type = uint32_t;
 using node_index = uint64_t;
 using block_index = node_index;
 using block_or_singleton_index = int64_t;
+using k_type = uint16_t;
+// using reverse_mapping_type = boost::unordered_flat_map<block_or_singleton_index, block_or_singleton_index>;
+using node_to_block_map_type = boost::unordered_flat_map<node_index, block_or_singleton_index>;
 
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
 const int BYTES_PER_BLOCK = 4;
 const int BYTES_PER_BLOCK_OR_SINGLETON = 5;
+const int BYTES_PER_K_TYPE = 2;
 const int64_t MAX_SIGNED_BLOCK_SIZE = INT64_MAX;
 
 const std::string outcome_file_regex_string = R"(^outcome_condensed-\d{4}\.bin$)";
@@ -140,6 +144,26 @@ public:
     }
 #endif
 };
+
+void write_uint_K_TYPE_little_endian(std::ostream &outputstream, block_or_singleton_index value)
+{
+    char data[BYTES_PER_K_TYPE];
+    for (unsigned int i = 0; i < BYTES_PER_K_TYPE; i++)
+    {
+        data[i] = char(value);  // TODO check if removing & 0x00000000000000FFull fixed it
+        value = value >> 8;
+    }
+    outputstream.write(data, BYTES_PER_K_TYPE);
+    if (outputstream.fail())
+    {
+        std::cout << "Write block failed with code: " << outputstream.rdstate() << std::endl;
+        std::cout << "Goodbit: " << outputstream.good() << std::endl;
+        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
+        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
+        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
+        exit(outputstream.rdstate());
+    }
+}
 
 void write_uint_BLOCK_OR_SINGLETON_little_endian(std::ostream &outputstream, block_or_singleton_index value)
 {
@@ -462,85 +486,211 @@ public:
     }
 };
 
-void read_graph_into_summary_from_stream_timed(std::istream &inputstream, boost::unordered_flat_map<node_index, block_or_singleton_index> &node_to_block_map, SummaryGraph &gs)
+class NodeSet
 {
-    StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
+private:
+    boost::unordered_flat_set<node_index> nodes;
 
-    const int BufferSize = 8 * 16184;
-
-    char _buffer[BufferSize];
-
-    inputstream.rdbuf()->pubsetbuf(_buffer, BufferSize);
-
-    w.start_step("Reading graph");
-    u_int64_t line_counter = 0;
-
-    auto t_start{boost::chrono::system_clock::now()};
-    auto time_t_start{boost::chrono::system_clock::to_time_t(t_start)};
-    std::tm *ptm_start{std::localtime(&time_t_start)};
-
-    std::cout << std::put_time(ptm_start, "%Y/%m/%d %H:%M:%S") << " Reading started" << std::endl;
-    while (true)
+public:
+    NodeSet()
     {
-        // subject
-        // node_index subject_index = node_ID_Mapper.getID(parts[0]);
-        node_index subject_index = read_uint_ENTITY_little_endian(inputstream);
-
-        // edge
-        // edge_type edge_label = edge_ID_Mapper.getID(parts[1]);
-        edge_type edge_label = read_PREDICATE_little_endian(inputstream);
-
-        // object
-        // node_index object_index = node_ID_Mapper.getID(parts[2]);
-        node_index object_index = read_uint_ENTITY_little_endian(inputstream);
-
-        // Break when the last valid values have been read
-        if (inputstream.eof())
-        {
-            break;
-        }
-        
-        gs.try_add_block_node(node_to_block_map[subject_index])
-        gs.add_edge_to_node(node_to_block_map[subject_index], edge_label, node_to_block_map[object_index])
-
-        if (line_counter % 1000000 == 0)
-        {
-            auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
-            std::tm *ptm{std::localtime(&now)};
-            std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
-        }
-        line_counter++;
     }
-    w.stop_step();
+    void add_node(node_index node)
+    {
+        nodes.emplace(node);  // Should the be emplace or insert?
+    }
+    boost::unordered_flat_set<node_index>& get_nodes()
+    {
+        return nodes;
+    }
+    void remove_node(node_index node)
+    {
+        nodes.erase(node);
+    }
+};
 
-    auto t_reading_done{boost::chrono::system_clock::now()};
-    auto time_t_reading_done{boost::chrono::system_clock::to_time_t(t_reading_done)};
-    std::tm *ptm_reading_done{std::localtime(&time_t_reading_done)};
-
-    std::cout << std::put_time(ptm_reading_done, "%Y/%m/%d %H:%M:%S")
-              << " Time taken for reading = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_reading_done - t_start).count()
-              << " ms, memory = " << w.get_times()[0].memory_in_kb << " kB" << std::endl;
-#ifdef CREATE_REVERSE_INDEX
-    w.start_step("Creating reverse index");
-    g.compute_reverse_index();
-    w.stop_step();
-
-    auto t_reverse_index_done{boost::chrono::system_clock::now()};
-    auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
-    std::tm *ptm_reverse_index_done{std::localtime(&time_t_reverse_index_done)};
-
-    std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S")
-              << " Time taken for creating reverse index = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_reverse_index_done - t_reading_done).count()
-              << " ms, memory = " << w.get_times()[1].memory_in_kb << " kB" << std::endl;
-#endif
-}
-
-void read_graph_timed(const std::string &filename, Graph &g)
+class BlockMap
 {
+private:
+    boost::unordered_flat_map<block_or_singleton_index,NodeSet> block_map;
 
-    std::ifstream infile(filename, std::ifstream::in);
-    read_graph_from_stream_timed(infile, g);
-}
+public:
+    BlockMap()
+    {
+    }
+    boost::unordered_flat_map<block_or_singleton_index,NodeSet>& get_map()
+    {
+        return block_map;
+    }
+    NodeSet& get_node_set(block_or_singleton_index local_block)
+    {
+        auto key_val_iterator = this->get_map().find(local_block);
+        assert(key_val_iterator != this->get_map().end());  // The queried block must exist as a key
+        return (*key_val_iterator).second;
+    }
+    void add_node(block_or_singleton_index merged_block, node_index node)
+    {
+        if (this->get_map().find(merged_block) == this->get_map().end())
+        {
+            NodeSet empty_node_set = NodeSet();
+            block_map[merged_block] = empty_node_set;
+        }
+        block_map[merged_block].add_node(node);
+    }
+};
+
+class SingletonMapper
+{
+private:
+    boost::unordered_flat_map<k_type,BlockMap> block_to_singletons;
+
+public:
+    SingletonMapper()
+    {
+    }
+    boost::unordered_flat_map<k_type,BlockMap>& get_maps()
+    {
+        return block_to_singletons;
+    }
+    BlockMap& get_map(k_type k)
+    {
+        return block_to_singletons[k];
+    }
+    void add_level(k_type k)
+    {
+        assert(this->get_maps().count(k) == 0);  // The block map should not exist
+        BlockMap empty_block_map = BlockMap();
+        block_to_singletons[k] = empty_block_map;
+    }
+    void add_mapping(k_type k, block_or_singleton_index merged_block, node_index singleton)
+    {
+        block_to_singletons[k].add_node(merged_block, singleton);
+    }
+};
+
+class ReverseBlockMap
+{
+private:
+    boost::unordered_flat_map<block_or_singleton_index, block_or_singleton_index> block_map;
+
+public:
+    ReverseBlockMap()
+    {
+    }
+    boost::unordered_flat_map<block_or_singleton_index, block_or_singleton_index>& get_map()
+    {
+        return block_map;
+    }
+    block_or_singleton_index map_block(block_or_singleton_index local_block)
+    {
+        // Negative indices always belong to singleton blocks, making them already unique between layers
+        if (local_block >= 0)
+        {
+            return block_map[local_block];
+        }
+        else
+        {
+            return local_block;
+        }
+    }
+    void add_block(block_or_singleton_index local_block, block_or_singleton_index global_block)
+    {
+        assert(local_block >= 0);  // Singleton blocks (with a negative index) should not be added
+        block_map[local_block] = global_block;
+    }
+};
+
+class LocalBlockToGlobalBlockMap
+{
+private:
+    boost::unordered_flat_map<k_type, ReverseBlockMap> block_maps;
+    block_or_singleton_index next_block = 1;
+
+public:
+    LocalBlockToGlobalBlockMap()
+    {
+    }
+    boost::unordered_flat_map<k_type, ReverseBlockMap>& get_maps()
+    {
+        return block_maps;
+    }
+    ReverseBlockMap& get_map(k_type k)
+    {
+        return block_maps[k];
+    }
+    block_or_singleton_index get_next_id()
+    {
+        return next_block;
+    }
+    block_or_singleton_index map_local_block(k_type k, block_or_singleton_index local_block)
+    {
+        return block_maps[k].map_block(local_block);
+    }
+    void add_level(k_type k)
+    {
+        assert(this->get_maps().count(k) == 0);  // The block map should not exist
+        ReverseBlockMap empty_block_map = ReverseBlockMap();
+        this->get_maps()[k] = empty_block_map;
+    }
+    block_or_singleton_index add_block(k_type k, block_or_singleton_index local_block)
+    {
+        assert(this->get_maps().count(k) > 0);  // The block map should exist
+        block_or_singleton_index global_block = next_block;
+        this->get_map(k).add_block(local_block, next_block);
+        next_block++;
+        return global_block;
+    }
+    void write_maps_to_file_binary(std::ostream &outputstream)
+    {
+        for (auto level_map_pair: this->get_maps())
+        {
+            k_type level = level_map_pair.first;
+            block_or_singleton_index map_size = level_map_pair.second.get_map().size();
+            write_uint_K_TYPE_little_endian(outputstream,level);
+            write_uint_BLOCK_OR_SINGLETON_little_endian(outputstream,map_size);
+
+            for (auto local_global_pair: level_map_pair.second.get_map())
+            {
+                block_or_singleton_index local_block = local_global_pair.first;
+                block_or_singleton_index global_block = local_global_pair.second;
+                write_uint_BLOCK_OR_SINGLETON_little_endian(outputstream,local_block);
+                write_uint_BLOCK_OR_SINGLETON_little_endian(outputstream,global_block);
+            }
+        }
+    }
+};
+
+class SplitToMergedMap
+{
+private:
+    boost::unordered_flat_map<block_or_singleton_index, block_or_singleton_index> mapping;
+
+public:
+    SplitToMergedMap()
+    {
+    }
+    void add_pair(block_or_singleton_index split_block, block_or_singleton_index merged_block)
+    {
+        mapping[split_block] = merged_block;
+    }
+    block_or_singleton_index map_block(block_or_singleton_index possibly_split_block)
+    {
+        auto key_val_iterator = mapping.find(possibly_split_block);
+        if (key_val_iterator == mapping.end())
+        {
+            return possibly_split_block;
+        }
+        else
+        {
+            return (*key_val_iterator).second;
+        }
+    }
+    boost::unordered_flat_map<block_or_singleton_index, block_or_singleton_index>& get_map()
+    {
+        return mapping;
+    }
+};
+
 
 class SummaryObjectSet
 {
@@ -605,6 +755,8 @@ class SummaryNode
     }
 };
 
+
+
 class Triple
 {
 public:
@@ -649,17 +801,25 @@ public:
     }
     void try_add_block_node(block_or_singleton_index block_node)
     {
-        if (this->get_nodes().count(block_node) == 0);  // The node should not already exist
+        if (this->get_nodes().count(block_node) == 0)  // The node should not already exist
         {
             SummaryNode empty_node = SummaryNode();
             this->get_nodes()[block_node] = empty_node;
         }
+    }
+    void remove_block_node(block_or_singleton_index block_node)
+    {
+        this->get_nodes().erase(block_node);
     }
     void add_reverse_block_node(block_or_singleton_index block_node)
     {
         assert(reverse_block_nodes.count(block_node) == 0);  // The node should not already exist
         SummaryNode empty_node = SummaryNode();
         reverse_block_nodes[block_node] = empty_node;
+    }
+    void remove_reverse_block_node(block_or_singleton_index block_node)
+    {
+        this->get_reverse_index().erase(block_node);
     }
     void add_edge_to_node(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index object, bool add_reverse=true)
     {
@@ -672,6 +832,31 @@ public:
                 add_reverse_block_node(object);
             }
             this->get_reverse_index()[object].add_edge(predicate, subject);
+        }
+    }
+    void ammend_object(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index old_object, block_or_singleton_index new_object, bool ammend_reverse=true)
+    {
+        assert(this->get_nodes().count(subject) > 0);  // The subject should exist
+        assert(this->get_nodes()[subject].count_edge_key(predicate) > 0);  // The predicate should exist
+        assert(this->get_nodes()[subject].get_edges()[predicate].get_objects().count(old_object) > 0);  // The predicate should exist
+
+        this->get_nodes()[subject].add_edge(predicate, new_object);
+        this->get_nodes()[subject].remove_edge_recursive(predicate, old_object);
+
+        if (ammend_reverse)
+        {
+            if (reverse_block_nodes.count(new_object) == 0)
+            {
+                add_reverse_block_node(new_object);
+            }
+            this->get_reverse_index()[new_object].add_edge(predicate, subject);
+            this->get_reverse_index()[old_object].remove_edge_recursive(predicate, subject);
+
+            // Remove the node in the reverse 
+            if (this->get_reverse_index()[old_object].get_edges().size() == 0)
+            {
+                this->remove_reverse_block_node(old_object);
+            }
         }
     }
     std::vector<Triple> remove_split_blocks_edges(boost::unordered_flat_set<block_index> split_blocks)
@@ -718,7 +903,6 @@ public:
                 edge_type predicate = edge_key_val.first;
                 for (block_or_singleton_index object: edge_key_val.second.get_objects())
                 {
-                    // std::cout << "DEBUG spo: " << subject << " " << predicate << " " << object << std::endl;
                     write_uint_BLOCK_OR_SINGLETON_little_endian(outputstream, subject);
                     write_uint_PREDICATE_little_endian(outputstream, predicate);
                     write_uint_BLOCK_OR_SINGLETON_little_endian(outputstream, object);
@@ -754,6 +938,94 @@ public:
     // }
 };
 
+void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_to_block_map_type &node_to_block_map, ReverseBlockMap& current_block_map, SplitToMergedMap &split_to_merged_map, SummaryGraph &gs)
+{
+    StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
+
+    const int BufferSize = 8 * 16184;
+
+    char _buffer[BufferSize];
+
+    inputstream.rdbuf()->pubsetbuf(_buffer, BufferSize);
+
+    w.start_step("Reading graph");
+    u_int64_t line_counter = 0;
+
+    auto t_start{boost::chrono::system_clock::now()};
+    auto time_t_start{boost::chrono::system_clock::to_time_t(t_start)};
+    std::tm *ptm_start{std::localtime(&time_t_start)};
+
+    std::cout << std::put_time(ptm_start, "%Y/%m/%d %H:%M:%S") << " Reading started" << std::endl;
+    while (true)
+    {
+        // subject
+        // node_index subject_index = node_ID_Mapper.getID(parts[0]);
+        node_index subject_index = read_uint_ENTITY_little_endian(inputstream);
+
+        // edge
+        // edge_type edge_label = edge_ID_Mapper.getID(parts[1]);
+        edge_type edge_label = read_PREDICATE_little_endian(inputstream);
+
+        // object
+        // node_index object_index = node_ID_Mapper.getID(parts[2]);
+        node_index object_index = read_uint_ENTITY_little_endian(inputstream);
+
+        // Break when the last valid values have been read
+        if (inputstream.eof())
+        {
+            break;
+        }
+        block_or_singleton_index subject_block = current_block_map.map_block(node_to_block_map[subject_index]);
+        block_or_singleton_index object_block = split_to_merged_map.map_block(current_block_map.map_block(node_to_block_map[object_index]));
+        // block_or_singleton_index object_block = previous_block_map.map_block(split_to_merged_map.map_block(node_to_block_map[object_index]));  //TODO this should use the previous block map if the mapping exists, otherwise use the current block map
+
+        gs.try_add_block_node(subject_block);
+        gs.add_edge_to_node(subject_block, edge_label, object_block);
+
+        if (line_counter % 1000000 == 0)
+        {
+            auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+            std::tm *ptm{std::localtime(&now)};
+            std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
+        }
+        line_counter++;
+    }
+    w.stop_step();
+
+    auto t_reading_done{boost::chrono::system_clock::now()};
+    auto time_t_reading_done{boost::chrono::system_clock::to_time_t(t_reading_done)};
+    std::tm *ptm_reading_done{std::localtime(&time_t_reading_done)};
+
+    std::cout << std::put_time(ptm_reading_done, "%Y/%m/%d %H:%M:%S")
+              << " Time taken for reading = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_reading_done - t_start).count()
+              << " ms, memory = " << w.get_times()[0].memory_in_kb << " kB" << std::endl;
+// #ifdef CREATE_REVERSE_INDEX
+//     w.start_step("Creating reverse index");
+//     g.compute_reverse_index();
+//     w.stop_step();
+
+//     auto t_reverse_index_done{boost::chrono::system_clock::now()};
+//     auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
+//     std::tm *ptm_reverse_index_done{std::localtime(&time_t_reverse_index_done)};
+
+//     std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S")
+//               << " Time taken for creating reverse index = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_reverse_index_done - t_reading_done).count()
+//               << " ms, memory = " << w.get_times()[1].memory_in_kb << " kB" << std::endl;
+// #endif
+}
+
+void read_graph_into_summary_timed(const std::string &filename, node_to_block_map_type &node_to_block_map, ReverseBlockMap &current_block_map, SplitToMergedMap &split_to_merged_map, SummaryGraph &gs)
+{
+
+    std::ifstream infile(filename, std::ifstream::in);
+    read_graph_into_summary_from_stream_timed(infile, node_to_block_map, current_block_map, split_to_merged_map, gs);
+}
+
+struct LocalBlock {
+    block_or_singleton_index local_index;
+    k_type terminal_level;
+};
+
 int main(int ac, char *av[])
 {
     // This structure was inspired by https://gist.github.com/randomphrase/10801888
@@ -786,7 +1058,14 @@ int main(int ac, char *av[])
 
     std::string graph_stats_line;
     std::string final_depth_string = "\"Final depth\"";
+    std::string vertex_count_string = "\"Vertex count\"";
+
     size_t k;
+    node_index graph_size;
+
+    bool k_found = false;
+    bool size_found = false;
+
     while (std::getline(graph_stats_file_stream, graph_stats_line))
     {
         boost::trim(graph_stats_line);
@@ -797,6 +1076,16 @@ int main(int ac, char *av[])
         {
             std::stringstream sstream(result[1]);
             sstream >> k;
+            k_found = true;
+        }
+        else if (result[0] == vertex_count_string)
+        {
+            std::stringstream sstream(result[1]);
+            sstream >> graph_size;
+            size_found = true;
+        }
+        if (k_found && size_found)
+        {
             break;
         }
     }
@@ -809,17 +1098,17 @@ int main(int ac, char *av[])
     std::ofstream summary_graph_file_binary(summary_graph_file_path_binary, std::ios::trunc | std::ofstream::out);
 
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
-    Graph g;
-    w.start_step("Read graph", true);  // Set newline to true
-    read_graph_timed(graph_file, g);
-    w.stop_step();
+    // Graph g;
+    // w.start_step("Read graph", true);  // Set newline to true
+    // read_graph_timed(graph_file, g);
+    // w.stop_step();
 
     std::ifstream blocksfile(blocks_file, std::ifstream::in);
-    boost::unordered_flat_map<node_index, block_or_singleton_index> node_to_block_map;
+    node_to_block_map_type node_to_block_map;
     boost::unordered_flat_map<block_index, boost::unordered_flat_set<node_index>> blocks;
 
     // Initialize all nodes as being singletons
-    for (node_index node = 0; node < g.size(); node++)
+    for (node_index node = 0; node < graph_size; node++)
     {
         node_to_block_map[node] = -block_or_singleton_index(node) - 1;
     }
@@ -846,6 +1135,8 @@ int main(int ac, char *av[])
             blocks[block].emplace(node);
         }
     }
+
+    SingletonMapper blocks_to_singletons = SingletonMapper();
 
     for (uint32_t i = 2; i <= k; i++)  // We can ignore the last outcome, because its only purpose was to find the fixed point, otherwise include the last outcome
     {
@@ -943,9 +1234,11 @@ int main(int ac, char *av[])
                 old_nodes_in_split.erase(node);
             }
             new_singleton_nodes = std::move(old_nodes_in_split);
-
+            
+            blocks_to_singletons.add_level(i);
             for (node_index node: new_singleton_nodes)
             {
+                blocks_to_singletons.get_map(i).add_node(node_to_block_map[node], node);  // Add the block to singlton mapping to keep track (for later) of which merged blocks singletons refine
                 block_or_singleton_index singleton_block = -((block_or_singleton_index)node)-1;
                 node_to_block_map[node] = singleton_block;
             }
@@ -953,8 +1246,314 @@ int main(int ac, char *av[])
     }
 
     // We have read the last outcome, now we will create a summary graph accordingly
+    // First, because different blocks can have the same name at different layers, we need to map the current block ids to globally unique ones
+    LocalBlockToGlobalBlockMap block_maps = LocalBlockToGlobalBlockMap();
+    boost::unordered_flat_map<block_or_singleton_index,LocalBlock> living_blocks;  // The blocks that currently exist
+    boost::unordered_flat_map<block_or_singleton_index,LocalBlock> spawning_blocks;  // The blocks that will come into existance in the following level.
+    boost::unordered_flat_set<block_or_singleton_index> dying_blocks;  // The blocks that will no exist anymore in the following level
+
+    k_type current_level = k;
+
+    block_maps.add_level(current_level);
+    for (auto iter = blocks.cbegin(); iter != blocks.cend(); iter++)
+    {
+        block_index block_id = iter->first;
+        block_or_singleton_index global_block = block_maps.add_block(current_level, block_id);
+        living_blocks[global_block] = {(block_or_singleton_index) block_id, (k_type) current_level};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
+    }
+    ReverseBlockMap current_block_map = block_maps.get_map(current_level);
+
+    // Declare our condensed multi summary graph
     SummaryGraph gs;
+
+    // boost::unordered_flat_map<block_or_singleton_index, boost::unordered_flat_set<block_or_singleton_index>> merged_to_split_map;
+    SplitToMergedMap old_split_to_merged_map;
+
+    std::ostringstream current_level_stringstream;
+    current_level_stringstream << std::setw(4) << std::setfill('0') << current_level;
+    std::string current_level_string(current_level_stringstream.str());
+
+    std::ostringstream previous_level_stringstream;
+    previous_level_stringstream << std::setw(4) << std::setfill('0') << current_level-1;
+    std::string previous_level_string(previous_level_stringstream.str());
+
+    std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_level_string + "to" + current_level_string + ".bin";
+    std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
+
+    block_maps.add_level(current_level-1);
+
+    while (true)
+    {
+        block_index merged_block = read_uint_BLOCK_little_endian(current_mapping_file);
+        if (current_mapping_file.eof())
+        {
+            break;
+        }
+        // boost::unordered_flat_set<block_or_singleton_index> empty_set;
+        // merged_to_split_map[merged_block] = empty_set;
+        block_or_singleton_index global_block = block_maps.add_block(current_level-1, merged_block);
+        spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
+        // std::cout << "DEBUG global block: " << global_block << std::endl;
+        gs.add_block_node(global_block);
+
+        block_index split_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
+        // std::cout << "DEBUG split block count: " << split_block_count << std::endl;
+        
+        for (block_index j = 0; j < split_block_count; j++)
+        {
+            block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
+            dying_blocks.emplace(block_maps.map_local_block(current_level, split_block));
+            if (split_block == 0)
+            {
+                // TODO implement the singletons case
+                // std::cout << "DEBUG split:" << split_block << ", merged: " << merged_block << std::endl;
+                BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
+                // std::cout << "DEBUG got level" << std::endl;
+                for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
+                {
+                    // std::cout << "DEBUG singleton:" << singleton << std::endl;
+                    assert(singleton <= MAX_SIGNED_BLOCK_SIZE); // Check if the following cast is possible
+
+                    block_or_singleton_index singlton_block = (block_or_singleton_index) singleton;
+                    singlton_block = (-singlton_block)-1;
+
+                    // The singleton blocks don't have to be mapped to global blocks, as they are already unique
+                    old_split_to_merged_map.add_pair(singlton_block, global_block);
+                    dying_blocks.emplace(singlton_block);
+                }
+            }
+            else
+            {
+                // merged_to_split_map[merged_block].emplace(split_block);
+                // std::cout << "DEBUG split:" << split_block << ", merged: " << merged_block << std::endl;
+                block_or_singleton_index global_split_block = block_maps.map_local_block(current_level, split_block);
+                old_split_to_merged_map.add_pair(global_split_block, global_block);  // We do not need to assert that these can be cast to block_or_singleton_index, since we have already done so when loading the outcomes earlier
+                dying_blocks.emplace(global_split_block);
+            }
+            // std::cout << "DEBUG" << std::endl;
+        }
+    }
+
+    // ReverseBlockMap previous_block_map = block_maps.get_map(current_level-1);
+
+    // for (auto split_merged: old_split_to_merged_map.get_map())
+    // {
+    //     std::cout << "DEBUG map: " << split_merged.first << ", " << split_merged.second << std::endl;
+    //     std::cout << "DEBUG map (global): " << current_block_map.map_block(split_merged.first) << ", " << previous_block_map.map_block(split_merged.second) << std::endl;
+    //     std::cout << std::endl;
+    // }
+
+    // Create the final set of data edges (between k and k-1)
     w.start_step("Read edges into summary graph", true);
-    read_graph_into_summary_from_stream_timed(graph_file, node_to_block_map, gs);
+    read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, gs);
     w.stop_step();
+
+    size_t i = 0;
+    block_or_singleton_index largest_object = 0;
+    block_or_singleton_index largest_subject = 0;
+    for (auto node: gs.get_nodes())
+    {
+        if (node.second.get_edges().size() > 0)
+        {
+            largest_subject = std::max(largest_subject, node.first);
+        }
+        
+        for (auto edge: node.second.get_edges())
+        {
+            for (auto object: edge.second.get_objects())
+            {
+                largest_object = std::max(largest_object, object);
+                // std::cout << "DEBUG: " << i << std::endl;
+                i++;
+            }
+        }
+    }
+
+    // Update living_blocks by removing the dying blocks and adding the spawning blocks
+    // TODO check if the living blocks work correctly in general
+    for (block_or_singleton_index dying_block: dying_blocks)
+    {
+        living_blocks.erase(dying_block);
+    }
+    living_blocks.merge(spawning_blocks);
+
+    // std::cout << "DEBUG largest subject: " << largest_subject << std::endl;
+    // std::cout << "DEBUG largest object: " << largest_object << std::endl;
+
+
+
+    // for (auto index_map: split_to_merged_map)
+    // {
+    //     block_or_singleton_index split_block = block_maps.map_local_block(current_level+1, index_map.first);
+    //     block_or_singleton_index merged_block = block_maps.map_local_block(current_level, index_map.second);
+
+    //     for (auto edge: gs.get_nodes()[split_block].get_edges())
+    //     {
+    //         edge_type predicate = edge.first;
+    //         for (block_or_singleton_index object: edge.second.get_objects())
+    //         {
+    //             // gs.add_edge_to_node();
+    //         }
+    //     }
+    // }
+
+
+    // We decrement the current level and continue until the current level is 2 (because that covers the data edges from level 2 to level 1)
+    // We have separate code after this loop to cover the data edges from level 1 to level 0
+    for (current_level=current_level-1; current_level>1; current_level--)
+    {
+        block_maps.add_level(current_level-1);
+        SplitToMergedMap current_split_to_merged_map;
+        boost::unordered_flat_map<block_or_singleton_index,LocalBlock> spawning_blocks;
+        boost::unordered_flat_set<block_or_singleton_index> dying_blocks;
+
+        // block_or_singleton_index first_new_block = block_maps.get_next_id();
+
+        // boost::unordered_flat_map<block_or_singleton_index, boost::unordered_flat_set<block_or_singleton_index>> merged_to_split_map;
+        // boost::unordered_flat_map<block_or_singleton_index, block_or_singleton_index> split_to_merged_map;
+
+
+
+        std::ostringstream current_level_stringstream;
+        current_level_stringstream << std::setw(4) << std::setfill('0') << current_level;
+        std::string current_level_string(current_level_stringstream.str());
+
+        std::ostringstream previous_level_stringstream;
+        previous_level_stringstream << std::setw(4) << std::setfill('0') << current_level-1;
+        std::string previous_level_string(previous_level_stringstream.str());
+
+        std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_level_string + "to" + current_level_string + ".bin";
+        std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
+
+        // Read a mapping file
+        while (true)
+        {
+            block_index merged_block = read_uint_BLOCK_little_endian(current_mapping_file);
+            if (current_mapping_file.eof())
+            {
+                break;
+            }
+            // boost::unordered_flat_set<block_or_singleton_index> empty_set;
+            // merged_to_split_map[merged_block] = empty_set;
+            block_or_singleton_index global_block = block_maps.add_block(current_level-1, merged_block);
+            gs.add_block_node(global_block);
+            spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
+
+            block_index split_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
+            
+            for (block_index j = 0; j < split_block_count; j++)
+            {
+                block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
+                if (split_block == 0)
+                {
+                    // TODO implement the singletons case
+                    // std::cout << "DEBUG split:" << split_block << ", merged: " << merged_block << std::endl;
+                    BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
+                    // std::cout << "DEBUG got level" << std::endl;
+                    for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
+                    {
+                        // std::cout << "DEBUG singleton:" << singleton << std::endl;
+                        assert(singleton <= MAX_SIGNED_BLOCK_SIZE); // Check if the following cast is possible
+
+                        block_or_singleton_index singlton_block = (block_or_singleton_index) singleton;
+                        singlton_block = (-singlton_block)-1;
+
+                        // The singleton blocks don't have to be mapped to global blocks, as they are already unique
+                        current_split_to_merged_map.add_pair(singlton_block, global_block);
+                        dying_blocks.emplace(singlton_block);
+                    }
+                }
+                else
+                {
+                    // merged_to_split_map[merged_block].emplace(split_block);
+                    // std::cout << "DEBUG split:" << split_block << ", merged: " << merged_block << std::endl;
+                    block_or_singleton_index global_split_block = block_maps.map_local_block(current_level, split_block);
+                    current_split_to_merged_map.add_pair(global_split_block, global_block);  // We do not need to assert that these can be cast to block_or_singleton_index, since we have already done so when loading the outcomes earlier
+                    dying_blocks.emplace(global_split_block);
+                }
+                // std::cout << "DEBUG" << std::endl;
+            }
+
+
+            // for (auto index_map: split_to_merged_map)
+            // {
+            //     // block_or_singleton_index split_block = block_maps.map_local_block(current_level+1, index_map.first);
+            //     // block_or_singleton_index merged_block = block_maps.map_local_block(current_level, index_map.second);
+
+            //     // for (auto edge: gs.get_nodes()[split_block].get_edges())
+            //     // {
+            //     //     edge_type = edge.first;
+            //     //     for (block_or_singleton_index object: edge.second.get_objects)
+            //     //     {
+            //     //         gs.add_edge_to_node()
+            //     //     }
+            //     // }
+            // }
+        }
+
+        for (auto block_level_pair: living_blocks)
+        {
+            block_or_singleton_index subject = block_level_pair.first;
+            for (auto type_objects_pair: gs.get_nodes()[subject].get_edges())
+            {
+                edge_type predicate = type_objects_pair.first;
+                for (block_or_singleton_index object: type_objects_pair.second.get_objects())
+                {
+                    block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+                    block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
+
+                    gs.add_edge_to_node(subject_image, predicate, object_image);
+                }
+            }
+            // for (auto type_objects_pair: gs.get_reverse_index()[subject].get_edges())
+            // {
+            //     edge_type predicate = type_objects_pair.first;
+            //     for (block_or_singleton_index object: type_objects_pair.second.get_objects())
+            //     {
+            //         block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+            //         block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
+
+            //         gs.add_edge_to_node(object_image, predicate, subject_image);
+            //     }
+            // }
+        }
+
+        // Update living_blocks by removing the dying blocks and adding the spawning blocks
+        // TODO check if the living blocks work correctly in general
+        for (block_or_singleton_index dying_block: dying_blocks)
+        {
+            living_blocks.erase(dying_block);
+        }
+        living_blocks.merge(spawning_blocks);
+
+
+        old_split_to_merged_map = std::move(current_split_to_merged_map);
+    }
+
+    // Add the edges between the level 1 and level 0
+    k_type zero_level = 0;
+    block_or_singleton_index universal_block = 0;
+    block_maps.add_level(zero_level);
+    block_or_singleton_index global_universal_block = block_maps.add_block(zero_level, universal_block);    
+    gs.add_block_node(global_universal_block);
+    for (auto block_level_pair: living_blocks)
+    {
+        block_or_singleton_index subject = block_level_pair.first;
+        for (auto type_objects_pair: gs.get_nodes()[subject].get_edges())
+        {
+            edge_type predicate = type_objects_pair.first;
+            block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+            gs.add_edge_to_node(subject_image, predicate, global_universal_block);
+        }
+    }
+
+    // Write the condensed summary graph to a file
+    std::string output_graph_file_path = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
+    std::ofstream output_graph_file_binary(output_graph_file_path, std::ios::trunc | std::ofstream::out);
+    gs.write_graph_to_file_binary(output_graph_file_binary);
+
+    // Write the LocalBlockToGlobalBlockMap to a file
+    std::string output_map_file_path = experiment_directory + "bisimulation/condensed_multi_summary_local_global_map.bin";
+    std::ofstream output_map_file_binary(output_map_file_path, std::ios::trunc | std::ofstream::out);
+    block_maps.write_maps_to_file_binary(output_map_file_binary);
 }
