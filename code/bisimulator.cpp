@@ -24,10 +24,13 @@
 using edge_type = uint32_t;
 using node_index = uint64_t;
 using block_index = node_index;
+using block_or_singleton_index = int64_t;
 
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
 const int BYTES_PER_BLOCK = 4;
+
+const int64_t MAX_SIGNED_BLOCK_SIZE = INT64_MAX;
 
 
 #define CREATE_REVERSE_INDEX
@@ -773,7 +776,8 @@ public:
             throw MyException("Tried to create a singleton from a node which already was a singleton. This is nearly certainly a mistake in the code.");
         }
         this->singleton_counter++;
-        this->node_to_block[node] = -this->singleton_counter;
+        assert(node <= MAX_SIGNED_BLOCK_SIZE);
+        this->node_to_block[node] = -((block_or_singleton_index) node)-1;
     }
 };
 
@@ -1454,6 +1458,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
 
         w.start_step(k_next_string + "-bisimulation (condensed) writing outcome to disk", true);  // Set newline to true
         std::ofstream condensed_output(output_path + "bisimulation/outcome_condensed-" + k_next_string + ".bin", std::ios::trunc);
+        // bool found_singletons = false;
         for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
         {
             for (auto new_block: orig_new.second)
@@ -1461,6 +1466,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
                 // Skip the singleton block
                 if (new_block == 0)
                 {
+                    // found_singletons = true;
                     continue;
                 }
                 // We have to subtract 1 because we added 1 earlier
@@ -1475,6 +1481,22 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
                 }
             }
         }
+        // // For the first outcome write the singltons into block 0
+        // if (i == 0 && found_singletons)
+        // {
+        //     block_index singletons_block = 0;
+        //     write_uint_BLOCK_little_endian(condensed_output, u_int64_t(singletons_block));
+        //     write_uint_ENTITY_little_endian(condensed_output, u_int64_t(outcomes[0].singleton_block_count()));  // The reader needs this size to decode the data
+        //     for (node_index node = 0; node<outcomes[0].total_blocks(); node++)
+        //     {
+        //         block_or_singleton_index node_block = outcomes[0].get_block_ID_for_node(node);
+        //         // If the node is in a singleton block, then write to the outcome
+        //         if (node_block < 0)
+        //         {
+        //             write_uint_ENTITY_little_endian(condensed_output, u_int64_t(node));
+        //         }
+        //     }
+        // }
         w.stop_step();
         
         int new_total = outcomes[0].total_blocks();

@@ -179,10 +179,6 @@ int main(int ac, char *av[])
             u_int64_t block = read_uint_BLOCK_little_endian(infile);
             if (infile.eof())
             {
-                if (block_count == 0)
-                {
-                    outfile << "{}";  // Only singleton blocks were created
-                }
                 break;
             }
             if (block_count > 0)

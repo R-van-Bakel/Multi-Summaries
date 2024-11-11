@@ -141,7 +141,7 @@ public:
 #endif
 };
 
-void write_uint_BLOCK_OR_SINGLETON_little_endian(std::ostream &outputstream, block_or_singleton_index value)
+void write_int_BLOCK_OR_SINGLETON_little_endian(std::ostream &outputstream, block_or_singleton_index value)
 {
     char data[BYTES_PER_BLOCK_OR_SINGLETON];
     for (unsigned int i = 0; i < BYTES_PER_BLOCK_OR_SINGLETON; i++)
@@ -259,7 +259,7 @@ u_int64_t read_uint_BLOCK_little_endian(std::istream &inputstream)
     return result;
 }
 
-int64_t read_uint_BLOCK_OR_SINGLETON_little_endian(std::istream &inputstream)
+int64_t read_int_BLOCK_OR_SINGLETON_little_endian(std::istream &inputstream)
 {
     char data[BYTES_PER_BLOCK_OR_SINGLETON];
     inputstream.read(data, BYTES_PER_BLOCK_OR_SINGLETON);
@@ -728,9 +728,9 @@ public:
                 for (block_or_singleton_index object: edge_key_val.second.get_objects())
                 {
                     // std::cout << "DEBUG spo: " << subject << " " << predicate << " " << object << std::endl;
-                    write_uint_BLOCK_OR_SINGLETON_little_endian(outputstream, subject);
+                    write_int_BLOCK_OR_SINGLETON_little_endian(outputstream, subject);
                     write_uint_PREDICATE_little_endian(outputstream, predicate);
-                    write_uint_BLOCK_OR_SINGLETON_little_endian(outputstream, object);
+                    write_int_BLOCK_OR_SINGLETON_little_endian(outputstream, object);
                 }
             }
         }
@@ -941,13 +941,13 @@ int main(int ac, char *av[])
     // while (true)
     // {
     //     // subject
-    //     block_or_singleton_index subject_index = read_uint_BLOCK_OR_SINGLETON_little_endian(summary_graph_file_input);
+    //     block_or_singleton_index subject_index = read_int_BLOCK_OR_SINGLETON_little_endian(summary_graph_file_input);
 
     //     // edge
     //     edge_type edge_label = read_PREDICATE_little_endian(summary_graph_file_input);
 
     //     // object
-    //     block_or_singleton_index object_index = read_uint_BLOCK_OR_SINGLETON_little_endian(summary_graph_file_input);
+    //     block_or_singleton_index object_index = read_int_BLOCK_OR_SINGLETON_little_endian(summary_graph_file_input);
 
     //     // Break when the last valid values have been read
     //     if (summary_graph_file_input.eof())
