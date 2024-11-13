@@ -1382,6 +1382,12 @@ int main(int ac, char *av[])
         new_living_blocks[living_block_key_val.first] = living_block_key_val.second;
     }
 
+    // Update the new local to global living block mapping (it uses to old blocks for step the first step)
+    for (auto living_block_key_val: old_living_blocks)
+    {
+        new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
+    }
+
     // for (auto level_map_pair: blocks_to_singletons.get_maps())
     // {
     //     for (auto block_singletons_pair: level_map_pair.second.get_map())
@@ -1399,7 +1405,11 @@ int main(int ac, char *av[])
 
     for (auto living_block_key_val: old_living_blocks)
     {
-        std::cout << "DEBUG I'm alive: " << living_block_key_val.first << " (" << living_block_key_val.second.local_index << ", " << current_level << ")" << std::endl;
+        std::cout << "DEBUG I'm alive (old): " << living_block_key_val.first << " (" << living_block_key_val.second.local_index << ", " << current_level << ")" << std::endl;
+    }
+    for (auto living_block_key_val: new_living_blocks)
+    {
+        std::cout << "DEBUG I'm alive (new): " << living_block_key_val.first << " (" << living_block_key_val.second.local_index << ", " << current_level << ")" << std::endl;
     }
 
     ReverseBlockMap current_block_map = block_maps.get_map(current_level);
@@ -1508,6 +1518,9 @@ int main(int ac, char *av[])
         block_or_singleton_index global_block = block_maps.add_block(current_level-1, merged_block);
         std::cout << "DEBUG spawing block: " << global_block << " (" << merged_block << ", " << current_level-1 << ")" << std::endl;
         spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
+
+        // new_local_to_global_living_blocks[merged_block] = global_block;  // This line partially updates the map. Later we clear it and fully align it with new_living_blocks again
+
         // std::cout << "DEBUG global block: " << global_block << std::endl;
         gs.add_block_node(global_block);
 
@@ -1546,8 +1559,9 @@ int main(int ac, char *av[])
                 // merged_to_split_map[merged_block].emplace(split_block);
                 // std::cout << "DEBUG split:" << split_block << ", merged: " << merged_block << std::endl;
                 std::cout << "DEBUG checking for split block: " << split_block << std::endl;
-                assert(new_local_to_global_living_blocks.find(split_block) != new_local_to_global_living_blocks.cend());
-                block_or_singleton_index global_split_block = new_local_to_global_living_blocks[split_block];
+                auto global_split_block_iterator = new_local_to_global_living_blocks.find(split_block);
+                assert(global_split_block_iterator != new_local_to_global_living_blocks.cend());
+                block_or_singleton_index global_split_block = (*global_split_block_iterator).second;
                 old_split_to_merged_map.add_pair(global_split_block, global_block);  // We do not need to assert that these can be cast to block_or_singleton_index, since we have already done so when loading the outcomes earlier
                 std::cout << "DEBUG dying split block: " << global_split_block << " (" << split_block << ")" << std::endl;
                 std::cout << "DEBUG stats: " << global_split_block  << "(" << split_block << ")-->" << global_block << "(" << merged_block << ")" << std::endl;
@@ -1672,7 +1686,11 @@ int main(int ac, char *av[])
 
         for (auto living_block_key_val: old_living_blocks)
         {
-            std::cout << "DEBUG I'm alive: " << living_block_key_val.first << " (" << living_block_key_val.second.local_index << ", " << current_level << ")" << std::endl;
+            std::cout << "DEBUG I'm alive (old): " << living_block_key_val.first << " (" << living_block_key_val.second.local_index << ", " << current_level << ")" << std::endl;
+        }
+        for (auto living_block_key_val: new_living_blocks)
+        {
+            std::cout << "DEBUG I'm alive (new): " << living_block_key_val.first << " (" << living_block_key_val.second.local_index << ", " << current_level << ")" << std::endl;
         }
 
         // Read a mapping file
@@ -1689,6 +1707,8 @@ int main(int ac, char *av[])
             gs.add_block_node(global_block);
             std::cout << "DEBUG spawing block: " << global_block << " (" << merged_block << ", " << current_level-1 << ")" << std::endl;
             spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
+            
+            // new_local_to_global_living_blocks[merged_block] = global_block;  // This line partially updates the map. Later we clear it and fully align it with new_living_blocks again
 
             block_index split_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
             std::cout << "DEBUG (loop) split block count: " << split_block_count << std::endl;
@@ -1723,8 +1743,9 @@ int main(int ac, char *av[])
                     // merged_to_split_map[merged_block].emplace(split_block);
                     // std::cout << "DEBUG split:" << split_block << ", merged: " << merged_block << std::endl;
                     std::cout << "DEBUG checking for split block: " << split_block << std::endl;
-                    assert(new_local_to_global_living_blocks.find(split_block) != new_local_to_global_living_blocks.cend());
-                    block_or_singleton_index global_split_block = new_local_to_global_living_blocks[split_block];
+                    auto global_split_block_iterator = new_local_to_global_living_blocks.find(split_block);
+                    assert(global_split_block_iterator != new_local_to_global_living_blocks.cend());
+                    block_or_singleton_index global_split_block = (*global_split_block_iterator).second;
                     current_split_to_merged_map.add_pair(global_split_block, global_block);  // We do not need to assert that these can be cast to block_or_singleton_index, since we have already done so when loading the outcomes earlier
                     std::cout << "DEBUG dying split block: " << global_split_block << " (" << split_block << ")" << std::endl;
                     std::cout << "DEBUG stats: " << global_split_block  << "(" << split_block << ")-->" << global_block << "(" << merged_block << ")" << std::endl;
