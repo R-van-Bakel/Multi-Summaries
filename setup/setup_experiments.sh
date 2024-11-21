@@ -925,6 +925,7 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_p
 echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: multi_summary=\$multi_summary" >> \$log_file
 
 # Create the slurm script
 echo Creating slurm script
@@ -1007,7 +1008,7 @@ EOF
 # Make sure the file will have Unix style line endings
 sed -i 's/\r//g' $results_plotter_config
 
-# Create the shell file for the summary graphs experiment
+# Create the shell file for the result plotter
 echo Creating results_plotter.sh
 echo $(date) $(hostname) "${logging_process}.Info: Creating results_plotter.sh" >> $log_file
 results_plotter=../$git_hash/scripts/results_plotter.sh
