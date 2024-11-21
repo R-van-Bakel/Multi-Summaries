@@ -1428,7 +1428,6 @@ int main(int ac, char *av[])
 
                     // The singleton blocks don't have to be mapped to global blocks, as they are already unique
                     old_split_to_merged_map.add_pair(singlton_block, global_block);
-                    std::cout << std::endl;
                     dying_blocks.emplace(singlton_block);
                 }
             }
@@ -1438,7 +1437,6 @@ int main(int ac, char *av[])
                 assert(global_split_block_iterator != new_local_to_global_living_blocks.cend());
                 block_or_singleton_index global_split_block = (*global_split_block_iterator).second;
                 old_split_to_merged_map.add_pair(global_split_block, global_block);  // We do not need to assert that these can be cast to block_or_singleton_index, since we have already done so when loading the outcomes earlier
-                std::cout << std::endl;
                 dying_blocks.emplace(global_split_block);
             }
         }
@@ -1537,7 +1535,6 @@ int main(int ac, char *av[])
 
                         // The singleton blocks don't have to be mapped to global blocks, as they are already unique
                         current_split_to_merged_map.add_pair(singlton_block, global_block);
-                        std::cout << std::endl;
                         dying_blocks.emplace(singlton_block);
                     }
                 }
