@@ -1632,12 +1632,12 @@ int main(int ac, char *av[])
         summary_nodes.emplace(subject);
         for (auto predicate_objects_pair: node.second.get_edges())
         {
-            edge_type predicate = predicate_objects_pair.first;
+            // edge_type predicate = predicate_objects_pair.first;
             edge_count += predicate_objects_pair.second.get_objects().size();
             for (block_or_singleton_index object: predicate_objects_pair.second.get_objects())
             {
                 summary_nodes.emplace(object);
-                std::cout << "DEBUG spo: " << subject << " " << predicate << " " << object << std::endl;
+                // std::cout << "DEBUG spo: " << subject << " " << predicate << " " << object << std::endl;
             }
         }
     }
