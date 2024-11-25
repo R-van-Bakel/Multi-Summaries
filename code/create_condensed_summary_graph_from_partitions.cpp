@@ -789,10 +789,10 @@ public:
     {
         return block_nodes;
     }
-    boost::unordered_flat_map<block_or_singleton_index, SummaryNode>& get_reverse_index()
-    {
-        return reverse_block_nodes;
-    }
+    // boost::unordered_flat_map<block_or_singleton_index, SummaryNode>& get_reverse_index()
+    // {
+    //     return reverse_block_nodes;
+    // }
     void add_block_node(block_or_singleton_index block_node)
     {
         assert(this->get_nodes().count(block_node) == 0);  // The node should not already exist
@@ -811,30 +811,30 @@ public:
     {
         this->get_nodes().erase(block_node);
     }
-    void add_reverse_block_node(block_or_singleton_index block_node)
-    {
-        assert(reverse_block_nodes.count(block_node) == 0);  // The node should not already exist
-        SummaryNode empty_node = SummaryNode();
-        reverse_block_nodes[block_node] = empty_node;
-    }
-    void remove_reverse_block_node(block_or_singleton_index block_node)
-    {
-        this->get_reverse_index().erase(block_node);
-    }
-    void add_edge_to_node(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index object, bool add_reverse=true)
+    // void add_reverse_block_node(block_or_singleton_index block_node)
+    // {
+    //     assert(reverse_block_nodes.count(block_node) == 0);  // The node should not already exist
+    //     SummaryNode empty_node = SummaryNode();
+    //     reverse_block_nodes[block_node] = empty_node;
+    // }
+    // void remove_reverse_block_node(block_or_singleton_index block_node)
+    // {
+    //     this->get_reverse_index().erase(block_node);
+    // }
+    void add_edge_to_node(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index object)//, bool add_reverse=true)
     {
         assert(this->get_nodes().count(subject) > 0);  // The node should exist
         this->get_nodes()[subject].add_edge(predicate, object);
-        if (add_reverse)
-        {
-            if (reverse_block_nodes.count(object) == 0)
-            {
-                add_reverse_block_node(object);
-            }
-            this->get_reverse_index()[object].add_edge(predicate, subject);
-        }
+        // if (add_reverse)
+        // {
+        //     if (reverse_block_nodes.count(object) == 0)
+        //     {
+        //         add_reverse_block_node(object);
+        //     }
+        //     this->get_reverse_index()[object].add_edge(predicate, subject);
+        // }
     }
-    void ammend_object(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index old_object, block_or_singleton_index new_object, bool ammend_reverse=true)
+    void ammend_object(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index old_object, block_or_singleton_index new_object)//, bool ammend_reverse=true)
     {
         assert(this->get_nodes().count(subject) > 0);  // The subject should exist
         assert(this->get_nodes()[subject].count_edge_key(predicate) > 0);  // The predicate should exist
@@ -843,56 +843,56 @@ public:
         this->get_nodes()[subject].add_edge(predicate, new_object);
         this->get_nodes()[subject].remove_edge_recursive(predicate, old_object);
 
-        if (ammend_reverse)
-        {
-            if (reverse_block_nodes.count(new_object) == 0)
-            {
-                add_reverse_block_node(new_object);
-            }
-            this->get_reverse_index()[new_object].add_edge(predicate, subject);
-            this->get_reverse_index()[old_object].remove_edge_recursive(predicate, subject);
+        // if (ammend_reverse)
+        // {
+        //     if (reverse_block_nodes.count(new_object) == 0)
+        //     {
+        //         add_reverse_block_node(new_object);
+        //     }
+        //     this->get_reverse_index()[new_object].add_edge(predicate, subject);
+        //     this->get_reverse_index()[old_object].remove_edge_recursive(predicate, subject);
 
-            // Remove the node in the reverse 
-            if (this->get_reverse_index()[old_object].get_edges().size() == 0)
-            {
-                this->remove_reverse_block_node(old_object);
-            }
-        }
+        //     // Remove the node in the reverse 
+        //     if (this->get_reverse_index()[old_object].get_edges().size() == 0)
+        //     {
+        //         this->remove_reverse_block_node(old_object);
+        //     }
+        // }
     }
-    std::vector<Triple> remove_split_blocks_edges(boost::unordered_flat_set<block_index> split_blocks)
-    {
-        std::vector<Triple> removed_edges;
-        // Remove the forward edges from the index and reverse index
-        for (block_or_singleton_index subject: split_blocks)
-        {
-            for (auto& block_node_key_val: this->get_nodes()[subject].get_edges())
-            {
-                edge_type predicate = block_node_key_val.first;
-                for (block_or_singleton_index object: block_node_key_val.second.get_objects())
-                {
-                    reverse_block_nodes[object].remove_edge_recursive(predicate, subject);
-                    removed_edges.emplace_back(Triple(subject, predicate, object));  // Keep track of the edges we have removed
-                }
-            }
-            this->get_nodes()[subject] = SummaryNode();  // After having removed the forward edges from the reverse index, clear the edges for the index
-        }
+    // std::vector<Triple> remove_split_blocks_edges(boost::unordered_flat_set<block_index> split_blocks)
+    // {
+    //     std::vector<Triple> removed_edges;
+    //     // Remove the forward edges from the index and reverse index
+    //     for (block_or_singleton_index subject: split_blocks)
+    //     {
+    //         for (auto& block_node_key_val: this->get_nodes()[subject].get_edges())
+    //         {
+    //             edge_type predicate = block_node_key_val.first;
+    //             for (block_or_singleton_index object: block_node_key_val.second.get_objects())
+    //             {
+    //                 reverse_block_nodes[object].remove_edge_recursive(predicate, subject);
+    //                 removed_edges.emplace_back(Triple(subject, predicate, object));  // Keep track of the edges we have removed
+    //             }
+    //         }
+    //         this->get_nodes()[subject] = SummaryNode();  // After having removed the forward edges from the reverse index, clear the edges for the index
+    //     }
 
-        // Remove the backward edges from the index and reverse index
-        for (block_or_singleton_index subject: split_blocks)
-        {
-            for (auto& reverse_block_node_key_val: reverse_block_nodes[subject].get_edges())
-            {
-                edge_type predicate = reverse_block_node_key_val.first;
-                for (block_or_singleton_index object: reverse_block_node_key_val.second.get_objects())
-                {
-                    this->get_nodes()[object].remove_edge_recursive(predicate, subject);
-                    removed_edges.emplace_back(Triple(subject, predicate, object));  // Keep track of the edges we have removed
-                }
-            }
-            reverse_block_nodes[subject] = SummaryNode();  // After having removed the backward edges from the index, clear the edges for the reverse index
-        }
-        return removed_edges;
-    }
+    //     // Remove the backward edges from the index and reverse index
+    //     for (block_or_singleton_index subject: split_blocks)
+    //     {
+    //         for (auto& reverse_block_node_key_val: reverse_block_nodes[subject].get_edges())
+    //         {
+    //             edge_type predicate = reverse_block_node_key_val.first;
+    //             for (block_or_singleton_index object: reverse_block_node_key_val.second.get_objects())
+    //             {
+    //                 this->get_nodes()[object].remove_edge_recursive(predicate, subject);
+    //                 removed_edges.emplace_back(Triple(subject, predicate, object));  // Keep track of the edges we have removed
+    //             }
+    //         }
+    //         reverse_block_nodes[subject] = SummaryNode();  // After having removed the backward edges from the index, clear the edges for the reverse index
+    //     }
+    //     return removed_edges;
+    // }
     void write_graph_to_file_binary(std::ostream &outputstream)
     {
         for (auto node_key_val: this->get_nodes())
@@ -1632,12 +1632,12 @@ int main(int ac, char *av[])
         summary_nodes.emplace(subject);
         for (auto predicate_objects_pair: node.second.get_edges())
         {
-            // edge_type predicate = predicate_objects_pair.first;
+            edge_type predicate = predicate_objects_pair.first;
             edge_count += predicate_objects_pair.second.get_objects().size();
             for (block_or_singleton_index object: predicate_objects_pair.second.get_objects())
             {
                 summary_nodes.emplace(object);
-                // std::cout << "DEBUG spo: " << subject << " " << predicate << " " << object << std::endl;
+                std::cout << "DEBUG spo: " << subject << " " << predicate << " " << object << std::endl;
             }
         }
     }
