@@ -895,7 +895,7 @@ public:
     //     }
     //     return removed_edges;
     // }
-    void write_graph_to_file_binary(std::ostream &graphoutputstream, std::ostream &intervaloutputstream, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map)
+    void write_graph_to_file_binary(std::ostream &graphoutputstream)
     {
         for (auto node_key_val: this->get_nodes())
         {
@@ -908,12 +908,7 @@ public:
                     write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, subject);
                     write_uint_PREDICATE_little_endian(graphoutputstream, predicate);
                     write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, object);
-
-                    k_type start_time = std::max(block_to_interval_map[subject].first, (k_type) (block_to_interval_map[object].first+1));
-                    k_type end_time = std::min(block_to_interval_map[subject].second, (k_type) (block_to_interval_map[object].second+1));
-                    write_uint_K_TYPE_little_endian(intervaloutputstream, start_time);
-                    write_uint_K_TYPE_little_endian(intervaloutputstream, end_time);
-                    // std::cout << "DEBUG wrote edge: " << subject << ", " << predicate << ", " << object << " [" << start_time << "," << end_time << "]" << std::endl;
+                    // std::cout << "DEBUG wrote SPO: " << subject << " " << predicate << " " << object << std::endl;
                 }
             }
         }
@@ -1358,7 +1353,7 @@ int main(int ac, char *av[])
         auto t_write_graph_instant{boost::chrono::system_clock::now()};
         auto time_t_write_graph_instant{boost::chrono::system_clock::to_time_t(t_write_graph_instant)};
         std::tm *ptm_write_graph_instant{std::localtime(&time_t_write_graph_instant)};
-        std::cout << std::put_time(ptm_write_graph_instant, "%Y/%m/%d %H:%M:%S") << " Writing condensed summary graph (with intervals) to disk" << std::endl;
+        std::cout << std::put_time(ptm_write_graph_instant, "%Y/%m/%d %H:%M:%S") << " Writing condensed summary graph to disk" << std::endl;
 
         uint64_t edge_count = 0;
         boost::unordered_flat_set<block_or_singleton_index> summary_nodes;
@@ -1379,9 +1374,23 @@ int main(int ac, char *av[])
         // Write the condensed summary graph to a file
         std::string output_graph_file_path = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
         std::ofstream output_graph_file_binary(output_graph_file_path, std::ios::trunc | std::ofstream::out);
+        gs.write_graph_to_file_binary(output_graph_file_binary);
+
+        auto t_write_intervals_instant{boost::chrono::system_clock::now()};
+        auto time_t_write_intervals_instant{boost::chrono::system_clock::to_time_t(t_write_intervals_instant)};
+        std::tm *ptm_write_intervals_instant{std::localtime(&time_t_write_intervals_instant)};
+        std::cout << std::put_time(ptm_write_intervals_instant, "%Y/%m/%d %H:%M:%S") << " Writing node intervals to disk" << std::endl;
+
+        // Write node intvervals to a file
         std::string output_interval_file_path = experiment_directory + "bisimulation/condensed_multi_summary_intervals.bin";
         std::ofstream output_interval_file_binary(output_interval_file_path, std::ios::trunc | std::ofstream::out);
-        gs.write_graph_to_file_binary(output_graph_file_binary, output_interval_file_binary, block_to_interval_map);
+        for (auto block_interval_pair: block_to_interval_map)  // We effectively write the following to disk: {block,start_time,end_time}
+        {
+            write_int_BLOCK_OR_SINGLETON_little_endian(output_interval_file_binary, block_interval_pair.first);
+            write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.first);
+            write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.second);
+            // std::cout << "DEBUG wrote block-interval: " << block_interval_pair.first << ":[" << block_interval_pair.second.first << "," << block_interval_pair.second.second << "]" << std::endl;
+        }
 
         auto t_write_map_instant{boost::chrono::system_clock::now()};
         auto time_t_write_map_instant{boost::chrono::system_clock::to_time_t(t_write_map_instant)};
@@ -1654,7 +1663,7 @@ int main(int ac, char *av[])
     auto t_write_graph{boost::chrono::system_clock::now()};
     auto time_t_write_graph{boost::chrono::system_clock::to_time_t(t_write_graph)};
     std::tm *ptm_write_graph{std::localtime(&time_t_write_graph)};
-    std::cout << std::put_time(ptm_write_graph, "%Y/%m/%d %H:%M:%S") << " Writing condensed summary graph (with intervals) to disk" << std::endl;
+    std::cout << std::put_time(ptm_write_graph, "%Y/%m/%d %H:%M:%S") << " Writing condensed summary graph to disk" << std::endl;
 
     uint64_t edge_count = 0;
     boost::unordered_flat_set<block_or_singleton_index> summary_nodes;
@@ -1675,9 +1684,23 @@ int main(int ac, char *av[])
     // Write the condensed summary graph (along with the time intervals) to a file
     std::string output_graph_file_path = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
     std::ofstream output_graph_file_binary(output_graph_file_path, std::ios::trunc | std::ofstream::out);
+    gs.write_graph_to_file_binary(output_graph_file_binary);
+
+    auto t_write_intervals{boost::chrono::system_clock::now()};
+    auto time_t_write_intervals{boost::chrono::system_clock::to_time_t(t_write_intervals)};
+    std::tm *ptm_write_intervals{std::localtime(&time_t_write_intervals)};
+    std::cout << std::put_time(ptm_write_intervals, "%Y/%m/%d %H:%M:%S") << " Writing node intervals to disk" << std::endl;
+
+    // Write node intvervals to a file
     std::string output_interval_file_path = experiment_directory + "bisimulation/condensed_multi_summary_intervals.bin";
     std::ofstream output_interval_file_binary(output_interval_file_path, std::ios::trunc | std::ofstream::out);
-    gs.write_graph_to_file_binary(output_graph_file_binary, output_interval_file_binary, block_to_interval_map);
+    for (auto block_interval_pair: block_to_interval_map)  // We effectively write the following to disk: {block,start_time,end_time}
+    {
+        write_int_BLOCK_OR_SINGLETON_little_endian(output_interval_file_binary, block_interval_pair.first);
+        write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.first);
+        write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.second);
+        // std::cout << "DEBUG wrote block-interval: " << block_interval_pair.first << ":[" << block_interval_pair.second.first << "," << block_interval_pair.second.second << "]" << std::endl;
+    }
 
     auto t_write_map{boost::chrono::system_clock::now()};
     auto time_t_write_map{boost::chrono::system_clock::to_time_t(t_write_map)};
