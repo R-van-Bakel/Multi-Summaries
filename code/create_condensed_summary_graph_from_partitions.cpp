@@ -29,7 +29,7 @@ const int BYTES_PER_BLOCK = 4;
 const int BYTES_PER_BLOCK_OR_SINGLETON = 5;
 const int BYTES_PER_K_TYPE = 2;
 const int64_t MAX_SIGNED_BLOCK_SIZE = INT64_MAX;
-const k_type DEFAULT_TIME_VALUE = 1;
+// const k_type DEFAULT_TIME_VALUE = 1;
 
 const std::string outcome_file_regex_string = R"(^outcome_condensed-\d{4}\.bin$)";
 const std::string mapping_file_regex_string = R"(^mapping-\d{4}to\d{4}\.bin$)";
@@ -600,6 +600,10 @@ public:
         assert(local_block >= 0);  // Singleton blocks (with a negative index) should not be added
         block_map[local_block] = global_block;
     }
+    void add_block_or_singleton(block_or_singleton_index local_block, block_or_singleton_index global_block)
+    {
+        block_map[local_block] = global_block;
+    }
 };
 
 class LocalBlockToGlobalBlockMap
@@ -642,6 +646,22 @@ public:
         next_block++;
         return global_block;
     }
+    block_or_singleton_index add_block_non_restricted(k_type k, block_or_singleton_index local_block)
+    {
+        block_or_singleton_index global_block;
+        auto block_map_iterator = this->get_map(k).get_map().find(local_block);
+        if (block_map_iterator == this->get_map(k).get_map().cend())
+        {
+            global_block = next_block;
+            this->get_map(k).add_block_or_singleton(local_block, global_block);
+            next_block++;
+        }
+        else
+        {
+            global_block = block_map_iterator->second;
+        }
+        return global_block;
+    }
     void write_maps_to_file_binary(std::ostream &outputstream)
     {
         for (auto level_map_pair: this->get_maps())
@@ -657,8 +677,10 @@ public:
                 block_or_singleton_index global_block = local_global_pair.second;
                 write_int_BLOCK_OR_SINGLETON_little_endian(outputstream,local_block);
                 write_int_BLOCK_OR_SINGLETON_little_endian(outputstream,global_block);
+                std::cout << "DEBUG written loc-glob: " << local_block << ", " << global_block << std::endl;
             }
         }
+        outputstream.flush();
     }
 };
 
@@ -908,10 +930,11 @@ public:
                     write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, subject);
                     write_uint_PREDICATE_little_endian(graphoutputstream, predicate);
                     write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, object);
-                    // std::cout << "DEBUG wrote SPO: " << subject << " " << predicate << " " << object << std::endl;
+                    std::cout << "DEBUG wrote SPO: " << subject << " " << predicate << " " << object << std::endl;
                 }
             }
         }
+        graphoutputstream.flush();
     }
     // void write_graph_to_file_json(std::ostream &outputstream)
     // {
@@ -941,7 +964,7 @@ public:
     // }
 };
 
-void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_to_block_map_type &node_to_block_map, ReverseBlockMap& current_block_map, SplitToMergedMap &split_to_merged_map, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map, k_type current_level, SummaryGraph &gs)
+void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_to_block_map_type &node_to_block_map, ReverseBlockMap& current_block_map, SplitToMergedMap &split_to_merged_map, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map, k_type current_level, bool include_zero, SummaryGraph &gs)
 {
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
 
@@ -981,7 +1004,12 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
         gs.try_add_block_node(subject_block);
         if (block_to_interval_map.find(subject_block) == block_to_interval_map.cend())  // If the block has not been given an initial interval, then do it now
         {
-            block_to_interval_map[subject_block] = {DEFAULT_TIME_VALUE, current_level};
+            k_type first_level = 1;
+            if (include_zero)
+            {
+                first_level = 0;
+            }
+            block_to_interval_map[subject_block] = {first_level, current_level};
         }
         gs.add_edge_to_node(subject_block, edge_label, object_block);
 
@@ -1017,11 +1045,11 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
 // #endif
 }
 
-void read_graph_into_summary_timed(const std::string &filename, node_to_block_map_type &node_to_block_map, ReverseBlockMap &current_block_map, SplitToMergedMap &split_to_merged_map, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map, k_type current_level, SummaryGraph &gs)
+void read_graph_into_summary_timed(const std::string &filename, node_to_block_map_type &node_to_block_map, ReverseBlockMap &current_block_map, SplitToMergedMap &split_to_merged_map, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map, k_type current_level, bool include_zero, SummaryGraph &gs)
 {
 
     std::ifstream infile(filename, std::ifstream::in);
-    read_graph_into_summary_from_stream_timed(infile, node_to_block_map, current_block_map, split_to_merged_map, block_to_interval_map, current_level, gs);
+    read_graph_into_summary_from_stream_timed(infile, node_to_block_map, current_block_map, split_to_merged_map, block_to_interval_map, current_level, include_zero, gs);
 }
 
 struct LocalBlock {
@@ -1068,6 +1096,16 @@ int main(int ac, char *av[])
     bool k_found = false;
     bool size_found = false;
 
+    bool include_zero_outcome = false;
+    std::filesystem::path path_to_zero_outcome = experiment_directory + "bisimulation/outcome_condensed-0000.bin";
+    bool immediate_stop = false;
+    k_type first_level = 1;
+    if (std::filesystem::exists(path_to_zero_outcome))
+    {
+        include_zero_outcome = true;  // Mark the 0th outcome to be included
+        first_level = 0;  // We need to check an extra outcome if we have the 0 outcome
+    }
+
     while (std::getline(graph_stats_file_stream, graph_stats_line))
     {
         boost::trim(graph_stats_line);
@@ -1094,8 +1132,8 @@ int main(int ac, char *av[])
     graph_stats_file_stream.close();
 
     std::string summary_graph_file_path_base = experiment_directory + "bisimulation/summary_graph-";
-    std::string blocks_file = experiment_directory + "bisimulation/outcome_condensed-0001.bin";
-    std::string summary_graph_file_path_binary = summary_graph_file_path_base + "0001.bin";
+    std::string blocks_file = experiment_directory + "bisimulation/outcome_condensed-000" + std::to_string(first_level) + ".bin";
+    std::string summary_graph_file_path_binary = summary_graph_file_path_base + "000" + std::to_string(first_level) + ".bin";
 
     std::ofstream summary_graph_file_binary(summary_graph_file_path_binary, std::ios::trunc | std::ofstream::out);
 
@@ -1115,7 +1153,7 @@ int main(int ac, char *av[])
     auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
     std::tm *ptm_reverse_index_done{std::localtime(&time_t_reverse_index_done)};
 
-    std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S") << " Processing k=1" << std::endl;
+    std::cout << std::put_time(ptm_reverse_index_done, "%Y/%m/%d %H:%M:%S") << " Processing k=" + std::to_string(first_level) << std::endl;
     
     // Read the first outcome file
     while (true)
@@ -1138,7 +1176,9 @@ int main(int ac, char *av[])
 
     SingletonMapper blocks_to_singletons = SingletonMapper();
 
-    for (uint32_t i = 2; i <= k; i++)  // We can ignore the last outcome, because its only purpose was to find the fixed point, otherwise include the last outcome
+    std::cout << "DEBUG start outcome: " << first_level+1 << std::endl;
+
+    for (uint32_t i = first_level+1; i <= k; i++)  // We can ignore the last outcome (k), if its only purpose was to find the fixed point (i.e. its empty), otherwise include the last outcome
     {
         auto t_reverse_index_done{boost::chrono::system_clock::now()};
         auto time_t_reverse_index_done{boost::chrono::system_clock::to_time_t(t_reverse_index_done)};
@@ -1172,6 +1212,7 @@ int main(int ac, char *av[])
         while (true)
         {
             block_index old_block = read_uint_BLOCK_little_endian(current_mapping_file);
+            std::cout << "DEBUG read old block: " << old_block << std::endl;
             if (current_mapping_file.eof())
             {
                 break;
@@ -1179,10 +1220,11 @@ int main(int ac, char *av[])
             split_block_incides.emplace(old_block);
 
             block_index new_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
-            
+            std::cout << "DEBUG read count: " << new_block_count << std::endl;
             for (block_index j = 0; j < new_block_count; j++)
             {
                 block_index new_block = read_uint_BLOCK_little_endian(current_mapping_file);
+                std::cout << "DEBUG read new block: " << new_block << std::endl;
                 if (new_block == 0)
                 {
                     new_singletons_created = true;
@@ -1208,6 +1250,11 @@ int main(int ac, char *av[])
             // Get all nodes that were part of blocks that got split
             for (block_or_singleton_index split_block: split_block_incides)
             {
+                std::cout << "DEBUG checking split block index: " << split_block << std::endl;
+                for (auto debug_node: blocks[split_block])
+                {
+                    std::cout << "DEBUG split block contains: " << debug_node << std::endl;
+                }
                 assert(split_block <= MAX_SIGNED_BLOCK_SIZE);  // We need to check if the cast to block_or_singleton_index is possible
                 old_nodes_in_split.insert(blocks[split_block].begin(), blocks[(block_or_singleton_index) split_block].end());
             }
@@ -1237,14 +1284,18 @@ int main(int ac, char *av[])
             }
         }
 
+        std::cout << "DEBUG level: " << i << std::endl;
         if (new_singletons_created)
         {
+            std::cout << "DEBUG new singletons found!" << std::endl;
             for (block_or_singleton_index new_block: new_block_indices)
             {
+                std::cout << "DEBUG new block: " << new_block << std::endl;
                 new_nodes_in_split.insert(blocks[new_block].begin(), blocks[new_block].end());
             }
             for (auto node: new_nodes_in_split)
             {
+                std::cout << "DEBUG erasing old node in split: " << node << std::endl;
                 old_nodes_in_split.erase(node);
             }
             new_singleton_nodes = std::move(old_nodes_in_split);
@@ -1252,6 +1303,7 @@ int main(int ac, char *av[])
             blocks_to_singletons.add_level(i);
             for (node_index node: new_singleton_nodes)
             {
+                std::cout << "DEBUG adding singleton node: " << node << std::endl;
                 blocks_to_singletons.get_map(i).add_node(node_to_block_map[node], node);  // Add the block to singlton mapping to keep track (for later) of which merged blocks singletons refine
                 block_or_singleton_index singleton_block = -((block_or_singleton_index)node)-1;
                 node_to_block_map[node] = singleton_block;
@@ -1274,6 +1326,20 @@ int main(int ac, char *av[])
     boost::unordered_flat_set<block_or_singleton_index> dying_blocks;  // The blocks that will no exist anymore in the following level
 
     k_type current_level = k;
+
+    if (include_zero_outcome)
+    {
+        if (current_level == 0)
+        {
+            immediate_stop = true;  // The bisimulations stopped immediatly if current_level==0, in case of a non-trivial k=0 outcome
+            current_level = 1;  // This is a corner case: we artificially add a layer at k=1, so we can have edges between k=1 and k=0
+        }
+    }
+    else if (current_level == 1)
+    {
+        immediate_stop = true;  // The bisimulations stopped immediatly if current_level==1, in case of a trivial k=0 outcome
+    }
+    std::cout << "DEBUG immediate stop: " << immediate_stop << std::endl;
 
     // Add all terminal non-empty non-singleton blocks as living nodes
     block_maps.add_level(current_level);
@@ -1305,7 +1371,7 @@ int main(int ac, char *av[])
         new_living_blocks[living_block_key_val.first] = living_block_key_val.second;
     }
 
-    // Update the new local to global living block mapping (it uses to old blocks for step the first step)
+    // Update the new local to global living block mapping (it uses the old blocks for step the first step)
     for (auto living_block_key_val: old_living_blocks)
     {
         new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
@@ -1314,32 +1380,51 @@ int main(int ac, char *av[])
     ReverseBlockMap current_block_map = block_maps.get_map(current_level);
     boost::unordered_flat_map<block_or_singleton_index, time_interval> block_to_interval_map;
 
-    // This corresponds to the one block that has no outgoing edges.
-    // Since it never apears as a subject, it will not be added by our algorithm, therefore we will manually add it here
-    // We might not actually have such a block in our graph, but having it redundantly in block_to_interval_map is never a problem
-    block_or_singleton_index literal_block = -1;
-    block_to_interval_map[literal_block] = {DEFAULT_TIME_VALUE, current_level};
+    // // This corresponds to the one block that has no outgoing edges.
+    // // Since it never apears as a subject, it will not be added by our algorithm, therefore we will manually add it here
+    // // We might not actually have such a block in our graph, but having it redundantly in block_to_interval_map is never a problem
+    // block_or_singleton_index literal_block = -1;
+    // block_to_interval_map[literal_block] = {first_level, current_level};
 
     // Declare our condensed multi summary graph
     SummaryGraph gs;
+    std::cout << "DEBUG graph defined" << std::endl;
 
     SplitToMergedMap old_split_to_merged_map;
 
-    if (current_level == 1)
+    if (immediate_stop)
     {
         // Add the edges between the level 1 and level 0
         k_type zero_level = 0;
-        block_or_singleton_index universal_block = 0;
         block_maps.add_level(zero_level);
-        block_or_singleton_index global_universal_block = block_maps.add_block(zero_level, universal_block);    
-        gs.add_block_node(global_universal_block);
-        k_type universal_block_time = 0;
-        block_to_interval_map[global_universal_block] = {universal_block_time, universal_block_time};
 
-        for (auto node_block_pair: node_to_block_map)
+        if (include_zero_outcome)
         {
-            old_split_to_merged_map.add_pair(node_block_pair.second, global_universal_block);  // The universal block is the only parent to all nodes in k=1
+            for (auto index_block_pair: old_living_blocks)
+            {
+                // Map blocks to globally (across bisimulation levels) unique indices
+                // Since some corner cases require duplicate summary nodes, we make an exception and may map singletons to positive blocks (hence the use of add_block_non_restricted())
+                std::cout << "DEBUG making global: " << index_block_pair.first << std::endl;
+                block_or_singleton_index zero_block = block_maps.add_block_non_restricted(zero_level, index_block_pair.first);
+                std::cout << "DEBUG adding zero block: " << zero_block << std::endl;
+                gs.add_block_node(zero_block);
+                std::cout << "DEBUG added zero block" << std::endl;
+                block_to_interval_map[zero_block] = {zero_level, zero_level};
+                old_split_to_merged_map.add_pair(index_block_pair.first, zero_block);  // Each summary node has its own counterpart at k=0
+            }
         }
+        else
+        {
+            block_or_singleton_index universal_block = 0;
+            block_or_singleton_index global_universal_block = block_maps.add_block(zero_level, universal_block);    
+            gs.add_block_node(global_universal_block);
+            block_to_interval_map[global_universal_block] = {zero_level, zero_level};
+            for (auto node_block_pair: node_to_block_map)
+            {
+                old_split_to_merged_map.add_pair(node_block_pair.second, global_universal_block);  // The universal block is the only parent to all nodes in k=1
+            }
+        }
+        std::cout << "DEBUG added pairs" << std::endl;
 
         auto t_first_edges{boost::chrono::system_clock::now()};
         auto time_t_first_edges{boost::chrono::system_clock::to_time_t(t_first_edges)};
@@ -1347,7 +1432,20 @@ int main(int ac, char *av[])
         std::cout << std::put_time(ptm_first_edges, "%Y/%m/%d %H:%M:%S") << " Loading initial/terminal condensed data edges (0001-->0000)" << std::endl;
 
         w.start_step("Read edges (final) into summary graph", true);
-        read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, gs);
+        std::cout << "DEBUG loading in graph" << std::endl;
+        read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, gs);
+        std::cout << "DEBUG graph loaded in" << std::endl;
+
+        // This corresponds to the one block that has no outgoing edges.
+        // Since it never apears as a subject, it will normally not be added by our algorithm, therefore we will manually add it here if it exists
+        for (auto living_block_key_val: old_living_blocks)
+        {
+            if (gs.get_nodes().find(living_block_key_val.first) == gs.get_nodes().cend())
+            {
+                block_to_interval_map[living_block_key_val.first] = {first_level, current_level};
+            }
+        }
+        std::cout << "DEBUG checked for edgeless block" << std::endl;
         w.stop_step();
 
         auto t_write_graph_instant{boost::chrono::system_clock::now()};
@@ -1389,8 +1487,9 @@ int main(int ac, char *av[])
             write_int_BLOCK_OR_SINGLETON_little_endian(output_interval_file_binary, block_interval_pair.first);
             write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.first);
             write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.second);
-            // std::cout << "DEBUG wrote block-interval: " << block_interval_pair.first << ":[" << block_interval_pair.second.first << "," << block_interval_pair.second.second << "]" << std::endl;
+            std::cout << "DEBUG wrote block-interval: " << block_interval_pair.first << ":[" << block_interval_pair.second.first << "," << block_interval_pair.second.second << "]" << std::endl;
         }
+        output_interval_file_binary.flush();
 
         auto t_write_map_instant{boost::chrono::system_clock::now()};
         auto time_t_write_map_instant{boost::chrono::system_clock::to_time_t(t_write_map_instant)};
@@ -1437,23 +1536,38 @@ int main(int ac, char *av[])
         {
             break;
         }
-
+        std::cout << "DEBUG test1" << std::endl;
         block_or_singleton_index global_block = block_maps.add_block(current_level-1, merged_block);
         spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
 
         gs.add_block_node(global_block);
-        block_to_interval_map[global_block] = {DEFAULT_TIME_VALUE, current_level-1};
+        block_to_interval_map[global_block] = {first_level, current_level-1};
 
         block_index split_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
+        std::cout << "DEBUG test2" << std::endl;
         
         for (block_index j = 0; j < split_block_count; j++)
         {
+            std::cout << "DEBUG test2a" << std::endl;
             block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
             if (split_block == 0)
             {
+                std::cout << "DEBUG test2aa" << std::endl;
+                std::cout << "DEBUG current level: " << current_level << std::endl;
                 BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
+                std::cout << "DEBUG test2aa2" << std::endl;
+                std::cout << "DEBUG Merged block: " << merged_block << std::endl;
+                for (auto merged_splits: block_to_singletons.get_map())
+                {
+                    for (auto split_block: merged_splits.second.get_nodes())
+                    {
+                        std::cout << "DEBUG split block: " << split_block << std::endl;
+                    }
+                }
+                std::cout << "DEBUG test2aa3" << std::endl;
                 for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
                 {
+                    std::cout << "DEBUG test2aaa" << std::endl;
                     assert(singleton <= MAX_SIGNED_BLOCK_SIZE); // Check if the following cast is possible
 
                     block_or_singleton_index singlton_block = (block_or_singleton_index) singleton;
@@ -1467,6 +1581,7 @@ int main(int ac, char *av[])
             }
             else
             {
+                std::cout << "DEBUG test2ab" << std::endl;
                 auto global_split_block_iterator = new_local_to_global_living_blocks.find(split_block);
                 assert(global_split_block_iterator != new_local_to_global_living_blocks.cend());
                 block_or_singleton_index global_split_block = (*global_split_block_iterator).second;
@@ -1476,6 +1591,7 @@ int main(int ac, char *av[])
             }
         }
     }
+    std::cout << "DEBUG test3" << std::endl;
 
     // Update new_living_blocks by removing the dying blocks and adding the spawning blocks
     for (block_or_singleton_index dying_block: dying_blocks)
@@ -1491,10 +1607,20 @@ int main(int ac, char *av[])
     {
         new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
     }
+    std::cout << "DEBUG test4" << std::endl;
 
     // Create the final set of data edges (between k and k-1)
     w.start_step("Read edges into summary graph", true);
-    read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, gs);
+    read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, gs);
+    // This corresponds to the one block that has no outgoing edges.
+    // Since it never apears as a subject, it will normally not be added by our algorithm, therefore we will manually add it here if it exists
+    for (auto living_block_key_val: old_living_blocks)
+    {
+        if (gs.get_nodes().find(living_block_key_val.first) == gs.get_nodes().cend())
+        {
+            block_to_interval_map[living_block_key_val.first] = {first_level, current_level};
+        }
+    }
     w.stop_step();
 
     size_t i = 0;
@@ -1516,10 +1642,17 @@ int main(int ac, char *av[])
             }
         }
     }
+    std::cout << "DEBUG test5" << std::endl;
 
-    // We decrement the current level and continue until the current level is 2 (because that covers the data edges from level 2 to level 1)
-    // We have separate code after this loop to cover the data edges from level 1 to level 0
-    for (current_level=current_level-1; current_level>1; current_level--)
+    k_type smallest_level = 0;
+    if (!include_zero_outcome)
+    {
+        smallest_level = 1;  // If we do not have an explicit outcome for k=0, we will add the k=1-->k=0 data edges separately later
+    }
+
+    // We decrement the current level and continue until the current level is either 2 or 1 (this would cover the data edges going to level 1 or 0 respecively)
+    // In case we use the trivial universal block at k=0, we have separate code after this loop to cover the data edges from level 1 to level 0
+    for (current_level=current_level-1; current_level>smallest_level; current_level--)
     {
         block_maps.add_level(current_level-1);
         SplitToMergedMap current_split_to_merged_map;
@@ -1550,7 +1683,7 @@ int main(int ac, char *av[])
             }
             block_or_singleton_index global_block = block_maps.add_block(current_level-1, merged_block);
             gs.add_block_node(global_block);
-            block_to_interval_map[global_block] = {DEFAULT_TIME_VALUE, current_level-1};
+            block_to_interval_map[global_block] = {first_level, current_level-1};
 
             spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
 
@@ -1636,27 +1769,30 @@ int main(int ac, char *av[])
         old_split_to_merged_map = std::move(current_split_to_merged_map);
     }
 
-    auto t_last_edges{boost::chrono::system_clock::now()};
-    auto time_t_last_edges{boost::chrono::system_clock::to_time_t(t_last_edges)};
-    std::tm *ptm_last_edges{std::localtime(&time_t_last_edges)};
-    std::cout << std::put_time(ptm_last_edges, "%Y/%m/%d %H:%M:%S") << " Creating condensed data edges (0001-->0000)" << std::endl;
-
-    // Add the edges between the level 1 and level 0
-    k_type zero_level = 0;
-    block_or_singleton_index universal_block = 0;
-    block_maps.add_level(zero_level);
-    block_or_singleton_index global_universal_block = block_maps.add_block(zero_level, universal_block);    
-    gs.add_block_node(global_universal_block);
-    k_type universal_block_time = 0;
-    block_to_interval_map[global_universal_block] = {universal_block_time, universal_block_time};
-    for (auto living_block_key_val: old_living_blocks)
+    if (!include_zero_outcome)  // If we don't have an explicit outcome for k=0, then we will manually add those data edges now
     {
-        block_or_singleton_index subject = living_block_key_val.first;
-        for (auto type_objects_pair: gs.get_nodes()[subject].get_edges())
+        auto t_last_edges{boost::chrono::system_clock::now()};
+        auto time_t_last_edges{boost::chrono::system_clock::to_time_t(t_last_edges)};
+        std::tm *ptm_last_edges{std::localtime(&time_t_last_edges)};
+        std::cout << std::put_time(ptm_last_edges, "%Y/%m/%d %H:%M:%S") << " Creating condensed data edges (0001-->0000)" << std::endl;
+
+        // Add the edges between the level 1 and level 0
+        k_type zero_level = 0;
+        block_or_singleton_index universal_block = 0;
+        block_maps.add_level(zero_level);
+        block_or_singleton_index global_universal_block = block_maps.add_block(zero_level, universal_block);    
+        gs.add_block_node(global_universal_block);
+        k_type universal_block_time = 0;
+        block_to_interval_map[global_universal_block] = {universal_block_time, universal_block_time};
+        for (auto living_block_key_val: old_living_blocks)
         {
-            edge_type predicate = type_objects_pair.first;
-            block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
-            gs.add_edge_to_node(subject_image, predicate, global_universal_block);
+            block_or_singleton_index subject = living_block_key_val.first;
+            for (auto type_objects_pair: gs.get_nodes()[subject].get_edges())
+            {
+                edge_type predicate = type_objects_pair.first;
+                block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+                gs.add_edge_to_node(subject_image, predicate, global_universal_block);
+            }
         }
     }
 
@@ -1699,8 +1835,9 @@ int main(int ac, char *av[])
         write_int_BLOCK_OR_SINGLETON_little_endian(output_interval_file_binary, block_interval_pair.first);
         write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.first);
         write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.second);
-        // std::cout << "DEBUG wrote block-interval: " << block_interval_pair.first << ":[" << block_interval_pair.second.first << "," << block_interval_pair.second.second << "]" << std::endl;
+        std::cout << "DEBUG wrote block-interval: " << block_interval_pair.first << ":[" << block_interval_pair.second.first << "," << block_interval_pair.second.second << "]" << std::endl;
     }
+    output_interval_file_binary.flush();
 
     auto t_write_map{boost::chrono::system_clock::now()};
     auto time_t_write_map{boost::chrono::system_clock::to_time_t(t_write_map)};

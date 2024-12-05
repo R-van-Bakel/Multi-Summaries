@@ -25,6 +25,7 @@ using edge_type = uint32_t;
 using node_index = uint64_t;
 using block_index = node_index;
 using block_or_singleton_index = int64_t;
+using set_of_types = boost::unordered_flat_set<edge_type>;
 
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
@@ -887,6 +888,80 @@ KBisumulationOutcome get_0_bisimulation(Graph &g)
 }
 static BlockPtr global_empty_block = std::make_shared<Block>();
 
+KBisumulationOutcome get_typed_0_bisimulation(Graph &g)
+{
+    // collect the signatures for nodes in the block
+    boost::unordered_flat_map<set_of_types, BlockPtr> partition_map;
+    auto nodes = g.get_nodes();
+
+    for (uint64_t i = 0; i < nodes.size(); i++ ){
+        set_of_types set_of_types_of_node;
+        Node & node = nodes[i];
+        for (auto edge : node.get_outgoing_edges()){
+            if (edge.label == 0){ // assumes rdf:type is mapped on 0!!!
+                set_of_types_of_node.emplace(edge.target);
+            }
+        }
+
+        std::cout << "DEBUG node " << i << " got edge types {";
+        for (edge_type outgoing_type: set_of_types_of_node)
+        {
+            std::cout << outgoing_type << ",";
+        }
+        std::cout << "}" << std::endl;
+
+        node_index i_as_node_index = i;
+        auto partition_map_iterator = partition_map.find(set_of_types_of_node);
+        if (partition_map_iterator == partition_map.cend())
+        {
+            BlockPtr block = std::make_shared<Block>();
+            partition_map[set_of_types_of_node] = block;
+            partition_map_iterator = partition_map.find(set_of_types_of_node);
+        }
+        auto the_set = partition_map_iterator->first;
+        auto the_block = partition_map_iterator->second;
+        the_block->emplace_back(i_as_node_index);
+    }
+
+    std::vector<int64_t> new_node_to_block;
+    new_node_to_block.resize(g.size());
+    std::vector<BlockPtr> new_blocks;
+    new_blocks.reserve(partition_map.size());
+
+    int64_t singleton_counter = 0;
+
+    DirtyBlockContainer dirty;
+
+    for (auto part : partition_map){
+        auto & block = part.second;
+        if ((*block).size() == 1){
+            // no block, add singleton
+            singleton_counter++;
+            int singleton_index = -singleton_counter;
+            new_node_to_block[(*block)[0]] = singleton_index;
+        } else {
+            //add the block
+            new_blocks.emplace_back(block);
+            int new_block_index = new_blocks.size() - 1;
+            for(auto node: *block){
+                new_node_to_block[node] = new_block_index;
+            }
+            dirty.set_dirty(new_block_index);
+        }
+    }
+    new_node_to_block.shrink_to_fit();
+
+    std::stack<block_index> new_freeblock_indices; // empty
+    auto mapper = std::make_shared<MappingNode2BlockMapper>(new_node_to_block, new_freeblock_indices, singleton_counter);
+
+    KBisumulationOutcome result(new_blocks, dirty, mapper);
+
+    // std::cout << "DEBUG count test: " << result.non_singleton_block_count() << ", " << result.singleton_block_count() << std::endl;
+    // std::cout << "DEBUG count test: " << result.total_blocks() << std::endl;
+
+    return result;
+}
+
 KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_minus_one_outcome, std::size_t min_support = 1)
 {
     // we make copies which we will modify
@@ -961,6 +1036,10 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
             new_block_indices.push_back(0);
             // Add 1 to the dirty block index to be consistent with the new_block_indeces
             refines_edges.add_edge(Refines_Edge(dirty_block_index+1, new_block_indices));
+            // for (block_index new_block_from_split: new_block_indices)
+            // {
+            //     std::cout << "DEBUG added refines edge: " << dirty_block_index+1 << ", " << new_block_from_split << std::endl;
+            // }
         }
     }
 
@@ -1402,7 +1481,23 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     std::cout << std::put_time(ptm_start_bisim, "%Y/%m/%d %H:%M:%S") << " Graph read with " << g.size() << " nodes" << std::endl;
     std::vector<std::string> lines;
     w.start_step("0000-bisimulation", true);  // Set newline to true
-    KBisumulationOutcome res = get_0_bisimulation(g);
+
+    bool typed_start = true;  // TODO !!!MAKE THIS AN ARGUMENT FOR THE PROGRAM INSTEAD!!!
+
+    // We do some pointer trickery here to make sure res will accessible outside of the if-statement
+    // Using a regular pointer here would lead to some issues after calling w.get_times() later
+    std::unique_ptr<KBisumulationOutcome> res_ptr;
+    if (!typed_start)
+    {
+        res_ptr = std::make_unique<KBisumulationOutcome>(get_0_bisimulation(g));
+        // res_ptr = &trivial_res;
+    }
+    else
+    {
+        res_ptr = std::make_unique<KBisumulationOutcome>(get_typed_0_bisimulation(g));
+    }
+    KBisumulationOutcome res = *res_ptr;
+
     // w.pause();
     // std::cout << "initially one block with " << res.blocks.begin().operator*()->size() << " nodes" << std::endl;
     // w.resume();
@@ -1410,7 +1505,43 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     outcomes.push_back(res);
     w.stop_step();
 
-    int previous_total = 0;
+    int previous_total = 0;  // We overwrite this in case we do not start with the trivial/universal outcome for k=0
+
+    if (typed_start)
+    {
+        auto times = w.get_times();
+        auto bisim_step_duration = boost::chrono::ceil<boost::chrono::milliseconds>(times.back().duration).count();
+        auto bisim_step_memory = times.back().memory_in_kb;
+        std::ofstream ad_hoc_output(output_path + "ad_hoc_results/statistics_condensed-0000.json", std::ios::trunc);
+
+        ad_hoc_output << "{\n    \"Block count\": " << outcomes[0].total_blocks()
+                      << ",\n    \"Singleton count\": " << outcomes[0].singleton_block_count()
+                      << ",\n    \"Time taken (ms)\": " << bisim_step_duration
+                      << ",\n    \"Memory footprint (kB)\": " << bisim_step_memory << "\n}";
+        ad_hoc_output.flush();
+
+        w.start_step("0000-bisimulation (condensed) writing outcome to disk", true);  // Set newline to true
+        std::ofstream condensed_output(output_path + "bisimulation/outcome_condensed-0000.bin", std::ios::trunc);
+        // bool found_singletons = false;
+        for (block_index i = 0; i<outcomes[0].blocks.size(); i++)
+        {
+            std::cout << "DEBUG block: " << i+1 << std::endl;
+            BlockPtr new_block_ptr = outcomes[0].blocks[i];
+            uint64_t block_size = new_block_ptr->end() - new_block_ptr->begin();
+            write_uint_BLOCK_little_endian(condensed_output, i+1);  // We add 1, because we want to reserve 0 for the singleton blocks
+            write_uint_ENTITY_little_endian(condensed_output, u_int64_t(block_size));  // The reader needs this size to decode the data
+            for (auto v_iter = new_block_ptr->begin(); v_iter != new_block_ptr->end(); v_iter++)
+            {
+                node_index v = *v_iter;
+                write_uint_ENTITY_little_endian(condensed_output, u_int64_t(v));  // We store each entity contained in the new block
+                std::cout << "DEBUG node: " << u_int64_t(v) << std::endl;
+            }
+        }
+        condensed_output.flush();
+        w.stop_step();
+        previous_total = outcomes[0].total_blocks();
+    }
+
     int i = 0;
     for (i = 0;; i++)
     {
@@ -1423,6 +1554,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
         std::string k_next_string(k_next_stringstream.str());
 
         w.start_step(k_next_string + "-bisimulation");
+        // std::cout << "DEBUG starting level: " << k_next_string << std::endl;
         auto res = get_k_bisimulation(g, outcomes[0], support);
         outcomes.pop_front();
         outcomes.push_back(res);
@@ -1438,8 +1570,8 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
                       << ",\n    \"Memory footprint (kB)\": " << bisim_step_memory << "\n}";
         ad_hoc_output.flush();
 
-        // We do not care for the first trivial mapping from k=0 to k=1.
-        if (i > 0)
+        // We do not care for the first mapping from k=0 to k=1 if it is the trivial mapping.
+        if (typed_start || i > 0)
         {
             w.start_step(k_next_string + "-bisimulation writing " + k_string + " to " + k_next_string + " refines edges to disk");
             std::ofstream mapping_output(output_path + "bisimulation/mapping-" + k_string + "to" + k_next_string + ".bin", std::ios::trunc);
@@ -1454,21 +1586,26 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
                 }
             }
             w.stop_step();
+            mapping_output.flush();
         }
 
         w.start_step(k_next_string + "-bisimulation (condensed) writing outcome to disk", true);  // Set newline to true
         std::ofstream condensed_output(output_path + "bisimulation/outcome_condensed-" + k_next_string + ".bin", std::ios::trunc);
         // bool found_singletons = false;
+        std::cout << "DEBUG writing block1" << std::endl;
         for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
         {
+            std::cout << "DEBUG writing block2" << std::endl;
             for (auto new_block: orig_new.second)
             {
+                std::cout << "DEBUG writing block3" << std::endl;
                 // Skip the singleton block
                 if (new_block == 0)
                 {
                     // found_singletons = true;
                     continue;
                 }
+                std::cout << "DEBUG writing block4" << std::endl;
                 // We have to subtract 1 because we added 1 earlier
                 BlockPtr new_block_ptr = outcomes[0].blocks[new_block-1];
                 uint64_t block_size = new_block_ptr->end() - new_block_ptr->begin();
@@ -1481,6 +1618,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
                 }
             }
         }
+        condensed_output.flush();
         // // For the first outcome write the singltons into block 0
         // if (i == 0 && found_singletons)
         // {

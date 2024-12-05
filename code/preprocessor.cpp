@@ -246,9 +246,13 @@ void convert_graph(std::istream &inputstream,
     IDMapper<node_index> node_ID_Mapper;
     IDMapper<edge_type> edge_ID_Mapper;
 
-    // We make sure that the bisimulation:string is first in the IDs. ie. maps to zero
+    // We make sure that the bisimulation:string is first in the node IDs. ie. maps to zero
     std::string bisimulation_string = "bisimulation:string";
     node_ID_Mapper.getID(bisimulation_string);
+
+    // We make sure that the rdf:type is first in the edge IDs. ie. maps to zero
+    std::string rdf_type_string = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    edge_ID_Mapper.getID(rdf_type_string);
 
     const int BufferSize = 8 * 16184;
 
@@ -392,6 +396,7 @@ void convert_graph(std::istream &inputstream,
         // edge
         edge_type edge_index = edge_ID_Mapper.getID(predicate);
         // Write the indices in our binary format
+        std::cout << "DEBUG wrote (" << subject << ", " << predicate << ", " << object << ") as (" << subject_index << ", " << edge_index << ", " << object_index << ")" << std::endl;
         write_uint_ENTITY_little_endian(outputstream, subject_index);
         write_uint_PREDICATE_little_endian(outputstream, edge_index);
         write_uint_ENTITY_little_endian(outputstream, object_index);
