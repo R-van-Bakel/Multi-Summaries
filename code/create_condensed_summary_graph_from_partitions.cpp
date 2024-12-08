@@ -964,7 +964,7 @@ public:
     // }
 };
 
-void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_to_block_map_type &node_to_block_map, ReverseBlockMap& current_block_map, SplitToMergedMap &split_to_merged_map, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map, k_type current_level, bool include_zero, SummaryGraph &gs)
+void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_to_block_map_type &node_to_block_map, ReverseBlockMap& current_block_map, SplitToMergedMap &split_to_merged_map, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map, k_type current_level, bool include_zero, bool fixed_point_reached, SummaryGraph &gs)
 {
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
 
@@ -998,8 +998,8 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
         {
             break;
         }
+
         block_or_singleton_index subject_block = current_block_map.map_block(node_to_block_map[subject_index]);
-        block_or_singleton_index object_block = split_to_merged_map.map_block(current_block_map.map_block(node_to_block_map[object_index]));
 
         gs.try_add_block_node(subject_block);
         if (block_to_interval_map.find(subject_block) == block_to_interval_map.cend())  // If the block has not been given an initial interval, then do it now
@@ -1011,7 +1011,15 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
             }
             block_to_interval_map[subject_block] = {first_level, current_level};
         }
-        gs.add_edge_to_node(subject_block, edge_label, object_block);
+
+        block_or_singleton_index object_block_previous_level = split_to_merged_map.map_block(current_block_map.map_block(node_to_block_map[object_index]));  // Data edges from last level to second-to-last level
+        gs.add_edge_to_node(subject_block, edge_label, object_block_previous_level);
+
+        if (fixed_point_reached)  // If we reached the fixed point, then all current blocks refine into themselves from this point onward. In this case we need to add the data edges accordingly
+        {
+            block_or_singleton_index object_block_current_level = split_to_merged_map.map_block(node_to_block_map[object_index]);
+            gs.add_edge_to_node(subject_block, edge_label, object_block_current_level);
+        }
 
         if (line_counter % 1000000 == 0)
         {
@@ -1045,11 +1053,11 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
 // #endif
 }
 
-void read_graph_into_summary_timed(const std::string &filename, node_to_block_map_type &node_to_block_map, ReverseBlockMap &current_block_map, SplitToMergedMap &split_to_merged_map, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map, k_type current_level, bool include_zero, SummaryGraph &gs)
+void read_graph_into_summary_timed(const std::string &filename, node_to_block_map_type &node_to_block_map, ReverseBlockMap &current_block_map, SplitToMergedMap &split_to_merged_map, boost::unordered_flat_map<block_or_singleton_index, time_interval> &block_to_interval_map, k_type current_level, bool include_zero, bool fixed_point_reached, SummaryGraph &gs)
 {
 
     std::ifstream infile(filename, std::ifstream::in);
-    read_graph_into_summary_from_stream_timed(infile, node_to_block_map, current_block_map, split_to_merged_map, block_to_interval_map, current_level, include_zero, gs);
+    read_graph_into_summary_from_stream_timed(infile, node_to_block_map, current_block_map, split_to_merged_map, block_to_interval_map, current_level, include_zero, fixed_point_reached, gs);
 }
 
 struct LocalBlock {
@@ -1089,12 +1097,15 @@ int main(int ac, char *av[])
     std::string graph_stats_line;
     std::string final_depth_string = "\"Final depth\"";
     std::string vertex_count_string = "\"Vertex count\"";
+    std::string fixed_point_string = "\"Fixed point\"";
 
     size_t k;
     node_index graph_size;
+    bool fixed_point_reached;
 
     bool k_found = false;
     bool size_found = false;
+    bool fixed_point_found = false;
 
     bool include_zero_outcome = false;
     std::filesystem::path path_to_zero_outcome = experiment_directory + "bisimulation/outcome_condensed-0000.bin";
@@ -1124,7 +1135,23 @@ int main(int ac, char *av[])
             sstream >> graph_size;
             size_found = true;
         }
-        if (k_found && size_found)
+        else if (result[0] == fixed_point_string)
+        {
+            std::stringstream sstream(result[1]);
+            std::string fixed_point_string = sstream.str();
+            boost::trim(fixed_point_string);
+            std::cout << "DEBUG fixed point value " << fixed_point_string << std::endl;
+            if (fixed_point_string == "true")
+            {
+                fixed_point_reached = true;
+            }
+            else if (fixed_point_string != "false")
+            {
+                throw MyException("The \"Fixed point\" value in the graph_stats.json file has not been set to one of \"true\"/\"false\"");
+            }
+            fixed_point_found = true;
+        }
+        if (k_found && size_found && fixed_point_found)
         {
             break;
         }
@@ -1398,22 +1425,17 @@ int main(int ac, char *av[])
         k_type zero_level = 0;
         block_maps.add_level(zero_level);
 
-        if (include_zero_outcome)
+        if (include_zero_outcome || old_living_blocks.size()==0)  // If we use a non-trivial zero outcome, or there is only one block, then every block has its own counterpart
         {
-            for (auto index_block_pair: old_living_blocks)
+            if (!fixed_point_reached)  // If the fixed point has been reached the code will automatically add the correct edges and we won't have to create this mapping
             {
-                // Map blocks to globally (across bisimulation levels) unique indices
-                // Since some corner cases require duplicate summary nodes, we make an exception and may map singletons to positive blocks (hence the use of add_block_non_restricted())
-                std::cout << "DEBUG making global: " << index_block_pair.first << std::endl;
-                block_or_singleton_index zero_block = block_maps.add_block_non_restricted(zero_level, index_block_pair.first);
-                std::cout << "DEBUG adding zero block: " << zero_block << std::endl;
-                gs.add_block_node(zero_block);
-                std::cout << "DEBUG added zero block" << std::endl;
-                block_to_interval_map[zero_block] = {zero_level, zero_level};
-                old_split_to_merged_map.add_pair(index_block_pair.first, zero_block);  // Each summary node has its own counterpart at k=0
+                for (auto index_block_pair: old_living_blocks)
+                {
+                    old_split_to_merged_map.add_pair(index_block_pair.first, index_block_pair.first);  // Each summary node refines itself
+                }
             }
         }
-        else
+        else  // Otherwise we create a separate universal block to be the parent of all blocks in level k=1
         {
             block_or_singleton_index universal_block = 0;
             block_or_singleton_index global_universal_block = block_maps.add_block(zero_level, universal_block);    
@@ -1433,7 +1455,7 @@ int main(int ac, char *av[])
 
         w.start_step("Read edges (final) into summary graph", true);
         std::cout << "DEBUG loading in graph" << std::endl;
-        read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, gs);
+        read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
         std::cout << "DEBUG graph loaded in" << std::endl;
 
         // This corresponds to the one block that has no outgoing edges.
@@ -1611,7 +1633,7 @@ int main(int ac, char *av[])
 
     // Create the final set of data edges (between k and k-1)
     w.start_step("Read edges into summary graph", true);
-    read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, gs);
+    read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
     // This corresponds to the one block that has no outgoing edges.
     // Since it never apears as a subject, it will normally not be added by our algorithm, therefore we will manually add it here if it exists
     for (auto living_block_key_val: old_living_blocks)
@@ -1769,7 +1791,7 @@ int main(int ac, char *av[])
         old_split_to_merged_map = std::move(current_split_to_merged_map);
     }
 
-    if (!include_zero_outcome)  // If we don't have an explicit outcome for k=0, then we will manually add those data edges now
+    if (!include_zero_outcome)  // If we don't have an explicit outcome for k=0, then we will manually add those data edges now, otherwise they should have automatically been added
     {
         auto t_last_edges{boost::chrono::system_clock::now()};
         auto time_t_last_edges{boost::chrono::system_clock::to_time_t(t_last_edges)};
