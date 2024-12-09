@@ -1013,11 +1013,15 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
         }
 
         block_or_singleton_index object_block_previous_level = split_to_merged_map.map_block(current_block_map.map_block(node_to_block_map[object_index]));  // Data edges from last level to second-to-last level
+        std::cout << "DEBUG object index: " << object_index << std::endl;
+        std::cout << "DEBUG adding normal edge: " << subject_block << ", " << edge_label << ", " << object_block_previous_level << std::endl;
         gs.add_edge_to_node(subject_block, edge_label, object_block_previous_level);
 
+        std::cout << "DEBUG fixed point reached: " << fixed_point_reached << std::endl;
         if (fixed_point_reached)  // If we reached the fixed point, then all current blocks refine into themselves from this point onward. In this case we need to add the data edges accordingly
         {
-            block_or_singleton_index object_block_current_level = split_to_merged_map.map_block(node_to_block_map[object_index]);
+            block_or_singleton_index object_block_current_level = current_block_map.map_block(node_to_block_map[object_index]);
+            std::cout << "DEBUG adding fixed point edge: " << subject_block << ", " << edge_label << ", " << object_block_current_level << std::endl;
             gs.add_edge_to_node(subject_block, edge_label, object_block_current_level);
         }
 
@@ -1140,7 +1144,7 @@ int main(int ac, char *av[])
             std::stringstream sstream(result[1]);
             std::string fixed_point_string = sstream.str();
             boost::trim(fixed_point_string);
-            std::cout << "DEBUG fixed point value " << fixed_point_string << std::endl;
+            // std::cout << "DEBUG fixed point value " << fixed_point_string << std::endl;
             if (fixed_point_string == "true")
             {
                 fixed_point_reached = true;
@@ -1203,7 +1207,7 @@ int main(int ac, char *av[])
 
     SingletonMapper blocks_to_singletons = SingletonMapper();
 
-    std::cout << "DEBUG start outcome: " << first_level+1 << std::endl;
+    // std::cout << "DEBUG start outcome: " << first_level+1 << std::endl;
 
     for (uint32_t i = first_level+1; i <= k; i++)  // We can ignore the last outcome (k), if its only purpose was to find the fixed point (i.e. its empty), otherwise include the last outcome
     {
@@ -1239,7 +1243,7 @@ int main(int ac, char *av[])
         while (true)
         {
             block_index old_block = read_uint_BLOCK_little_endian(current_mapping_file);
-            std::cout << "DEBUG read old block: " << old_block << std::endl;
+            // std::cout << "DEBUG read old block: " << old_block << std::endl;
             if (current_mapping_file.eof())
             {
                 break;
@@ -1247,11 +1251,11 @@ int main(int ac, char *av[])
             split_block_incides.emplace(old_block);
 
             block_index new_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
-            std::cout << "DEBUG read count: " << new_block_count << std::endl;
+            // std::cout << "DEBUG read count: " << new_block_count << std::endl;
             for (block_index j = 0; j < new_block_count; j++)
             {
                 block_index new_block = read_uint_BLOCK_little_endian(current_mapping_file);
-                std::cout << "DEBUG read new block: " << new_block << std::endl;
+                // std::cout << "DEBUG read new block: " << new_block << std::endl;
                 if (new_block == 0)
                 {
                     new_singletons_created = true;
@@ -1277,11 +1281,11 @@ int main(int ac, char *av[])
             // Get all nodes that were part of blocks that got split
             for (block_or_singleton_index split_block: split_block_incides)
             {
-                std::cout << "DEBUG checking split block index: " << split_block << std::endl;
-                for (auto debug_node: blocks[split_block])
-                {
-                    std::cout << "DEBUG split block contains: " << debug_node << std::endl;
-                }
+                // std::cout << "DEBUG checking split block index: " << split_block << std::endl;
+                // for (auto debug_node: blocks[split_block])
+                // {
+                //     std::cout << "DEBUG split block contains: " << debug_node << std::endl;
+                // }
                 assert(split_block <= MAX_SIGNED_BLOCK_SIZE);  // We need to check if the cast to block_or_singleton_index is possible
                 old_nodes_in_split.insert(blocks[split_block].begin(), blocks[(block_or_singleton_index) split_block].end());
             }
@@ -1311,18 +1315,18 @@ int main(int ac, char *av[])
             }
         }
 
-        std::cout << "DEBUG level: " << i << std::endl;
+        // std::cout << "DEBUG level: " << i << std::endl;
         if (new_singletons_created)
         {
-            std::cout << "DEBUG new singletons found!" << std::endl;
+            // std::cout << "DEBUG new singletons found!" << std::endl;
             for (block_or_singleton_index new_block: new_block_indices)
             {
-                std::cout << "DEBUG new block: " << new_block << std::endl;
+                // std::cout << "DEBUG new block: " << new_block << std::endl;
                 new_nodes_in_split.insert(blocks[new_block].begin(), blocks[new_block].end());
             }
             for (auto node: new_nodes_in_split)
             {
-                std::cout << "DEBUG erasing old node in split: " << node << std::endl;
+                // std::cout << "DEBUG erasing old node in split: " << node << std::endl;
                 old_nodes_in_split.erase(node);
             }
             new_singleton_nodes = std::move(old_nodes_in_split);
@@ -1330,7 +1334,7 @@ int main(int ac, char *av[])
             blocks_to_singletons.add_level(i);
             for (node_index node: new_singleton_nodes)
             {
-                std::cout << "DEBUG adding singleton node: " << node << std::endl;
+                // std::cout << "DEBUG adding singleton node: " << node << std::endl;
                 blocks_to_singletons.get_map(i).add_node(node_to_block_map[node], node);  // Add the block to singlton mapping to keep track (for later) of which merged blocks singletons refine
                 block_or_singleton_index singleton_block = -((block_or_singleton_index)node)-1;
                 node_to_block_map[node] = singleton_block;
@@ -1415,17 +1419,23 @@ int main(int ac, char *av[])
 
     // Declare our condensed multi summary graph
     SummaryGraph gs;
-    std::cout << "DEBUG graph defined" << std::endl;
+    // std::cout << "DEBUG graph defined" << std::endl;
 
     SplitToMergedMap old_split_to_merged_map;
 
     if (immediate_stop)
     {
+        std::cout << "DEBUG immediate stop" << std::endl;
+        std::cout << "DEBUG include zero: " << include_zero_outcome << std::endl;
+        std::cout << "DEBUG old living size: " << old_living_blocks.size() << std::endl;
+        
         // Add the edges between the level 1 and level 0
         k_type zero_level = 0;
         block_maps.add_level(zero_level);
 
-        if (include_zero_outcome || old_living_blocks.size()==0)  // If we use a non-trivial zero outcome, or there is only one block, then every block has its own counterpart
+        // TODO The code behaves slightly unexpected (due to the "literal" node always being present) if include_zero_outcome is false and old_living_blocks.size() is 2
+        // TODO The solution involves either detecting disconnected vertices now or do so in a earlier phase of the experiment
+        if (include_zero_outcome || old_living_blocks.size()==1)  // If we use a non-trivial zero outcome, or there is only one block, then every block has its own counterpart
         {
             if (!fixed_point_reached)  // If the fixed point has been reached the code will automatically add the correct edges and we won't have to create this mapping
             {
@@ -1446,7 +1456,7 @@ int main(int ac, char *av[])
                 old_split_to_merged_map.add_pair(node_block_pair.second, global_universal_block);  // The universal block is the only parent to all nodes in k=1
             }
         }
-        std::cout << "DEBUG added pairs" << std::endl;
+        // std::cout << "DEBUG added pairs" << std::endl;
 
         auto t_first_edges{boost::chrono::system_clock::now()};
         auto time_t_first_edges{boost::chrono::system_clock::to_time_t(t_first_edges)};
@@ -1454,9 +1464,9 @@ int main(int ac, char *av[])
         std::cout << std::put_time(ptm_first_edges, "%Y/%m/%d %H:%M:%S") << " Loading initial/terminal condensed data edges (0001-->0000)" << std::endl;
 
         w.start_step("Read edges (final) into summary graph", true);
-        std::cout << "DEBUG loading in graph" << std::endl;
+        // std::cout << "DEBUG loading in graph" << std::endl;
         read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
-        std::cout << "DEBUG graph loaded in" << std::endl;
+        // std::cout << "DEBUG graph loaded in" << std::endl;
 
         // This corresponds to the one block that has no outgoing edges.
         // Since it never apears as a subject, it will normally not be added by our algorithm, therefore we will manually add it here if it exists
@@ -1467,7 +1477,7 @@ int main(int ac, char *av[])
                 block_to_interval_map[living_block_key_val.first] = {first_level, current_level};
             }
         }
-        std::cout << "DEBUG checked for edgeless block" << std::endl;
+        // std::cout << "DEBUG checked for edgeless block" << std::endl;
         w.stop_step();
 
         auto t_write_graph_instant{boost::chrono::system_clock::now()};
@@ -1558,7 +1568,7 @@ int main(int ac, char *av[])
         {
             break;
         }
-        std::cout << "DEBUG test1" << std::endl;
+        // std::cout << "DEBUG test1" << std::endl;
         block_or_singleton_index global_block = block_maps.add_block(current_level-1, merged_block);
         spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
 
@@ -1566,30 +1576,30 @@ int main(int ac, char *av[])
         block_to_interval_map[global_block] = {first_level, current_level-1};
 
         block_index split_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
-        std::cout << "DEBUG test2" << std::endl;
+        // std::cout << "DEBUG test2" << std::endl;
         
         for (block_index j = 0; j < split_block_count; j++)
         {
-            std::cout << "DEBUG test2a" << std::endl;
+            // std::cout << "DEBUG test2a" << std::endl;
             block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
             if (split_block == 0)
             {
-                std::cout << "DEBUG test2aa" << std::endl;
-                std::cout << "DEBUG current level: " << current_level << std::endl;
+                // std::cout << "DEBUG test2aa" << std::endl;
+                // std::cout << "DEBUG current level: " << current_level << std::endl;
                 BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
-                std::cout << "DEBUG test2aa2" << std::endl;
-                std::cout << "DEBUG Merged block: " << merged_block << std::endl;
+                // std::cout << "DEBUG test2aa2" << std::endl;
+                // std::cout << "DEBUG Merged block: " << merged_block << std::endl;
                 for (auto merged_splits: block_to_singletons.get_map())
                 {
-                    for (auto split_block: merged_splits.second.get_nodes())
-                    {
-                        std::cout << "DEBUG split block: " << split_block << std::endl;
-                    }
+                    // for (auto split_block: merged_splits.second.get_nodes())
+                    // {
+                    //     std::cout << "DEBUG split block: " << split_block << std::endl;
+                    // }
                 }
-                std::cout << "DEBUG test2aa3" << std::endl;
+                // std::cout << "DEBUG test2aa3" << std::endl;
                 for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
                 {
-                    std::cout << "DEBUG test2aaa" << std::endl;
+                    // std::cout << "DEBUG test2aaa" << std::endl;
                     assert(singleton <= MAX_SIGNED_BLOCK_SIZE); // Check if the following cast is possible
 
                     block_or_singleton_index singlton_block = (block_or_singleton_index) singleton;
@@ -1603,7 +1613,7 @@ int main(int ac, char *av[])
             }
             else
             {
-                std::cout << "DEBUG test2ab" << std::endl;
+                // std::cout << "DEBUG test2ab" << std::endl;
                 auto global_split_block_iterator = new_local_to_global_living_blocks.find(split_block);
                 assert(global_split_block_iterator != new_local_to_global_living_blocks.cend());
                 block_or_singleton_index global_split_block = (*global_split_block_iterator).second;
@@ -1613,7 +1623,7 @@ int main(int ac, char *av[])
             }
         }
     }
-    std::cout << "DEBUG test3" << std::endl;
+    // std::cout << "DEBUG test3" << std::endl;
 
     // Update new_living_blocks by removing the dying blocks and adding the spawning blocks
     for (block_or_singleton_index dying_block: dying_blocks)
@@ -1629,7 +1639,7 @@ int main(int ac, char *av[])
     {
         new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
     }
-    std::cout << "DEBUG test4" << std::endl;
+    // std::cout << "DEBUG test4" << std::endl;
 
     // Create the final set of data edges (between k and k-1)
     w.start_step("Read edges into summary graph", true);
@@ -1664,7 +1674,7 @@ int main(int ac, char *av[])
             }
         }
     }
-    std::cout << "DEBUG test5" << std::endl;
+    // std::cout << "DEBUG test5" << std::endl;
 
     k_type smallest_level = 0;
     if (!include_zero_outcome)

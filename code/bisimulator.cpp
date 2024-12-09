@@ -1482,7 +1482,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     std::vector<std::string> lines;
     w.start_step("0000-bisimulation", true);  // Set newline to true
 
-    bool typed_start = true;  // TODO !!!MAKE THIS AN ARGUMENT FOR THE PROGRAM INSTEAD!!!
+    bool typed_start = false;  // TODO !!!MAKE THIS AN ARGUMENT FOR THE PROGRAM INSTEAD!!!
 
     // We do some pointer trickery here to make sure res will accessible outside of the if-statement
     // Using a regular pointer here would lead to some issues after calling w.get_times() later
