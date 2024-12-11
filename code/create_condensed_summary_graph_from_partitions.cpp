@@ -799,7 +799,7 @@ class SummaryGraph
 {
 private:
     boost::unordered_flat_map<block_or_singleton_index, SummaryNode> block_nodes;
-    boost::unordered_flat_map<block_or_singleton_index, SummaryNode> reverse_block_nodes;
+    // boost::unordered_flat_map<block_or_singleton_index, SummaryNode> reverse_block_nodes;
 
     SummaryGraph(SummaryGraph &)
     {
@@ -1013,17 +1013,9 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
         }
 
         block_or_singleton_index object_block_previous_level = split_to_merged_map.map_block(current_block_map.map_block(node_to_block_map[object_index]));  // Data edges from last level to second-to-last level
-        std::cout << "DEBUG object index: " << object_index << std::endl;
-        std::cout << "DEBUG adding normal edge: " << subject_block << ", " << edge_label << ", " << object_block_previous_level << std::endl;
+        // std::cout << "DEBUG object index: " << object_index << std::endl;
+        // std::cout << "DEBUG adding normal edge: " << subject_block << ", " << edge_label << ", " << object_block_previous_level << std::endl;
         gs.add_edge_to_node(subject_block, edge_label, object_block_previous_level);
-
-        std::cout << "DEBUG fixed point reached: " << fixed_point_reached << std::endl;
-        if (fixed_point_reached)  // If we reached the fixed point, then all current blocks refine into themselves from this point onward. In this case we need to add the data edges accordingly
-        {
-            block_or_singleton_index object_block_current_level = current_block_map.map_block(node_to_block_map[object_index]);
-            std::cout << "DEBUG adding fixed point edge: " << subject_block << ", " << edge_label << ", " << object_block_current_level << std::endl;
-            gs.add_edge_to_node(subject_block, edge_label, object_block_current_level);
-        }
 
         if (line_counter % 1000000 == 0)
         {
@@ -1425,9 +1417,9 @@ int main(int ac, char *av[])
 
     if (immediate_stop)
     {
-        std::cout << "DEBUG immediate stop" << std::endl;
-        std::cout << "DEBUG include zero: " << include_zero_outcome << std::endl;
-        std::cout << "DEBUG old living size: " << old_living_blocks.size() << std::endl;
+        // std::cout << "DEBUG immediate stop" << std::endl;
+        // std::cout << "DEBUG include zero: " << include_zero_outcome << std::endl;
+        // std::cout << "DEBUG old living size: " << old_living_blocks.size() << std::endl;
         
         // Add the edges between the level 1 and level 0
         k_type zero_level = 0;
@@ -1437,12 +1429,9 @@ int main(int ac, char *av[])
         // TODO The solution involves either detecting disconnected vertices now or do so in a earlier phase of the experiment
         if (include_zero_outcome || old_living_blocks.size()==1)  // If we use a non-trivial zero outcome, or there is only one block, then every block has its own counterpart
         {
-            if (!fixed_point_reached)  // If the fixed point has been reached the code will automatically add the correct edges and we won't have to create this mapping
+            for (auto index_block_pair: old_living_blocks)
             {
-                for (auto index_block_pair: old_living_blocks)
-                {
-                    old_split_to_merged_map.add_pair(index_block_pair.first, index_block_pair.first);  // Each summary node refines itself
-                }
+                old_split_to_merged_map.add_pair(index_block_pair.first, index_block_pair.first);  // Each summary node refines itself
             }
         }
         else  // Otherwise we create a separate universal block to be the parent of all blocks in level k=1
@@ -1456,6 +1445,23 @@ int main(int ac, char *av[])
                 old_split_to_merged_map.add_pair(node_block_pair.second, global_universal_block);  // The universal block is the only parent to all nodes in k=1
             }
         }
+
+        SplitToMergedMap initial_map;
+
+        if (fixed_point_reached)
+        {
+            SplitToMergedMap fixed_point_map;
+            for (auto index_block_pair: old_living_blocks)
+            {
+                fixed_point_map.add_pair(index_block_pair.first, index_block_pair.first);  // At the fixed point, all blocks map to themselves
+            }
+            initial_map = fixed_point_map;
+        }
+        else
+        {
+            initial_map = old_split_to_merged_map;
+        }
+
         // std::cout << "DEBUG added pairs" << std::endl;
 
         auto t_first_edges{boost::chrono::system_clock::now()};
@@ -1465,7 +1471,7 @@ int main(int ac, char *av[])
 
         w.start_step("Read edges (final) into summary graph", true);
         // std::cout << "DEBUG loading in graph" << std::endl;
-        read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
+        read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, initial_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
         // std::cout << "DEBUG graph loaded in" << std::endl;
 
         // This corresponds to the one block that has no outgoing edges.
@@ -1479,6 +1485,23 @@ int main(int ac, char *av[])
         }
         // std::cout << "DEBUG checked for edgeless block" << std::endl;
         w.stop_step();
+
+        if (fixed_point_reached)  // In this case we loaded in the fixed point edges, but we still need to add the edges between k=1 and k=0
+        {
+            for (auto node: gs.get_nodes())
+            {
+                block_or_singleton_index subject = node.first;
+                for (auto predicate_objects_pair: node.second.get_edges())
+                {
+                    block_or_singleton_index predicate = predicate_objects_pair.first;
+                    for (block_or_singleton_index object: predicate_objects_pair.second.get_objects())
+                    {
+                        block_or_singleton_index object_image = old_split_to_merged_map.map_block(object);
+                        gs.add_edge_to_node(subject, predicate, object_image);
+                    }
+                }
+            }
+        }
 
         auto t_write_graph_instant{boost::chrono::system_clock::now()};
         auto time_t_write_graph_instant{boost::chrono::system_clock::to_time_t(t_write_graph_instant)};
@@ -1541,109 +1564,127 @@ int main(int ac, char *av[])
 
         exit(0);  // Close the program
     }
-
-
-    std::ostringstream current_level_stringstream;
-    current_level_stringstream << std::setw(4) << std::setfill('0') << current_level;
-    std::string current_level_string(current_level_stringstream.str());
-
-    std::ostringstream previous_level_stringstream;
-    previous_level_stringstream << std::setw(4) << std::setfill('0') << current_level-1;
-    std::string previous_level_string(previous_level_stringstream.str());
-
-    std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_level_string + "to" + current_level_string + ".bin";
-    std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
-
-    auto t_first_edges{boost::chrono::system_clock::now()};
-    auto time_t_first_edges{boost::chrono::system_clock::to_time_t(t_first_edges)};
-    std::tm *ptm_first_edges{std::localtime(&time_t_first_edges)};
-    std::cout << std::put_time(ptm_first_edges, "%Y/%m/%d %H:%M:%S") << " Creating initial condensed data edges (" + current_level_string + "-->" + previous_level_string + ")" << std::endl;
-
-    block_maps.add_level(current_level-1);
-
-    while (true)
+    
+    if (fixed_point_reached)
     {
-        block_index merged_block = read_uint_BLOCK_little_endian(current_mapping_file);
-        if (current_mapping_file.eof())
+        SplitToMergedMap fixed_point_map;
+        for (auto index_block_pair: old_living_blocks)
         {
-            break;
+            fixed_point_map.add_pair(index_block_pair.first, index_block_pair.first);  // At the fixed point, all blocks map to themselves
         }
-        // std::cout << "DEBUG test1" << std::endl;
-        block_or_singleton_index global_block = block_maps.add_block(current_level-1, merged_block);
-        spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
+        // Create the final set of data edges (between k and k-1)
+        // std::cout << "DEBUG fixed point reading edges" << std::endl;
+        w.start_step("Read edges into summary graph", true);
+        read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, fixed_point_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
+        old_split_to_merged_map = fixed_point_map;
+        w.stop_step();
+    }
+    else
+    {
+        std::ostringstream current_level_stringstream;
+        current_level_stringstream << std::setw(4) << std::setfill('0') << current_level;
+        std::string current_level_string(current_level_stringstream.str());
 
-        gs.add_block_node(global_block);
-        block_to_interval_map[global_block] = {first_level, current_level-1};
+        std::ostringstream previous_level_stringstream;
+        previous_level_stringstream << std::setw(4) << std::setfill('0') << current_level-1;
+        std::string previous_level_string(previous_level_stringstream.str());
 
-        block_index split_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
-        // std::cout << "DEBUG test2" << std::endl;
-        
-        for (block_index j = 0; j < split_block_count; j++)
+        std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_level_string + "to" + current_level_string + ".bin";
+        std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
+
+        auto t_first_edges{boost::chrono::system_clock::now()};
+        auto time_t_first_edges{boost::chrono::system_clock::to_time_t(t_first_edges)};
+        std::tm *ptm_first_edges{std::localtime(&time_t_first_edges)};
+        std::cout << std::put_time(ptm_first_edges, "%Y/%m/%d %H:%M:%S") << " Creating initial condensed data edges (" + current_level_string + "-->" + previous_level_string + ")" << std::endl;
+
+        block_maps.add_level(current_level-1);
+
+        while (true)
         {
-            // std::cout << "DEBUG test2a" << std::endl;
-            block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
-            if (split_block == 0)
+            block_index merged_block = read_uint_BLOCK_little_endian(current_mapping_file);
+            if (current_mapping_file.eof())
             {
-                // std::cout << "DEBUG test2aa" << std::endl;
-                // std::cout << "DEBUG current level: " << current_level << std::endl;
-                BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
-                // std::cout << "DEBUG test2aa2" << std::endl;
-                // std::cout << "DEBUG Merged block: " << merged_block << std::endl;
-                for (auto merged_splits: block_to_singletons.get_map())
+                break;
+            }
+            // std::cout << "DEBUG test1" << std::endl;
+            block_or_singleton_index global_block = block_maps.add_block(current_level-1, merged_block);
+            spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
+
+            gs.add_block_node(global_block);
+            block_to_interval_map[global_block] = {first_level, current_level-1};
+
+            block_index split_block_count = read_uint_BLOCK_little_endian(current_mapping_file);
+            // std::cout << "DEBUG test2" << std::endl;
+            
+            for (block_index j = 0; j < split_block_count; j++)
+            {
+                // std::cout << "DEBUG test2a" << std::endl;
+                block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
+                if (split_block == 0)
                 {
-                    // for (auto split_block: merged_splits.second.get_nodes())
-                    // {
-                    //     std::cout << "DEBUG split block: " << split_block << std::endl;
-                    // }
+                    // std::cout << "DEBUG test2aa" << std::endl;
+                    // std::cout << "DEBUG current level: " << current_level << std::endl;
+                    BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
+                    // std::cout << "DEBUG test2aa2" << std::endl;
+                    // std::cout << "DEBUG Merged block: " << merged_block << std::endl;
+                    for (auto merged_splits: block_to_singletons.get_map())
+                    {
+                        // for (auto split_block: merged_splits.second.get_nodes())
+                        // {
+                        //     std::cout << "DEBUG split block: " << split_block << std::endl;
+                        // }
+                    }
+                    // std::cout << "DEBUG test2aa3" << std::endl;
+                    for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
+                    {
+                        // std::cout << "DEBUG test2aaa" << std::endl;
+                        assert(singleton <= MAX_SIGNED_BLOCK_SIZE); // Check if the following cast is possible
+
+                        block_or_singleton_index singlton_block = (block_or_singleton_index) singleton;
+                        singlton_block = (-singlton_block)-1;
+
+                        // The singleton blocks don't have to be mapped to global blocks, as they are already unique
+                        old_split_to_merged_map.add_pair(singlton_block, global_block);
+                        dying_blocks.emplace(singlton_block);
+                        block_to_interval_map[singlton_block] = {current_level,current_level};  // The block immediately dies, therefore it only lived at the last level (current_level)
+                    }
                 }
-                // std::cout << "DEBUG test2aa3" << std::endl;
-                for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
+                else
                 {
-                    // std::cout << "DEBUG test2aaa" << std::endl;
-                    assert(singleton <= MAX_SIGNED_BLOCK_SIZE); // Check if the following cast is possible
-
-                    block_or_singleton_index singlton_block = (block_or_singleton_index) singleton;
-                    singlton_block = (-singlton_block)-1;
-
-                    // The singleton blocks don't have to be mapped to global blocks, as they are already unique
-                    old_split_to_merged_map.add_pair(singlton_block, global_block);
-                    dying_blocks.emplace(singlton_block);
-                    block_to_interval_map[singlton_block] = {current_level,current_level};  // The block immediately dies, therefore it only lived at the last level (current_level)
+                    // std::cout << "DEBUG test2ab" << std::endl;
+                    auto global_split_block_iterator = new_local_to_global_living_blocks.find(split_block);
+                    assert(global_split_block_iterator != new_local_to_global_living_blocks.cend());
+                    block_or_singleton_index global_split_block = (*global_split_block_iterator).second;
+                    old_split_to_merged_map.add_pair(global_split_block, global_block);  // We do not need to assert that these can be cast to block_or_singleton_index, since we have already done so when loading the outcomes earlier
+                    dying_blocks.emplace(global_split_block);
+                    block_to_interval_map[global_split_block] = {current_level,current_level};  // The block immediately dies, therefore it only lived at the last level (current_level)
                 }
             }
-            else
-            {
-                // std::cout << "DEBUG test2ab" << std::endl;
-                auto global_split_block_iterator = new_local_to_global_living_blocks.find(split_block);
-                assert(global_split_block_iterator != new_local_to_global_living_blocks.cend());
-                block_or_singleton_index global_split_block = (*global_split_block_iterator).second;
-                old_split_to_merged_map.add_pair(global_split_block, global_block);  // We do not need to assert that these can be cast to block_or_singleton_index, since we have already done so when loading the outcomes earlier
-                dying_blocks.emplace(global_split_block);
-                block_to_interval_map[global_split_block] = {current_level,current_level};  // The block immediately dies, therefore it only lived at the last level (current_level)
-            }
         }
-    }
-    // std::cout << "DEBUG test3" << std::endl;
+        // std::cout << "DEBUG test3" << std::endl;
 
-    // Update new_living_blocks by removing the dying blocks and adding the spawning blocks
-    for (block_or_singleton_index dying_block: dying_blocks)
-    {
-        new_living_blocks.erase(dying_block);
-    }
-    new_living_blocks.merge(spawning_blocks);
-    dying_blocks.clear();
-    spawning_blocks.clear();
+        // Update new_living_blocks by removing the dying blocks and adding the spawning blocks
+        for (block_or_singleton_index dying_block: dying_blocks)
+        {
+            new_living_blocks.erase(dying_block);
+        }
+        new_living_blocks.merge(spawning_blocks);
+        dying_blocks.clear();
+        spawning_blocks.clear();
 
-    // Update the new local to global living block mapping
-    for (auto living_block_key_val: new_living_blocks)
-    {
-        new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
-    }
-    // std::cout << "DEBUG test4" << std::endl;
+        // Update the new local to global living block mapping
+        for (auto living_block_key_val: new_living_blocks)
+        {
+            new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
+        }
+        // std::cout << "DEBUG test4" << std::endl;
 
-    // Create the final set of data edges (between k and k-1)
-    w.start_step("Read edges into summary graph", true);
-    read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
+        // Create the final set of data edges (between k and k-1)
+        w.start_step("Read edges into summary graph", true);
+        read_graph_into_summary_timed(graph_file, node_to_block_map, current_block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
+        w.stop_step();
+    }
+
     // This corresponds to the one block that has no outgoing edges.
     // Since it never apears as a subject, it will normally not be added by our algorithm, therefore we will manually add it here if it exists
     for (auto living_block_key_val: old_living_blocks)
@@ -1653,27 +1694,26 @@ int main(int ac, char *av[])
             block_to_interval_map[living_block_key_val.first] = {first_level, current_level};
         }
     }
-    w.stop_step();
 
-    size_t i = 0;
-    block_or_singleton_index largest_object = 0;
-    block_or_singleton_index largest_subject = 0;
-    for (auto node: gs.get_nodes())
-    {
-        if (node.second.get_edges().size() > 0)
-        {
-            largest_subject = std::max(largest_subject, node.first);
-        }
+    // size_t i = 0;
+    // block_or_singleton_index largest_object = 0;
+    // block_or_singleton_index largest_subject = 0;
+    // for (auto node: gs.get_nodes())
+    // {
+    //     if (node.second.get_edges().size() > 0)
+    //     {
+    //         largest_subject = std::max(largest_subject, node.first);
+    //     }
         
-        for (auto edge: node.second.get_edges())
-        {
-            for (auto object: edge.second.get_objects())
-            {
-                largest_object = std::max(largest_object, object);
-                i++;
-            }
-        }
-    }
+    //     for (auto edge: node.second.get_edges())
+    //     {
+    //         for (auto object: edge.second.get_objects())
+    //         {
+    //             largest_object = std::max(largest_object, object);
+    //             i++;
+    //         }
+    //     }
+    // }
     // std::cout << "DEBUG test5" << std::endl;
 
     k_type smallest_level = 0;
@@ -1682,9 +1722,19 @@ int main(int ac, char *av[])
         smallest_level = 1;  // If we do not have an explicit outcome for k=0, we will add the k=1-->k=0 data edges separately later
     }
 
+    k_type initial_level;
+    if (fixed_point_reached)
+    {
+        initial_level = current_level;
+    }
+    else
+    {
+        initial_level = current_level-1;
+    }
+
     // We decrement the current level and continue until the current level is either 2 or 1 (this would cover the data edges going to level 1 or 0 respecively)
     // In case we use the trivial universal block at k=0, we have separate code after this loop to cover the data edges from level 1 to level 0
-    for (current_level=current_level-1; current_level>smallest_level; current_level--)
+    for (current_level=initial_level; current_level>smallest_level; current_level--)
     {
         block_maps.add_level(current_level-1);
         SplitToMergedMap current_split_to_merged_map;
@@ -1699,6 +1749,7 @@ int main(int ac, char *av[])
 
         std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_level_string + "to" + current_level_string + ".bin";
         std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
+        // std::cout << "DEBUG reading mapping file" << current_mapping << std::endl;
         
         auto t_edges{boost::chrono::system_clock::now()};
         auto time_t_edges{boost::chrono::system_clock::to_time_t(t_edges)};
@@ -1726,7 +1777,6 @@ int main(int ac, char *av[])
                 block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
                 if (split_block == 0)
                 {
-                    // TODO implement the singletons case
                     BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
                     for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
                     {
@@ -1738,6 +1788,7 @@ int main(int ac, char *av[])
                         // The singleton blocks don't have to be mapped to global blocks, as they are already unique
                         current_split_to_merged_map.add_pair(singlton_block, global_block);
                         dying_blocks.emplace(singlton_block);
+                        // std::cout << "DEBUG dying block added: " << singlton_block << std::endl;
                         block_to_interval_map[singlton_block].first = current_level;
                     }
                 }
@@ -1748,6 +1799,7 @@ int main(int ac, char *av[])
                     block_or_singleton_index global_split_block = (*global_split_block_iterator).second;
                     current_split_to_merged_map.add_pair(global_split_block, global_block);  // We do not need to assert that these can be cast to block_or_singleton_index, since we have already done so when loading the outcomes earlier
                     dying_blocks.emplace(global_split_block);
+                    // std::cout << "DEBUG dying block added: " << global_split_block << std::endl;
                     block_to_interval_map[global_split_block].first = current_level;
                 }
             }
@@ -1761,9 +1813,40 @@ int main(int ac, char *av[])
                 edge_type predicate = type_objects_pair.first;
                 for (block_or_singleton_index object: type_objects_pair.second.get_objects())
                 {
-                    block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+                    // for (auto split_merged_pair: old_split_to_merged_map.get_map())
+                    // {
+                    //     std::cout << "DEBUG OLD split to merged block (when adding edge): " << split_merged_pair.first << " --> " << split_merged_pair.second << std::endl;
+                    // }
+                    // for (auto split_merged_pair: current_split_to_merged_map.get_map())
+                    // {
+                    //     std::cout << "DEBUG CURRENT split to merged block (when adding edge): " << split_merged_pair.first << " --> " << split_merged_pair.second << std::endl;
+                    // }
                     block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
 
+                    // if (old_living_blocks.find(object) == old_living_blocks.cend())  // These are blocks that have died
+                    // {
+                    //     block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+                    //     std::cout << "DEBUG edge to skip (old): " << subject_image << ", " << predicate << ", " << object_image << std::endl;
+                    // }
+
+                    if (new_living_blocks.find(object) == new_living_blocks.cend())  // These are blocks that have died
+                    {
+                        // std::cout << "DEBUG OLD edge to skip: " << subject << ", " << predicate << ", " << object << std::endl;
+                        continue;
+                    }
+
+                    // // This concerns a specific edge case where at level initial_level-1 there might be some edges that we should ignore
+                    // if (fixed_point_reached && current_level == initial_level-1)
+                    // {
+                    //     if (new_living_blocks.find(object_image) == new_living_blocks.cend() && old_living_blocks.find(object_image) != old_living_blocks.cend())
+                    //     {
+                    //         continue;
+                    //     }
+                    // }
+                    
+                    block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+
+                    // std::cout << "DEBUG try adding edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
                     // If neither the subject nor object changed, then the edge already exists and there is no need to try to add it to the graph again
                     if (subject_image == subject && object_image == object)
                     {
@@ -1771,6 +1854,7 @@ int main(int ac, char *av[])
                     }
 
                     gs.add_edge_to_node(subject_image, predicate, object_image);
+                    // std::cout << "DEBUG added edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
                 }
             }
         }
@@ -1785,6 +1869,7 @@ int main(int ac, char *av[])
         // Update living_blocks by removing the dying blocks and adding the spawning blocks
         for (block_or_singleton_index dying_block: dying_blocks)
         {
+            // std::cout << "DEBUG removing dead block: " << dying_block << std::endl;
             new_living_blocks.erase(dying_block);
         }
         new_living_blocks.merge(spawning_blocks);
@@ -1795,10 +1880,15 @@ int main(int ac, char *av[])
         new_local_to_global_living_blocks.clear();
         for (auto living_block_key_val: new_living_blocks)
         {
+            // std::cout << "DEBUG adding new map: " << living_block_key_val.second.local_index << " --> " << living_block_key_val.first << std::endl;
             new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
         }
 
         old_split_to_merged_map = std::move(current_split_to_merged_map);
+        // for (auto split_merged_pair: old_split_to_merged_map.get_map())
+        // {
+        //     std::cout << "DEBUG split to merged block: " << split_merged_pair.first << " --> " << split_merged_pair.second << std::endl;
+        // }
     }
 
     if (!include_zero_outcome)  // If we don't have an explicit outcome for k=0, then we will manually add those data edges now, otherwise they should have automatically been added
