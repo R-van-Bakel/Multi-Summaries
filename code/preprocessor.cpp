@@ -396,7 +396,7 @@ void convert_graph(std::istream &inputstream,
         // edge
         edge_type edge_index = edge_ID_Mapper.getID(predicate);
         // Write the indices in our binary format
-        std::cout << "DEBUG wrote (" << subject << ", " << predicate << ", " << object << ") as (" << subject_index << ", " << edge_index << ", " << object_index << ")" << std::endl;
+        // std::cout << "DEBUG wrote (" << subject << ", " << predicate << ", " << object << ") as (" << subject_index << ", " << edge_index << ", " << object_index << ")" << std::endl;
         write_uint_ENTITY_little_endian(outputstream, subject_index);
         write_uint_PREDICATE_little_endian(outputstream, edge_index);
         write_uint_ENTITY_little_endian(outputstream, object_index);

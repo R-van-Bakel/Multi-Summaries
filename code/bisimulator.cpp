@@ -903,13 +903,6 @@ KBisumulationOutcome get_typed_0_bisimulation(Graph &g)
             }
         }
 
-        std::cout << "DEBUG node " << i << " got edge types {";
-        for (edge_type outgoing_type: set_of_types_of_node)
-        {
-            std::cout << outgoing_type << ",";
-        }
-        std::cout << "}" << std::endl;
-
         node_index i_as_node_index = i;
         auto partition_map_iterator = partition_map.find(set_of_types_of_node);
         if (partition_map_iterator == partition_map.cend())
@@ -955,9 +948,6 @@ KBisumulationOutcome get_typed_0_bisimulation(Graph &g)
     auto mapper = std::make_shared<MappingNode2BlockMapper>(new_node_to_block, new_freeblock_indices, singleton_counter);
 
     KBisumulationOutcome result(new_blocks, dirty, mapper);
-
-    // std::cout << "DEBUG count test: " << result.non_singleton_block_count() << ", " << result.singleton_block_count() << std::endl;
-    // std::cout << "DEBUG count test: " << result.total_blocks() << std::endl;
 
     return result;
 }
@@ -1036,10 +1026,6 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
             new_block_indices.push_back(0);
             // Add 1 to the dirty block index to be consistent with the new_block_indeces
             refines_edges.add_edge(Refines_Edge(dirty_block_index+1, new_block_indices));
-            // for (block_index new_block_from_split: new_block_indices)
-            // {
-            //     std::cout << "DEBUG added refines edge: " << dirty_block_index+1 << ", " << new_block_from_split << std::endl;
-            // }
         }
     }
 
@@ -1485,7 +1471,6 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     // We do some pointer trickery here to make sure res will accessible outside of the if-statement
     // Using a regular pointer here would lead to some issues after calling w.get_times() later
     std::unique_ptr<KBisumulationOutcome> res_ptr;
-    std::cout << "DEBUG typed start: " << typed_start << std::endl;
     if (!typed_start)
     {
         res_ptr = std::make_unique<KBisumulationOutcome>(get_0_bisimulation(g));
@@ -1524,7 +1509,6 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
         // bool found_singletons = false;
         for (block_index i = 0; i<outcomes[0].blocks.size(); i++)
         {
-            std::cout << "DEBUG block: " << i+1 << std::endl;
             BlockPtr new_block_ptr = outcomes[0].blocks[i];
             uint64_t block_size = new_block_ptr->end() - new_block_ptr->begin();
             write_uint_BLOCK_little_endian(condensed_output, i+1);  // We add 1, because we want to reserve 0 for the singleton blocks
@@ -1533,7 +1517,6 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
             {
                 node_index v = *v_iter;
                 write_uint_ENTITY_little_endian(condensed_output, u_int64_t(v));  // We store each entity contained in the new block
-                std::cout << "DEBUG node: " << u_int64_t(v) << std::endl;
             }
         }
         condensed_output.flush();
@@ -1553,7 +1536,6 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
         std::string k_next_string(k_next_stringstream.str());
 
         w.start_step(k_next_string + "-bisimulation");
-        // std::cout << "DEBUG starting level: " << k_next_string << std::endl;
         auto res = get_k_bisimulation(g, outcomes[0], support);
         outcomes.pop_front();
         outcomes.push_back(res);
@@ -1591,20 +1573,16 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
         w.start_step(k_next_string + "-bisimulation (condensed) writing outcome to disk", true);  // Set newline to true
         std::ofstream condensed_output(output_path + "bisimulation/outcome_condensed-" + k_next_string + ".bin", std::ios::trunc);
         // bool found_singletons = false;
-        std::cout << "DEBUG writing block1" << std::endl;
         for (auto orig_new: outcomes[0].k_minus_one_to_k_mapping.refines_edges)
         {
-            std::cout << "DEBUG writing block2" << std::endl;
             for (auto new_block: orig_new.second)
             {
-                std::cout << "DEBUG writing block3" << std::endl;
                 // Skip the singleton block
                 if (new_block == 0)
                 {
                     // found_singletons = true;
                     continue;
                 }
-                std::cout << "DEBUG writing block4" << std::endl;
                 // We have to subtract 1 because we added 1 earlier
                 BlockPtr new_block_ptr = outcomes[0].blocks[new_block-1];
                 uint64_t block_size = new_block_ptr->end() - new_block_ptr->begin();
