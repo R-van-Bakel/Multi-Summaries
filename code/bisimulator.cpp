@@ -1462,7 +1462,7 @@ void run_k_bisimulation_store_partition_timed(const std::string &input_path, uin
     // output.flush();
 }
 
-void run_k_bisimulation_store_partition_condensed_timed(const std::string &input_path, uint support, const std::string &output_path, bool skip_singletons)
+void run_k_bisimulation_store_partition_condensed_timed(const std::string &input_path, uint support, const std::string &output_path, bool skip_singletons, bool typed_start)
 {
 
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
@@ -1482,11 +1482,10 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     std::vector<std::string> lines;
     w.start_step("0000-bisimulation", true);  // Set newline to true
 
-    bool typed_start = false;  // TODO !!!MAKE THIS AN ARGUMENT FOR THE PROGRAM INSTEAD!!!
-
     // We do some pointer trickery here to make sure res will accessible outside of the if-statement
     // Using a regular pointer here would lead to some issues after calling w.get_times() later
     std::unique_ptr<KBisumulationOutcome> res_ptr;
+    std::cout << "DEBUG typed start: " << typed_start << std::endl;
     if (!typed_start)
     {
         res_ptr = std::make_unique<KBisumulationOutcome>(get_0_bisimulation(g));
@@ -1793,6 +1792,7 @@ int main(int ac, char *av[])
         run_timed_desc.add_options()("support", po::value<uint>()->default_value(1), "Specify the required size for a block to be considered splittable");
         run_timed_desc.add_options()("output,o", po::value<std::string>(), "output, the output path");
         run_timed_desc.add_options()("skip_singletons", "flag indicating that singletons must be skipped in the output");
+        run_timed_desc.add_options()("typed_start", "flag indicating that the nodes are initially (at k=0) partitioned acording to their RDF type set");
 
         // Collect all the unrecognized options from the first pass. This will include the
         // (positional) command name, so we need to erase that.
@@ -1808,11 +1808,12 @@ int main(int ac, char *av[])
         uint support = vm["support"].as<uint>();
         std::string output_path = vm["output"].as<std::string>();
         bool skip_singletons = vm.count("skip_singletons");
+        bool typed_start = vm.count("typed_start");
 
         std::filesystem::create_directory(output_path + "bisimulation/");
         std::filesystem::create_directory(output_path + "ad_hoc_results/");
 
-        run_k_bisimulation_store_partition_condensed_timed(input_file, support, output_path, skip_singletons);
+        run_k_bisimulation_store_partition_condensed_timed(input_file, support, output_path, skip_singletons, typed_start);
 
         return 0;
     }

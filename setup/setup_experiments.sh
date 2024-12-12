@@ -447,6 +447,7 @@ partition=defq
 output=slurm_bisimulator.out
 nodelist=
 bisimulation_mode=run_k_bisimulation_store_partition_condensed_timed
+typed_start=true
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -521,6 +522,7 @@ echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
 echo bisimulation_mode=\$bisimulation_mode
+echo typed_start=\$typed_start
 
 # Ask the user to run the experiment with the aforementioned settings
 while true; do
@@ -554,6 +556,14 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> 
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: bisimulation_mode=\$bisimulation_mode" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: typed_start=\$typed_start" >> \$log_file
+
+# Set a flag based on the value of typed_start
+case \$typed_start in
+  'true') typed_start_flag=' --typed_start' ;;
+  'false') typed_start_flag='' ;;
+  *) echo "typed_start has been set to \\"\$typed_start\\" in preprocessor.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
+esac
 
 # Create the slurm script
 echo Creating slurm script
@@ -569,7 +579,7 @@ cat >\$bisimulator_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./
+/usr/bin/time -v ../executables/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./\$typed_start_flag
 EOF2
 
 # Make sure the file will have Unix style line endings
