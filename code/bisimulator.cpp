@@ -5,6 +5,7 @@
 // #include <span>
 #include <fstream>
 #include <string>
+// #define BOOST_USE_VALGRIND  // TODO disable this command in the final running version
 #include <boost/algorithm/string.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>

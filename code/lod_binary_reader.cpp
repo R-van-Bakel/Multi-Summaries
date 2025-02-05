@@ -1,4 +1,4 @@
-// This file is meant for meanually checking whether the binary data written by "lod_preprocessor.cpp" is correct
+// This file is meant for manually checking whether the binary data written by "lod_preprocessor.cpp" is correct
 #include <fstream>
 #include <string>
 #include <boost/algorithm/string.hpp>

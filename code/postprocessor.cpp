@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <string>
 #include <vector>
+// #define BOOST_USE_VALGRIND  // TODO disable this command in the final running version
 // For getting and printing the current datetime
 #define BOOST_CHRONO_HEADER_ONLY
 #include <boost/chrono.hpp>
