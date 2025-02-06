@@ -23,6 +23,7 @@ using block_or_singleton_index = int64_t;
 using k_type = uint16_t;
 using node_to_block_map_type = boost::unordered_flat_map<node_index, block_or_singleton_index>;
 using local_to_global_map = boost::unordered_flat_map<std::pair<k_type,block_or_singleton_index>,block_or_singleton_index>;
+using predicate_object_pair_set = boost::unordered_flat_set<std::pair<edge_type,block_or_singleton_index>>;
 using time_interval = std::pair<k_type, k_type>;
 
 const int BYTES_PER_ENTITY = 5;
@@ -571,43 +572,6 @@ public:
     }
 };
 
-class ReverseBlockMap
-{
-private:
-    boost::unordered_flat_map<block_or_singleton_index, block_or_singleton_index> block_map;
-
-public:
-    ReverseBlockMap()
-    {
-    }
-    boost::unordered_flat_map<block_or_singleton_index, block_or_singleton_index>& get_map()
-    {
-        return block_map;
-    }
-    block_or_singleton_index map_block(block_or_singleton_index local_block)
-    {
-        // Negative indices always belong to singleton blocks, making them already unique between layers
-        if (local_block >= 0)
-        {
-            assert(block_map.find(local_block) != block_map.cend());
-            return block_map[local_block];
-        }
-        else
-        {
-            return local_block;
-        }
-    }
-    void add_block(block_or_singleton_index local_block, block_or_singleton_index global_block)
-    {
-        assert(local_block >= 0);  // Singleton blocks (with a negative index) should not be added
-        block_map[local_block] = global_block;
-    }
-    void add_block_or_singleton(block_or_singleton_index local_block, block_or_singleton_index global_block)
-    {
-        block_map[local_block] = global_block;
-    }
-};
-
 class LocalBlockToGlobalBlockMap
 {
 private:
@@ -714,89 +678,113 @@ public:
 };
 
 
-class SummaryObjectSet
+// class SummaryObjectSet
+// {
+//     private:
+//     boost::unordered_flat_set<block_or_singleton_index> objects;
+
+//     public:
+//     SummaryObjectSet()
+//     {
+//     }
+//     void add_object(block_or_singleton_index object)
+//     {
+//         objects.emplace(object);  // Should the be emplace or insert?
+//     }
+//     boost::unordered_flat_set<block_or_singleton_index>& get_objects()
+//     {
+//         return objects;
+//     }
+//     void remove_object(block_or_singleton_index object)
+//     {
+//         objects.erase(object);
+//     }
+// };
+// using sp_to_o_map = boost::unordered_flat_map<std::pair<block_or_singleton_index,edge_type>,SummaryObjectSet>;
+
+class SummaryPredicateObjectSet
 {
     private:
-    boost::unordered_flat_set<block_or_singleton_index> objects;
+    predicate_object_pair_set po_pairs;
 
     public:
-    SummaryObjectSet()
+    SummaryPredicateObjectSet()
     {
     }
-    void add_object(block_or_singleton_index object)
+    void add_pair(edge_type predicate, block_or_singleton_index object)
     {
-        objects.emplace(object);  // Should the be emplace or insert?
+        po_pairs.emplace(std::make_pair(predicate,object));  // Should the be emplace or insert?
     }
-    boost::unordered_flat_set<block_or_singleton_index>& get_objects()
+    predicate_object_pair_set& get_pairs()
     {
-        return objects;
+        return po_pairs;
     }
-    void remove_object(block_or_singleton_index object)
+    void remove_pair(edge_type predicate, block_or_singleton_index object)
     {
-        objects.erase(object);
-    }
-};
-
-
-class SummaryNode
-{
-    private:
-    boost::unordered_flat_map<edge_type, SummaryObjectSet> node;
-
-    public:
-    SummaryNode()
-    {
-    }
-    boost::unordered_flat_map<edge_type, SummaryObjectSet>& get_edges()
-    {
-        return node;
-    }
-    size_t count_edge_key(edge_type edge)
-    {
-        return this->get_edges().count(edge);
-    }
-    void add_edge(edge_type edge, block_or_singleton_index object)
-    {
-        if (node.count(edge) == 0)
-        {
-            SummaryObjectSet empty_object_set = SummaryObjectSet();
-            this->get_edges()[edge] = empty_object_set;
-        }
-        this->get_edges()[edge].add_object(object);
-    }
-    void remove_edge_recursive(edge_type edge, block_or_singleton_index object)
-    {
-        if (this->get_edges()[edge].get_objects().size() > 1)
-        {
-            this->get_edges()[edge].remove_object(object);  // Remove just the object if we have more triples with the same edge type
-        }
-        else
-        {
-            this->get_edges().erase(edge);  // If there was just one triple with the given edge type, remove the whole edge type from the map
-        }
+        po_pairs.erase(std::make_pair(predicate,object));
     }
 };
+using s_to_po_map = boost::unordered_flat_map<block_or_singleton_index,SummaryPredicateObjectSet>;
 
 
+// class SummaryNode
+// {
+//     private:
+//     boost::unordered_flat_map<edge_type, SummaryObjectSet> node;
 
-class Triple
-{
-public:
-    block_or_singleton_index subject;
-    edge_type predicate;
-    block_or_singleton_index object;
-    Triple(block_or_singleton_index s, edge_type p, block_or_singleton_index o)
-    {
-        subject = s;
-        predicate = p;
-        object = o;
-    }
-};
+//     public:
+//     SummaryNode()
+//     {
+//     }
+//     boost::unordered_flat_map<edge_type, SummaryObjectSet>& get_edges()
+//     {
+//         return node;
+//     }
+//     size_t count_edge_key(edge_type edge)
+//     {
+//         return this->get_edges().count(edge);
+//     }
+//     void add_edge(edge_type edge, block_or_singleton_index object)
+//     {
+//         if (node.count(edge) == 0)
+//         {
+//             SummaryObjectSet empty_object_set = SummaryObjectSet();
+//             this->get_edges()[edge] = empty_object_set;
+//         }
+//         this->get_edges()[edge].add_object(object);
+//     }
+//     void remove_edge_recursive(edge_type edge, block_or_singleton_index object)
+//     {
+//         if (this->get_edges()[edge].get_objects().size() > 1)
+//         {
+//             this->get_edges()[edge].remove_object(object);  // Remove just the object if we have more triples with the same edge type
+//         }
+//         else
+//         {
+//             this->get_edges().erase(edge);  // If there was just one triple with the given edge type, remove the whole edge type from the map
+//         }
+//     }
+// };
+
+// class Triple
+// {
+// public:
+//     block_or_singleton_index subject;
+//     edge_type predicate;
+//     block_or_singleton_index object;
+//     Triple(block_or_singleton_index s, edge_type p, block_or_singleton_index o)
+//     {
+//         subject = s;
+//         predicate = p;
+//         object = o;
+//     }
+// };
 
 class SummaryGraph
 {
 private:
-    boost::unordered_flat_map<block_or_singleton_index, SummaryNode> block_nodes;
+    // boost::unordered_flat_map<block_or_singleton_index, SummaryNode> block_nodes;  // TODO remove this line
+    s_to_po_map nodes;
     // boost::unordered_flat_map<block_or_singleton_index, SummaryNode> reverse_block_nodes;
 
     SummaryGraph(SummaryGraph &)
@@ -807,10 +795,14 @@ public:
     SummaryGraph()
     {
     }
-    boost::unordered_flat_map<block_or_singleton_index, SummaryNode>& get_nodes()
+    s_to_po_map& get_nodes()
     {
-        return block_nodes;
+        return nodes;
     }
+    // boost::unordered_flat_map<block_or_singleton_index, SummaryNode>& get_nodes()
+    // {
+    //     return block_nodes;
+    // }
     // boost::unordered_flat_map<block_or_singleton_index, SummaryNode>& get_reverse_index()
     // {
     //     return reverse_block_nodes;
@@ -818,21 +810,21 @@ public:
     void add_block_node(block_or_singleton_index block_node)
     {
         assert(this->get_nodes().count(block_node) == 0);  // The node should not already exist
-        SummaryNode empty_node = SummaryNode();
-        this->get_nodes()[block_node] = empty_node;
+        SummaryPredicateObjectSet empty_predicate_object_set = SummaryPredicateObjectSet();
+        nodes[block_node] = empty_predicate_object_set;
     }
     void try_add_block_node(block_or_singleton_index block_node)
     {
         if (this->get_nodes().count(block_node) == 0)  // The node should not already exist
         {
-            SummaryNode empty_node = SummaryNode();
-            this->get_nodes()[block_node] = empty_node;
+            SummaryPredicateObjectSet empty_predicate_object_set = SummaryPredicateObjectSet();
+            nodes[block_node] = empty_predicate_object_set;
         }
     }
-    void remove_block_node(block_or_singleton_index block_node)
-    {
-        this->get_nodes().erase(block_node);
-    }
+    // void remove_block_node(block_or_singleton_index block_node)
+    // {
+    //     this->get_nodes().erase(block_node);
+    // }
     // void add_reverse_block_node(block_or_singleton_index block_node)
     // {
     //     assert(reverse_block_nodes.count(block_node) == 0);  // The node should not already exist
@@ -846,7 +838,7 @@ public:
     void add_edge_to_node(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index object)//, bool add_reverse=true)
     {
         assert(this->get_nodes().count(subject) > 0);  // The node should exist
-        this->get_nodes()[subject].add_edge(predicate, object);
+        this->get_nodes()[subject].add_pair(predicate, object);
         // if (add_reverse)
         // {
         //     if (reverse_block_nodes.count(object) == 0)
@@ -856,31 +848,31 @@ public:
         //     this->get_reverse_index()[object].add_edge(predicate, subject);
         // }
     }
-    void ammend_object(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index old_object, block_or_singleton_index new_object)//, bool ammend_reverse=true)
-    {
-        assert(this->get_nodes().count(subject) > 0);  // The subject should exist
-        assert(this->get_nodes()[subject].count_edge_key(predicate) > 0);  // The predicate should exist
-        assert(this->get_nodes()[subject].get_edges()[predicate].get_objects().count(old_object) > 0);  // The predicate should exist
+    // void ammend_object(block_or_singleton_index subject, edge_type predicate, block_or_singleton_index old_object, block_or_singleton_index new_object)//, bool ammend_reverse=true)
+    // {
+    //     assert(this->get_nodes().count(subject) > 0);  // The subject should exist
+    //     assert(this->get_nodes()[subject].count_edge_key(predicate) > 0);  // The predicate should exist
+    //     assert(this->get_nodes()[subject].get_edges()[predicate].get_objects().count(old_object) > 0);  // The predicate should exist
 
-        this->get_nodes()[subject].add_edge(predicate, new_object);
-        this->get_nodes()[subject].remove_edge_recursive(predicate, old_object);
+    //     this->get_nodes()[subject].add_edge(predicate, new_object);
+    //     this->get_nodes()[subject].remove_edge_recursive(predicate, old_object);
 
-        // if (ammend_reverse)
-        // {
-        //     if (reverse_block_nodes.count(new_object) == 0)
-        //     {
-        //         add_reverse_block_node(new_object);
-        //     }
-        //     this->get_reverse_index()[new_object].add_edge(predicate, subject);
-        //     this->get_reverse_index()[old_object].remove_edge_recursive(predicate, subject);
+    //     // if (ammend_reverse)
+    //     // {
+    //     //     if (reverse_block_nodes.count(new_object) == 0)
+    //     //     {
+    //     //         add_reverse_block_node(new_object);
+    //     //     }
+    //     //     this->get_reverse_index()[new_object].add_edge(predicate, subject);
+    //     //     this->get_reverse_index()[old_object].remove_edge_recursive(predicate, subject);
 
-        //     // Remove the node in the reverse 
-        //     if (this->get_reverse_index()[old_object].get_edges().size() == 0)
-        //     {
-        //         this->remove_reverse_block_node(old_object);
-        //     }
-        // }
-    }
+    //     //     // Remove the node in the reverse 
+    //     //     if (this->get_reverse_index()[old_object].get_edges().size() == 0)
+    //     //     {
+    //     //         this->remove_reverse_block_node(old_object);
+    //     //     }
+    //     // }
+    // }
     // std::vector<Triple> remove_split_blocks_edges(boost::unordered_flat_set<block_index> split_blocks)
     // {
     //     std::vector<Triple> removed_edges;
@@ -917,19 +909,16 @@ public:
     // }
     void write_graph_to_file_binary(std::ostream &graphoutputstream)
     {
-        for (auto node_key_val: this->get_nodes())
+        for (auto s_po_pair: this->get_nodes())
         {
-            block_or_singleton_index subject = node_key_val.first;
-            for (auto edge_key_val: node_key_val.second.get_edges())
+            block_or_singleton_index subject = s_po_pair.first;
+            for (auto po_pair: s_po_pair.second.get_pairs())
             {
-                edge_type predicate = edge_key_val.first;
-                for (block_or_singleton_index object: edge_key_val.second.get_objects())
-                {
-                    write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, subject);
-                    write_uint_PREDICATE_little_endian(graphoutputstream, predicate);
-                    write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, object);
-                    // std::cout << "DEBUG wrote SPO: " << subject << " " << predicate << " " << object << std::endl;
-                }
+                edge_type predicate = po_pair.first;
+                block_or_singleton_index object = po_pair.second;
+                write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, subject);
+                write_uint_PREDICATE_little_endian(graphoutputstream, predicate);
+                write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, object);
             }
         }
         graphoutputstream.flush();
@@ -1465,17 +1454,16 @@ int main(int ac, char *av[])
 
         if (fixed_point_reached)  // In this case we loaded in the fixed point edges, but we still need to add the edges between k=1 and k=0
         {
-            for (auto node: gs.get_nodes())
+            for (auto s_po_pair: gs.get_nodes())
             {
-                block_or_singleton_index subject = node.first;
-                for (auto predicate_objects_pair: node.second.get_edges())
+                block_or_singleton_index subject = s_po_pair.first;
+                for (auto predicate_object_pair: s_po_pair.second.get_pairs())
                 {
-                    block_or_singleton_index predicate = predicate_objects_pair.first;
-                    for (block_or_singleton_index object: predicate_objects_pair.second.get_objects())
-                    {
-                        block_or_singleton_index object_image = old_split_to_merged_map.map_block(object);
-                        gs.add_edge_to_node(subject, predicate, object_image);
-                    }
+                    block_or_singleton_index predicate = predicate_object_pair.first;
+                    block_or_singleton_index object = predicate_object_pair.second;
+
+                    block_or_singleton_index object_image = old_split_to_merged_map.map_block(object);
+                    gs.add_edge_to_node(subject, predicate, object_image);
                 }
             }
         }
@@ -1487,17 +1475,15 @@ int main(int ac, char *av[])
 
         uint64_t edge_count = 0;
         boost::unordered_flat_set<block_or_singleton_index> summary_nodes;
-        for (auto node: gs.get_nodes())
+        for (auto s_po_pair: gs.get_nodes())
         {
-            block_or_singleton_index subject = node.first;
+            block_or_singleton_index subject = s_po_pair.first;
             summary_nodes.emplace(subject);
-            for (auto predicate_objects_pair: node.second.get_edges())
+            for (auto predicate_object_pair: s_po_pair.second.get_pairs())
             {
-                edge_count += predicate_objects_pair.second.get_objects().size();
-                for (block_or_singleton_index object: predicate_objects_pair.second.get_objects())
-                {
-                    summary_nodes.emplace(object);
-                }
+                edge_count++;
+                block_or_singleton_index object = predicate_object_pair.second;
+                summary_nodes.emplace(object);
             }
         }
 
@@ -1743,27 +1729,26 @@ int main(int ac, char *av[])
         for (auto living_block_key_val: old_living_blocks)
         {
             block_or_singleton_index subject = living_block_key_val.first;
-            for (auto type_objects_pair: gs.get_nodes()[subject].get_edges())
+            for (auto predicate_object_pair: gs.get_nodes()[subject].get_pairs())
             {
-                edge_type predicate = type_objects_pair.first;
-                for (block_or_singleton_index object: type_objects_pair.second.get_objects())
+                block_or_singleton_index object = predicate_object_pair.second;
+
+                if (new_living_blocks.find(object) == new_living_blocks.cend())  // These are blocks that have died
                 {
-
-                    if (new_living_blocks.find(object) == new_living_blocks.cend())  // These are blocks that have died
-                    {
-                        continue;
-                    }
-                    
-                    block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
-                    block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
-                    // If neither the subject nor object changed, then the edge already exists and there is no need to try to add it to the graph again
-                    if (subject_image == subject && object_image == object)
-                    {
-                        continue;
-                    }
-
-                    gs.add_edge_to_node(subject_image, predicate, object_image);
+                    continue;
                 }
+
+                block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
+                block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+                // If neither the subject nor object changed, then the edge already exists and there is no need to try to add it to the graph again
+                if (subject_image == subject && object_image == object)
+                {
+                    continue;
+                }
+
+                edge_type predicate = predicate_object_pair.first;
+
+                gs.add_edge_to_node(subject_image, predicate, object_image);
             }
         }
 
@@ -1812,9 +1797,9 @@ int main(int ac, char *av[])
         for (auto living_block_key_val: old_living_blocks)
         {
             block_or_singleton_index subject = living_block_key_val.first;
-            for (auto type_objects_pair: gs.get_nodes()[subject].get_edges())
+            for (auto predicate_object_pair: gs.get_nodes()[subject].get_pairs())
             {
-                edge_type predicate = type_objects_pair.first;
+                edge_type predicate = predicate_object_pair.first;
                 block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
                 gs.add_edge_to_node(subject_image, predicate, global_universal_block);
             }
@@ -1828,17 +1813,15 @@ int main(int ac, char *av[])
 
     uint64_t edge_count = 0;
     boost::unordered_flat_set<block_or_singleton_index> summary_nodes;
-    for (auto node: gs.get_nodes())
+    for (auto s_po_pair: gs.get_nodes())
     {
-        block_or_singleton_index subject = node.first;
+        block_or_singleton_index subject = s_po_pair.first;
         summary_nodes.emplace(subject);
-        for (auto predicate_objects_pair: node.second.get_edges())
+        for (auto predicate_object_pair: s_po_pair.second.get_pairs())
         {
-            edge_count += predicate_objects_pair.second.get_objects().size();
-            for (block_or_singleton_index object: predicate_objects_pair.second.get_objects())
-            {
-                summary_nodes.emplace(object);
-            }
+            edge_count++;
+            block_or_singleton_index object = predicate_object_pair.second;
+            summary_nodes.emplace(object);
         }
     }
 
