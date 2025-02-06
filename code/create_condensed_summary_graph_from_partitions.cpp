@@ -55,99 +55,99 @@ public:
     }
 };
 
-class Node;
+// class Node;
 
-struct Edge
-{
-public:
-    const edge_type label;
-    const node_index target;
-};
+// struct Edge
+// {
+// public:
+//     const edge_type label;
+//     const node_index target;
+// };
 
-class Node
-{
-    std::vector<Edge> edges;
+// class Node
+// {
+//     std::vector<Edge> edges;
 
-public:
-    Node()
-    {
-        edges.reserve(1);
-    }
-    std::vector<Edge>& get_outgoing_edges()
-    {
-        std::vector<Edge> & edges_ref = edges;
-        return edges_ref;
-    }
+// public:
+//     Node()
+//     {
+//         edges.reserve(1);
+//     }
+//     std::vector<Edge>& get_outgoing_edges()
+//     {
+//         std::vector<Edge> & edges_ref = edges;
+//         return edges_ref;
+//     }
 
-    void add_edge(edge_type label, node_index target)
-    {
-        edges.emplace_back(label, target);
-    }
-};
+//     void add_edge(edge_type label, node_index target)
+//     {
+//         edges.emplace_back(label, target);
+//     }
+// };
 
-class Graph
-{
-private:
-    std::vector<Node> nodes;
-#ifdef CREATE_REVERSE_INDEX
-    std::vector<Node> reverse;
-#endif
-    Graph(Graph &)
-    {
-    }
+// class Graph
+// {
+// private:
+//     std::vector<Node> nodes;
+// #ifdef CREATE_REVERSE_INDEX
+//     std::vector<Node> reverse;
+// #endif
+//     Graph(Graph &)
+//     {
+//     }
 
-public:
-    Graph()
-    {
-    }
-    node_index add_vertex()
-    {
-        nodes.emplace_back();
-        return nodes.size() - 1;
-    }
-    void resize(node_index vertex_count)
-    {
-        nodes.resize(vertex_count);
-    }
+// public:
+//     Graph()
+//     {
+//     }
+//     node_index add_vertex()
+//     {
+//         nodes.emplace_back();
+//         return nodes.size() - 1;
+//     }
+//     void resize(node_index vertex_count)
+//     {
+//         nodes.resize(vertex_count);
+//     }
 
-    std::vector<Node>& get_nodes()
-    {
-        std::vector<Node> & nodes_ref = nodes;
-        return nodes_ref;
-    }
-    inline node_index size()
-    {
-        return nodes.size();
-    }
-#ifdef CREATE_REVERSE_INDEX
+//     std::vector<Node>& get_nodes()
+//     {
+//         std::vector<Node> & nodes_ref = nodes;
+//         return nodes_ref;
+//     }
+//     inline node_index size()
+//     {
+//         return nodes.size();
+//     }
+// #ifdef CREATE_REVERSE_INDEX
 
-    void compute_reverse_index()
-    {
-        if (!this->reverse.empty())
-        {
-            throw MyException("computing the reverse while this has been computed before. Probably a programming error");
-        }
-        size_t number_of_nodes = this->nodes.size();
-        for (size_t node = 0;  node < number_of_nodes; node++)
-        {
-            reverse.emplace_back();
-        }
-        for (size_t node = 0;  node < number_of_nodes; node++)
-        {
-            for (auto edge: nodes[node].get_outgoing_edges())
-            {
-                reverse[edge.target].add_edge(edge.label, node);
-            }
-        }
-    }
+//     void compute_reverse_index()
+//     {
+//         if (!this->reverse.empty())
+//         {
+//             throw MyException("computing the reverse while this has been computed before. Probably a programming error");
+//         }
+//         size_t number_of_nodes = this->nodes.size();
+//         for (size_t node = 0;  node < number_of_nodes; node++)
+//         {
+//             reverse.emplace_back();
+//         }
+//         for (size_t node = 0;  node < number_of_nodes; node++)
+//         {
+//             for (auto edge: nodes[node].get_outgoing_edges())
+//             {
+//                 reverse[edge.target].add_edge(edge.label, node);
+//             }
+//         }
+//     }
 
-    std::vector<Node>& get_reverse_nodes()
-    {
-        std::vector<Node> & reverse_nodes_ref = reverse;
-        return reverse_nodes_ref;
-    }
-#endif
-};
+//     std::vector<Node>& get_reverse_nodes()
+//     {
+//         std::vector<Node> & reverse_nodes_ref = reverse;
+//         return reverse_nodes_ref;
+//     }
+// #endif
+// };
 
 void write_uint_K_TYPE_little_endian(std::ostream &outputstream, k_type value)
 {
@@ -783,9 +783,11 @@ using s_to_po_map = boost::unordered_flat_map<block_or_singleton_index,SummaryPr
 class SummaryGraph
 {
 private:
-    // boost::unordered_flat_map<block_or_singleton_index, SummaryNode> block_nodes;  // TODO remove this line
     s_to_po_map nodes;
-    // boost::unordered_flat_map<block_or_singleton_index, SummaryNode> reverse_block_nodes;
+
+    #ifdef CREATE_REVERSE_INDEX
+    s_to_po_map reverse_nodes;
+    #endif
 
     SummaryGraph(SummaryGraph &)
     {
@@ -798,6 +800,10 @@ public:
     s_to_po_map& get_nodes()
     {
         return nodes;
+    }
+    s_to_po_map& get_reverse_nodes()
+    {
+        return reverse_nodes;
     }
     // boost::unordered_flat_map<block_or_singleton_index, SummaryNode>& get_nodes()
     // {
@@ -812,6 +818,14 @@ public:
         assert(this->get_nodes().count(block_node) == 0);  // The node should not already exist
         SummaryPredicateObjectSet empty_predicate_object_set = SummaryPredicateObjectSet();
         nodes[block_node] = empty_predicate_object_set;
+
+        #ifdef CREATE_REVERSE_INDEX
+        if (this->get_reverse_nodes().count(block_node) == 0)  // The node should not already exist
+        {
+            SummaryPredicateObjectSet empty_predicate_object_set_reverse = SummaryPredicateObjectSet();
+            reverse_nodes[block_node] = empty_predicate_object_set_reverse;
+        }
+        #endif
     }
     void try_add_block_node(block_or_singleton_index block_node)
     {
@@ -820,6 +834,14 @@ public:
             SummaryPredicateObjectSet empty_predicate_object_set = SummaryPredicateObjectSet();
             nodes[block_node] = empty_predicate_object_set;
         }
+
+        #ifdef CREATE_REVERSE_INDEX
+        if (this->get_reverse_nodes().count(block_node) == 0)  // The node should not already exist
+        {
+            SummaryPredicateObjectSet empty_predicate_object_set_reverse = SummaryPredicateObjectSet();
+            reverse_nodes[block_node] = empty_predicate_object_set_reverse;
+        }
+        #endif
     }
     // void remove_block_node(block_or_singleton_index block_node)
     // {
@@ -839,6 +861,20 @@ public:
     {
         assert(this->get_nodes().count(subject) > 0);  // The node should exist
         this->get_nodes()[subject].add_pair(predicate, object);
+
+        #ifdef CREATE_REVERSE_INDEX
+        auto reverse_node_it = this->get_reverse_nodes().find(object);
+        if (reverse_node_it != this->get_reverse_nodes().cend())
+        {
+            reverse_node_it->second.add_pair(predicate,subject);
+        }
+        else
+        {
+            SummaryPredicateObjectSet empty_predicate_object_set_reverse = SummaryPredicateObjectSet();
+            reverse_nodes[object] = empty_predicate_object_set_reverse;
+            reverse_nodes[object].add_pair(predicate,subject);
+        }
+        #endif
         // if (add_reverse)
         // {
         //     if (reverse_block_nodes.count(object) == 0)
@@ -1323,6 +1359,7 @@ int main(int ac, char *av[])
     boost::unordered_flat_map<block_or_singleton_index,block_or_singleton_index> new_local_to_global_living_blocks;  // A map from the local index of a living block to its global one (at the object level)
     boost::unordered_flat_map<block_or_singleton_index,LocalBlock> spawning_blocks;  // The blocks that will come into existance in the following level.
     boost::unordered_flat_set<block_or_singleton_index> dying_blocks;  // The blocks that will not exist anymore in the following level
+    boost::unordered_flat_set<block_or_singleton_index> old_dying_blocks;  // The blocks that exist anymore in the current level
 
     k_type current_level = k;
 
@@ -1614,6 +1651,7 @@ int main(int ac, char *av[])
             new_living_blocks.erase(dying_block);
         }
         new_living_blocks.merge(spawning_blocks);
+        old_dying_blocks = std::move(dying_blocks);
         dying_blocks.clear();
         spawning_blocks.clear();
 
@@ -1726,31 +1764,68 @@ int main(int ac, char *av[])
             }
         }
 
-        for (auto living_block_key_val: old_living_blocks)
+        // for (auto living_block_key_val: old_living_blocks)
+        // {
+        //     block_or_singleton_index subject = living_block_key_val.first;
+        //     for (auto predicate_object_pair: gs.get_nodes()[subject].get_pairs())
+        //     {
+        //         block_or_singleton_index object = predicate_object_pair.second;
+
+        //         if (new_living_blocks.find(object) == new_living_blocks.cend())  // These are blocks that have died
+        //         {
+        //             continue;
+        //         }
+
+        //         block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
+        //         block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+        //         // If neither the subject nor object changed, then the edge already exists and there is no need to try to add it to the graph again
+        //         if (subject_image == subject && object_image == object)
+        //         {
+        //             continue;
+        //         }
+
+        //         edge_type predicate = predicate_object_pair.first;
+
+        //         std::cout << "DEBUG original SPO: " << subject_image << "," << predicate << "," << object_image << std::endl;
+        //         gs.add_edge_to_node(subject_image, predicate, object_image);
+        //     }
+        // }
+        // std::cout << std::endl;
+        for (block_or_singleton_index dying_block: dying_blocks)
         {
-            block_or_singleton_index subject = living_block_key_val.first;
-            for (auto predicate_object_pair: gs.get_nodes()[subject].get_pairs())
+            block_or_singleton_index object_image = current_split_to_merged_map.map_block(dying_block);
+            for (auto predicate_object_pair: gs.get_reverse_nodes()[dying_block].get_pairs())
             {
-                block_or_singleton_index object = predicate_object_pair.second;
-
-                if (new_living_blocks.find(object) == new_living_blocks.cend())  // These are blocks that have died
-                {
-                    continue;
-                }
-
-                block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
+                block_or_singleton_index subject = predicate_object_pair.second;
                 block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
-                // If neither the subject nor object changed, then the edge already exists and there is no need to try to add it to the graph again
-                if (subject_image == subject && object_image == object)
+
+                if (subject_image == subject && object_image == dying_block)
                 {
                     continue;
                 }
 
+                
                 edge_type predicate = predicate_object_pair.first;
 
+                // std::cout << "DEBUG new dying SPO: " << subject_image << "," << predicate << "," << object_image << std::endl;
                 gs.add_edge_to_node(subject_image, predicate, object_image);
             }
         }
+        // std::cout << std::endl;
+        // for (block_or_singleton_index old_dying_block: old_dying_blocks)
+        // {
+        //     block_or_singleton_index subject_image = current_split_to_merged_map.map_block(old_dying_block);
+        //     for (auto predicate_object_pair: gs.get_nodes()[old_dying_block].get_pairs())
+        //     {
+        //         edge_type predicate = predicate_object_pair.first;
+        //         block_or_singleton_index object = predicate_object_pair.second;
+
+        //         block_or_singleton_index object_image = old_split_to_merged_map.map_block(object);
+
+        //         std::cout << "DEBUG old dying SPO: " << subject_image << "," << predicate << "," << object_image << std::endl;
+        //     }
+        // }
+        // std::cout << std::endl;
 
         // Copy the new living blocks into the old living blocks
         old_living_blocks.clear();
@@ -1765,6 +1840,7 @@ int main(int ac, char *av[])
             new_living_blocks.erase(dying_block);
         }
         new_living_blocks.merge(spawning_blocks);
+        old_dying_blocks = std::move(dying_blocks);
         dying_blocks.clear();
         spawning_blocks.clear();
 
