@@ -113,7 +113,6 @@ def get_outcome(experiment_directory:str, level:int) -> dict[int,set[int]]:
 
     return outcome
 
-
 def get_fixed_point(experiment_directory:str) -> int:
     assert os.path.exists(experiment_directory), "The experiment directory string should refer to a valid (existing) directory"
     stats_json_file = experiment_directory + "ad_hoc_results/graph_stats.json"
@@ -183,11 +182,14 @@ def add_predicate_and_interval_labels(nx_graph:Graph, edges:list[list[int]], edg
             nx_graph[v1][v2]["time_interval"] = (edge_intervals[i][0], edge_intervals[i][1])
 
 if __name__ == "__main__":
-    test_index = sys.argv[1]  # e.g. `2`
+    test_index = int(sys.argv[1])  # e.g. `2`
     experiment = sys.argv[2]  # e.g. `simple_cycle`
-    experiment_directory_test = sys.argv[3]  # a directory containing experiment results
-    if len(sys.argv >= 5):
-        experiment_directory_control = sys.argv[4]  # a directory containing experiment results (of a verified/correct version of the algorithms)
+    experiment_directory_test = sys.argv[3] + experiment + "/"  # a directory containing experiment results
+    if len(sys.argv) >= 5:
+        experiment_directory_control = sys.argv[4] + experiment + "/"  # a directory containing experiment results (of a verified/correct version of the algorithms)
+    verbose = False
+    if "-v" in sys.argv:
+        verbose = True
 
     # >>> TEST CASES >>>
     simple_edge = {
@@ -301,13 +303,13 @@ if __name__ == "__main__":
     nodes = set(node for edge in edge_index for node in edge)
     local_to_global_map, global_to_local_map = get_local_global_maps(experiment_directory_test)
 
-    # # Print some statistics on the test graph
-    # print("nodes:         ", nodes)
-    # print("node intervals:", node_intervals)
-    # print("edges:         ", edges)
-    # print("edge types:    ", edge_type)
-    # print("edge intervals:", edge_intervals)
-    # print()
+    # Print some statistics on the test graph
+    if verbose:
+        print("nodes:         ", nodes)
+        print("node intervals:", node_intervals)
+        print("edges:         ", edges)
+        print("edge types:    ", edge_type)
+        print("edge intervals:", edge_intervals)
 
     # The graph we read from disk
     G = nx.DiGraph()
@@ -316,6 +318,7 @@ if __name__ == "__main__":
     add_predicate_and_interval_labels(G, edges, edge_type, edge_intervals)
     print("Number of test nodes:", G.number_of_nodes())
     print("Number of test edges:", G.number_of_edges())
+    print()
 
     if test_index == 0:
         # The test graph we compare against
@@ -338,14 +341,14 @@ if __name__ == "__main__":
         nodes_control = set(node for edge in edge_index_control for node in edge)
         local_to_global_map_control, global_to_local_map_control = get_local_global_maps_legacy(experiment_directory_control)
 
-        # # statistics on the control graph
-        # print("CONTROL results:")
-        # print("nodes:         ", nodes_control)
-        # print("node intervals:", node_intervals_control)
-        # print("edges:         ", edges_control)
-        # print("edge types:    ", edge_type_control)
-        # print("edge intervals:", edge_intervals_control)
-        # print()
+        # statistics on the control graph
+        if verbose:
+            print("CONTROL results:")
+            print("nodes:         ", nodes_control)
+            print("node intervals:", node_intervals_control)
+            print("edges:         ", edges_control)
+            print("edge types:    ", edge_type_control)
+            print("edge intervals:", edge_intervals_control)
 
         G_control = nx.DiGraph()
         G_control.add_nodes_from(nodes_control)
@@ -353,6 +356,7 @@ if __name__ == "__main__":
         add_predicate_and_interval_labels(G_control, edges_control, edge_type_control, edge_intervals_control)
         print("Number of control nodes:", G_control.number_of_nodes())
         print("Number of control edges:", G_control.number_of_edges())
+        print()
 
         if test_index == 1:
             # Check if these graphs could be isomorphic
@@ -361,60 +365,4 @@ if __name__ == "__main__":
             # Check if these graphs are isomorphic
             print("Isomorphic:", nx.is_isomorphic(G, G_control, edge_match=compare_predicate_and_interval))
     else:
-        exit(1)
-    # >>> Print the graphs for analysis >>>
-    # # Print each edge ((sub, obj), (start, end), (preds)) of the test graph
-    # with open("test_out" + experiment + ".txt", "w+") as f:
-    #     lines = []
-    #     for edge in G.edges(data=True):
-    #         line = f"({edge[0]},{edge[1]}), ({edge[2]["time_interval"][0]},{edge[2]["time_interval"][1]}), ("
-    #         predicate_string = ""
-    #         for predicate in sorted(edge[2]["predicates"]):
-    #             predicate_string += f"{predicate},"
-    #         line += predicate_string[:-1] + ")"
-    #         lines.append(line)
-    #     for line in sorted(lines):
-    #         print(line, file=f)
-
-    # # Print each edge ((sub, obj), (start, end), (preds)) of the control graph
-    # with open("control_out" + experiment + ".txt", "w+") as f:
-    #     lines = []
-    #     for edge in G_control.edges(data=True):
-    #         line = f"({edge[0]},{edge[1]}), ({edge[2]["time_interval"][0]},{edge[2]["time_interval"][1]}), ("
-    #         predicate_string = ""
-    #         for predicate in sorted(edge[2]["predicates"]):
-    #             predicate_string += f"{predicate},"
-    #         line += predicate_string[:-1] + ")"
-    #         lines.append(line)
-    #     for line in sorted(lines):
-    #         print(line, file=f)
-    # # <<< Print the graphs for analysis <<<
-
-
-    # # >>> Isomorphism Test >>>
-    # G1 = nx.Graph()
-    # G1.add_nodes_from(nodes)
-    # G1.add_edges_from(edges)
-    # add_predicate_and_interval_labels(G1, edges, edge_type, edge_intervals)
-
-    # G2 = nx.Graph()
-    # G2.add_nodes_from(nodes)
-    # G2.add_edges_from(edges)
-    # add_predicate_and_interval_labels(G2, edges, edge_type, edge_intervals)
-
-    # print(nx.is_isomorphic(G1, G2, edge_match=compare_predicate_and_interval))  # Should be isomorphic
-
-    # G1[-2][1]["labels"] = (10, G1[-2][1]["labels"][1], G1[-2][1]["labels"][2])  # Change the predicate label for the edge [-2,-2] in G1
-    # print(nx.is_isomorphic(G1, G2, edge_match=compare_predicate_and_interval))  # Should not be isomorphic
-
-    # G2[-2][1]["labels"] = (10, G2[-2][1]["labels"][1], G2[-2][1]["labels"][2])  # Change the predicate label for the edge [-2,-2] in G2
-    # print(nx.is_isomorphic(G1, G2, edge_match=compare_predicate_and_interval))  # Should be isomorphic
-
-    
-
-    # G1[-2][1]["labels"] = (G1[-2][1]["labels"][0], 1, 2)  # Change the time interval for the edge [-2,-2] in G1
-    # print(nx.is_isomorphic(G1, G2, edge_match=compare_predicate_and_interval))  # Should not be isomorphic
-
-    # G2[-2][1]["labels"] = (G2[-2][1]["labels"][0], 1, 2)  # Change the time interval for the edge [-2,-2] in G2
-    # print(nx.is_isomorphic(G1, G2, edge_match=compare_predicate_and_interval))  # Should be isomorphic
-    # # <<< Isomorphism Test <<<
+        sys.exit(1)
