@@ -634,12 +634,12 @@ public:
     {
         for (auto local_global_pair: this->get_map())
         {
-            block_or_singleton_index local_block = local_global_pair.first.first;
-            k_type level = local_global_pair.first.second;
+            k_type level = local_global_pair.first.first;
+            block_or_singleton_index local_block = local_global_pair.first.second;
             block_or_singleton_index global_block = local_global_pair.second;
 
-            write_int_BLOCK_OR_SINGLETON_little_endian(outputstream,local_block);
             write_uint_K_TYPE_little_endian(outputstream,level);
+            write_int_BLOCK_OR_SINGLETON_little_endian(outputstream,local_block);
             write_int_BLOCK_OR_SINGLETON_little_endian(outputstream,global_block);
         }
         outputstream.flush();
@@ -955,6 +955,7 @@ public:
                 write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, subject);
                 write_uint_PREDICATE_little_endian(graphoutputstream, predicate);
                 write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, object);
+                // std::cout << "DEBUG wrote SPO: " << subject << " " << predicate << " " << object << std::endl;
             }
         }
         graphoutputstream.flush();
@@ -1791,26 +1792,89 @@ int main(int ac, char *av[])
         //     }
         // }
         // std::cout << std::endl;
+        // std::cout << "DEBUG current level: " << current_level << std::endl;
+        // Add the incomming edges for the blocks that died in the current level
         for (block_or_singleton_index dying_block: dying_blocks)
         {
             block_or_singleton_index object_image = current_split_to_merged_map.map_block(dying_block);
-            for (auto predicate_object_pair: gs.get_reverse_nodes()[dying_block].get_pairs())
+            for (auto predicate_subject_pair: gs.get_reverse_nodes()[dying_block].get_pairs())
             {
-                block_or_singleton_index subject = predicate_object_pair.second;
-                block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+                block_or_singleton_index subject = predicate_subject_pair.second;
 
-                if (subject_image == subject && object_image == dying_block)
+                if (old_living_blocks.find(subject) == old_living_blocks.cend())
                 {
                     continue;
                 }
 
+                block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
+
+                // if (subject_image == 195){
+                //     std::cout << "DEBUG 195 mapped from sub: " << subject << std::endl;
+                // }
+
+                // if (object_image == 195){
+                //     std::cout << "DEBUG 195 mapped from obj: " << dying_block << std::endl;
+                // }
+
+                // if (subject == -2059) {
+                //     edge_type predicate = predicate_object_pair.first;
+                //     std::cout << "DEBUG -2059 edge (before): " << subject << "," << predicate << "," << dying_block << std::endl;
+                //     std::cout << "DEBUG -2059 edge (after): " << subject_image << "," << predicate << "," << object_image << std::endl;
+                // }
                 
-                edge_type predicate = predicate_object_pair.first;
+                // if (dying_block == 111)
+                // {
+                //     edge_type predicate = predicate_object_pair.first;
+                //     if (predicate == 78)
+                //     {
+                //         std::cout << "DEBUG 111 edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
+                //     }
+                // }
+                // std::cout << "DEBUG dying block: " << dying_block << std::endl;
+
+                if (subject_image == subject && object_image == dying_block)
+                {
+                    // edge_type predicate = predicate_object_pair.first;
+                    // std::cout << "DEBUG skipped edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
+                    continue;
+                }
+
+                
+                edge_type predicate = predicate_subject_pair.first;
 
                 // std::cout << "DEBUG new dying SPO: " << subject_image << "," << predicate << "," << object_image << std::endl;
                 gs.add_edge_to_node(subject_image, predicate, object_image);
             }
         }
+
+        // Add the outgoing edges for the blocks that died in the previous level
+        for (block_or_singleton_index old_dying_block: old_dying_blocks)
+        {
+            block_or_singleton_index subject_image = old_split_to_merged_map.map_block(old_dying_block);
+            for (auto predicate_object_pair: gs.get_nodes()[old_dying_block].get_pairs())
+            {
+                block_or_singleton_index object = predicate_object_pair.second;
+
+                if (new_living_blocks.find(object) == new_living_blocks.cend())
+                {
+                    continue;
+                }
+
+                block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
+
+                if (subject_image == old_dying_block && object_image == object)
+                {
+                    // edge_type predicate = predicate_object_pair.first;
+                    // std::cout << "DEBUG skipped edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
+                    continue;
+                }
+
+                edge_type predicate = predicate_object_pair.first;
+                gs.add_edge_to_node(subject_image, predicate, object_image);
+            }
+        }
+
+
         // std::cout << std::endl;
         // for (block_or_singleton_index old_dying_block: old_dying_blocks)
         // {
