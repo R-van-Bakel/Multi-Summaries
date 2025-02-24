@@ -113,7 +113,7 @@ def get_outcome(experiment_directory:str, level:int) -> dict[int,set[int]]:
 
     return outcome
 
-def get_fixed_point(experiment_directory:str) -> int:
+def get_fixed_point(experiment_directory:str, require_fixed:str=False) -> int:
     assert os.path.exists(experiment_directory), "The experiment directory string should refer to a valid (existing) directory"
     stats_json_file = experiment_directory + "ad_hoc_results/graph_stats.json"
     assert os.path.isfile(stats_json_file), "The statistics (json) file should exist"
@@ -121,9 +121,9 @@ def get_fixed_point(experiment_directory:str) -> int:
     with open(stats_json_file, "r") as f_stats:
         graph_stats = json.load(f_stats)
     
-    if graph_stats["Fixed point"]:
-        return graph_stats["Final depth"]
-    return -1  # This indicates no fixed point has been reached
+    if require_fixed and not graph_stats["Fixed point"]:
+        return -1
+    return graph_stats["Final depth"]
 
 def compute_edge_intervals(edges:list[int], node_intervals:dict[int,list[int]], fixed_point:int=-1) -> list[list[int]]:
     edge_intervals = []
@@ -298,7 +298,9 @@ if __name__ == "__main__":
     edge_index, edge_type = get_summary_graph(experiment_directory_test)
     edges = list(map(list, zip(*edge_index)))
     node_intervals = get_node_intervals(experiment_directory_test)
-    fixed_point = get_fixed_point(experiment_directory_test)
+    fixed_point = get_fixed_point(experiment_directory_test, require_fixed=True)
+    if fixed_point < 0:  # This test requires that the fixed point has been reached
+        sys.exit(1)
     edge_intervals = compute_edge_intervals(edges,node_intervals,fixed_point)
     nodes = set(node for edge in edge_index for node in edge)
     local_to_global_map, global_to_local_map = get_local_global_maps(experiment_directory_test)

@@ -1339,7 +1339,8 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
         std::tm *ptm{std::localtime(&now)};
         std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S")
                   << " level " << i + 1
-                  << " blocks = " << outcomes[0].total_blocks()
+                  << ", blocks = " << outcomes[0].total_blocks()
+                  << ", accumulated blocks = " << accumulated_block_count
                   << ", singletons = " << outcomes[0].singleton_block_count()
                   << ", total = " << new_total
                   << ", time = " << bisim_step_duration << " ms"

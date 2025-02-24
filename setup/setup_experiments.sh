@@ -117,16 +117,67 @@ if [ ! -d "${boost_path}bin.v2/" ] || [ ! -d "${boost_path}include/" ] || [ ! -d
   done
 fi
 
-# Create the directory for the compiled files and experiments
+# Activate anaconda
+if command -v conda &> /dev/null; then
+    using_conda=true
+    source activate base
+    conda activate base
+else
+    using_conda=false
+fi
+
+# If the expriment directory already exists, ask the user what to do
 git_hash=$(git rev-parse HEAD)
 echo Creating directory from git hash: $git_hash
+if [ -d ../$git_hash/ ]; then
+    echo Directory exists.
+    while true; do
+        read -p $'Would you like to delete the old experiment? [y/n]\n'
+        if [ ${REPLY,,} == "y" ]; then
+            # If the directory is over 1 GiB then ask an extra question as the whether the results should be deleted
+            if [ $(cd ../$git_hash/;du -sb . | awk '{print $1}') -ge $((1024 ** 3)) ]; then  # 1024 ** 3 = 1 GiB
+                while true; do
+                    read -p $'The directory is over 1 GiB. Are you sure you want to remove it? [y/n]\n'
+                    if [ ${REPLY,,} == "y" ]; then
+                        break
+                    elif [ ${REPLY,,} == "n" ]; then
+                        echo Aborting
+                        exit 1
+                    else
+                        echo 'Unrecognized response'
+                    fi
+                done
+            fi
+            # Clear up the associated conda environment if needed
+            if [ -d ../$git_hash/code/python/.conda/ ] && [ $using_conda ]; then
+                conda_env=$(cd ../$git_hash/code/python/.conda/; pwd)
+                if conda activate $conda_env; then
+                    conda activate base
+                    conda env remove -y -p $conda_env
+                fi
+            fi
+            rm -r ../$git_hash/
+            break
+        elif [ ${REPLY,,} == "n" ]; then
+            echo Experiment cancelled, because $git_hash already exists
+            echo Aborting
+            exit 1
+        else
+            echo 'Unrecognized response'
+        fi
+    done
+fi
+
+# Create the directory for the compiled files and experiments
 mkdir ../$git_hash/
-mkdir ../$git_hash/executables/
+mkdir ../$git_hash/code/
+mkdir ../$git_hash/code/src/
+mkdir ../$git_hash/code/bin/
 
 # Make a log file
 log_file_name=setup
 logging_process=$log_file_name
-log_file="../$git_hash/executables/${log_file_name}.log"
+log_file="../$git_hash/code/${log_file_name}.log"
 touch $log_file
 
 # Log the settings
@@ -142,51 +193,84 @@ chmod +x ./compile.sh
 
 # Compile the preprocessor
 compiler_flags="${compiler_flags//,/ }"
+echo Copying preprocessor.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Copying preprocessor.cpp" >> $log_file
+cp ../code/preprocessor.cpp ../$git_hash/code/src/preprocessor.cpp
 echo Compiling preprocessor.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling preprocessor.cpp" >> $log_file
-./compile.sh ../code/preprocessor.cpp ../$git_hash/executables/preprocessor
+./compile.sh ../$git_hash/code/src/preprocessor.cpp ../$git_hash/code/bin/preprocessor
 
 # Compile the bisimulator
+echo Copying bisimulator.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Copying bisimulator.cpp" >> $log_file
+cp ../code/bisimulator.cpp ../$git_hash/code/src/bisimulator.cpp
 echo Compiling bisimulator.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling bisimulator.cpp" >> $log_file
-./compile.sh ../code/bisimulator.cpp ../$git_hash/executables/bisimulator
+./compile.sh ../$git_hash/code/src/bisimulator.cpp ../$git_hash/code/bin/bisimulator
 
 # Compile the postprocessor
+echo Copying postprocessor.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Copying postprocessor.cpp" >> $log_file
+cp ../code/postprocessor.cpp ../$git_hash/code/src/postprocessor.cpp
 echo Compiling postprocessor.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling postprocessor.cpp" >> $log_file
-./compile.sh ../code/postprocessor.cpp ../$git_hash/executables/postprocessor
+./compile.sh ../$git_hash/code/src/postprocessor.cpp ../$git_hash/code/bin/postprocessor
 
-# Compile the summary graph program
-echo Compiling create_quotient_graphs_from_partitions.cpp
-echo $(date) $(hostname) "${logging_process}.Info: Compiling create_quotient_graphs_from_partitions.cpp" >> $log_file
-./compile.sh ../code/create_quotient_graphs_from_partitions.cpp ../$git_hash/executables/create_quotient_graphs_from_partitions
+# # Compile the summary graph program
+# echo Copying create_quotient_graphs_from_partitions.cpp
+# echo $(date) $(hostname) "${logging_process}.Info: Copying create_quotient_graphs_from_partitions.cpp" >> $log_file
+# cp ../code/create_quotient_graphs_from_partitions.cpp ../$git_hash/code/src/create_quotient_graphs_from_partitions.cpp
+# echo Compiling create_quotient_graphs_from_partitions.cpp
+# echo $(date) $(hostname) "${logging_process}.Info: Compiling create_quotient_graphs_from_partitions.cpp" >> $log_file
+# ./compile.sh ../code/create_quotient_graphs_from_partitions.cpp ../$git_hash/code/create_quotient_graphs_from_partitions
 
 # Compile the condensed summary graph program
+echo Copying create_condensed_summary_graph_from_partitions.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Copying create_condensed_summary_graph_from_partitions.cpp" >> $log_file
+cp ../code/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp
 echo Compiling create_condensed_summary_graph_from_partitions.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling create_condensed_summary_graph_from_partitions.cpp" >> $log_file
-./compile.sh ../code/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/executables/create_condensed_summary_graph_from_partitions
+./compile.sh ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/bin/create_condensed_summary_graph_from_partitions
 
 # Echo that the compilation was successful
-echo Compiling successful
-echo $(date) $(hostname) "${logging_process}.Info: Compiling successful" >> $log_file
+echo C++ cpoying and compiling successful
+echo $(date) $(hostname) "${logging_process}.Info: C++ cpoying and compiling successful" >> $log_file
 
-# Copy the python binary loader program
-echo Copying python_binary_loader.py
-echo $(date) $(hostname) "${logging_process}.Info: Copying python_binary_loader.py" >> $log_file
-cp ../code/python_binary_loader.py ../$git_hash/executables/python_binary_loader.py
+# # Copy the python binary loader program
+# echo Copying python_binary_loader.py
+# echo $(date) $(hostname) "${logging_process}.Info: Copying python_binary_loader.py" >> $log_file
+# cp ../code/python_binary_loader.py ../$git_hash/code/python_binary_loader.py
 
-# Copy the plot outcome results program
-echo Copying plot_outcome_results.py
-echo $(date) $(hostname) "${logging_process}.Info: Copying plot_outcome_results.py" >> $log_file
-cp ../code/plot_outcome_results.py ../$git_hash/executables/plot_outcome_results.py
+# # Copy the plot outcome results program
+# echo Copying plot_outcome_results.py
+# echo $(date) $(hostname) "${logging_process}.Info: Copying plot_outcome_results.py" >> $log_file
+# cp ../code/plot_outcome_results.py ../$git_hash/code/plot_outcome_results.py
 
-# Copy the plot summary graph results program
-echo Copying plot_summary_graph_results.py
-echo $(date) $(hostname) "${logging_process}.Info: Copying plot_summary_graph_results.py" >> $log_file
-cp ../code/plot_summary_graph_results.py ../$git_hash/executables/plot_summary_graph_results.py
+# # Copy the plot summary graph results program
+# echo Copying plot_summary_graph_results.py
+# echo $(date) $(hostname) "${logging_process}.Info: Copying plot_summary_graph_results.py" >> $log_file
+# cp ../code/plot_summary_graph_results.py ../$git_hash/code/plot_summary_graph_results.py
+
+# Copy the python package for loading, testing, displaying and plotting results
+echo Copying python codebase
+echo $(date) $(hostname) "${logging_process}.Info: Copying python codebase" >> $log_file
+cp -r ../code/python/ ../$git_hash/code/python/
+
+if [ using_conda ]; then
+    echo Setting up Anaconda enviroment
+    echo $(date) $(hostname) "${logging_process}.Info: Setting up Anaconda enviroment" >> $log_file
+    (cd ../$git_hash/code/python/;
+    python_version=$(grep -i "requires-python" pyproject.toml | awk -F: '{ st = index($0,"=");print substr($0,st+1)}' | awk '{$1=$1};1' | awk '{print substr($0, 2, length($0) - 2)}');
+    conda create -y --prefix ./.conda/ "python$python_version";
+    conda activate ./.conda/;
+    pip install -e .;
+    conda activate base)
+    echo Successfully set up Anaconda enviroment
+    echo $(date) $(hostname) "${logging_process}.Info: Successfully set up Anaconda enviroment" >> $log_file
+fi
 
 # Echo that the copying was successful
-echo Copying successful
+echo Python copying successful
 echo $(date) $(hostname) "${logging_process}.Info: Copying successful" >> $log_file
 
 # Create the experiment scripts, along with their config files
@@ -343,12 +427,12 @@ if [ \$use_lz4 == "true" ]; then
   preprocessor_command=\$(cat << EOM
 mkfifo ttl_buffer
 /usr/bin/time -v \$lz4_command -d -c \$dataset_path -d -c > ttl_buffer &
-../executables/preprocessor ./ttl_buffer ./\$skiplists\$laundromat_flag
+../code/bin/preprocessor ./ttl_buffer ./\$skiplists\$laundromat_flag
 rm ./ttl_buffer
 EOM
   )
 else
-  preprocessor_command="/usr/bin/time -v ../executables/preprocessor \$dataset_path ./\$skiplists"
+  preprocessor_command="/usr/bin/time -v ../code/bin/preprocessor \$dataset_path ./\$skiplists"
 fi
 
 # Create a log file for the experiments
@@ -579,7 +663,7 @@ cat >\$bisimulator_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./\$typed_start_flag
+/usr/bin/time -v ../code/bin/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./\$typed_start_flag
 EOF2
 
 # Make sure the file will have Unix style line endings
@@ -760,7 +844,7 @@ cat >\$postprocessor_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/postprocessor ./
+/usr/bin/time -v ../code/bin/postprocessor ./
 EOF2
 
 # Make sure the file will have Unix style line endings
@@ -951,7 +1035,7 @@ cat >\$summary_graphs_creator_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../executables/\$summary_graph_creator_executable ./
+/usr/bin/time -v ../code/bin/\$summary_graph_creator_executable ./
 EOF2
 
 # Make sure the file will have Unix style line endings
@@ -1139,8 +1223,8 @@ working_directory=\\\$(pwd)
 source activate base
 source \\\$HOME/.bashrc
 conda activate
-/usr/bin/time -v python \\\$working_directory/../executables/plot_outcome_results.py \\\$working_directory/ \$k
-/usr/bin/time -v python \\\$working_directory/../executables/plot_summary_graph_results.py \\\$working_directory/ \$k
+/usr/bin/time -v python \\\$working_directory/../code/bin/plot_outcome_results.py \\\$working_directory/ \$k
+/usr/bin/time -v python \\\$working_directory/../code/bin/plot_summary_graph_results.py \\\$working_directory/ \$k
 EOF2
 
 # Make sure the file will have Unix style line endings

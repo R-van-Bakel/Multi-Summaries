@@ -1,0 +1,15 @@
+[build-system]
+requires = [
+    "setuptools",
+    "pyyaml",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "summary_loader"
+version = "0.0.1"
+dependencies = [
+    "networkx",
+    "matplotlib",
+]
+requires-python = ">=3.12"

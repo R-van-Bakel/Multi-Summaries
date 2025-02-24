@@ -960,6 +960,19 @@ public:
         }
         graphoutputstream.flush();
     }
+    uint64_t get_vertex_count()
+    {
+        return nodes.size();
+    }
+    uint64_t get_edge_count()
+    {
+        uint64_t edge_cout = 0;
+        for (auto id_node_pair: nodes)
+        {
+            edge_cout += id_node_pair.second.get_pairs().size();
+        }
+        return edge_cout;
+    }
     // void write_graph_to_file_json(std::ostream &outputstream)
     // {
     //     outputstream << "[";
@@ -1055,7 +1068,7 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
     std::tm *ptm_reading_done{std::localtime(&time_t_reading_done)};
 
     std::cout << std::put_time(ptm_reading_done, "%Y/%m/%d %H:%M:%S")
-              << " Time taken for reading = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_reading_done - t_start).count()
+              << " Time taken = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_reading_done - t_start).count()
               << " ms, memory = " << w.get_times()[0].memory_in_kb << " kB" << std::endl;
 // #ifdef CREATE_REVERSE_INDEX
 //     w.start_step("Creating reverse index");
@@ -1086,6 +1099,9 @@ struct LocalBlock {
 
 int main(int ac, char *av[])
 {
+    StopWatch<boost::chrono::process_cpu_clock> w_total = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
+    w_total.start_step("Start experiment", true);  // Set newline to true
+
     // This structure was inspired by https://gist.github.com/randomphrase/10801888
     namespace po = boost::program_options;
 
@@ -1177,13 +1193,15 @@ int main(int ac, char *av[])
     graph_stats_file_stream.close();
 
     // >>> LOAD THE FINAL SUMMARY GRAPH >>>
-    std::string summary_graph_file_path_base = experiment_directory + "bisimulation/summary_graph-";
-    std::string blocks_file = experiment_directory + "bisimulation/outcome_condensed-000" + std::to_string(first_level) + ".bin";
-    std::string summary_graph_file_path_binary = summary_graph_file_path_base + "000" + std::to_string(first_level) + ".bin";
+    auto t_start{boost::chrono::system_clock::now()};
+    auto time_t_start{boost::chrono::system_clock::to_time_t(t_start)};
+    std::tm *ptm_start{std::localtime(&time_t_start)};
+    std::cout << std::put_time(ptm_start, "%Y/%m/%d %H:%M:%S") << " Reading outcomes started" << std::endl;
 
-    std::ofstream summary_graph_file_binary(summary_graph_file_path_binary, std::ios::trunc | std::ofstream::out);
+    std::string blocks_file = experiment_directory + "bisimulation/outcome_condensed-000" + std::to_string(first_level) + ".bin";
 
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
+    w.start_step("Reading outcomes", true);  // Set newline to true
 
     std::ifstream blocksfile(blocks_file, std::ifstream::in);
     node_to_block_map_type node_to_block_map;
@@ -1242,9 +1260,6 @@ int main(int ac, char *av[])
         std::string current_outcome = experiment_directory + "bisimulation/outcome_condensed-" + i_string + ".bin";
         std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
         std::ifstream current_outcome_file(current_outcome, std::ifstream::in);
-
-        std::string summary_graph_file_path = summary_graph_file_path_base + i_string + ".bin";
-        std::ofstream summary_graph_file_binary(summary_graph_file_path, std::ios::trunc | std::ofstream::out);
 
         boost::unordered_flat_set<block_index> split_block_incides;
         boost::unordered_flat_set<block_index> new_block_indices;
@@ -1341,17 +1356,22 @@ int main(int ac, char *av[])
             }
         }
     }
+    
+    w.stop_step();
+
+    auto t_outcomes_end{boost::chrono::system_clock::now()};
+    auto time_t_outcomes_end{boost::chrono::system_clock::to_time_t(t_outcomes_end)};
+    std::tm *ptm_outcomes_end{std::localtime(&time_t_outcomes_end)};
+    auto step_info = w.get_times().back();
+    std::cout << std::put_time(ptm_outcomes_end, "%Y/%m/%d %H:%M:%S")
+    << " Final outcome loaded (Time taken = " << boost::chrono::ceil<boost::chrono::milliseconds>(t_outcomes_end - t_start).count()
+    << " ms, memory = " << step_info.memory_in_kb << " kB)" << std::endl;
     // <<< LOAD THE FINAL SUMMARY GRAPH <<<
 
     // for (auto node_block_pair: node_to_block_map)
     // {
     //     std::cout << "DEBUG node:block :: " << node_block_pair.first << ":" << node_block_pair.second << std::endl;
     // }
-
-    auto t_outcomes_end{boost::chrono::system_clock::now()};
-    auto time_t_outcomes_end{boost::chrono::system_clock::to_time_t(t_outcomes_end)};
-    std::tm *ptm_outcomes_end{std::localtime(&time_t_outcomes_end)};
-    std::cout << std::put_time(ptm_outcomes_end, "%Y/%m/%d %H:%M:%S") << " Final outcome loaded " << std::endl;
 
     // We have read the last outcome, now we will create a summary graph accordingly
     LocalBlockToGlobalBlockMap block_map = LocalBlockToGlobalBlockMap();  // First, because different blocks can have the same name at different layers, we need to map the current block ids to globally unique ones
@@ -1427,8 +1447,15 @@ int main(int ac, char *av[])
 
     SplitToMergedMap old_split_to_merged_map;
 
+    
+    auto t_loading_graph{boost::chrono::system_clock::now()};
+    auto time_t_loading_graph{boost::chrono::system_clock::to_time_t(t_loading_graph)};
+    std::tm *ptm_loading_graph{std::localtime(&time_t_loading_graph)};
+    std::cout << std::put_time(ptm_loading_graph, "%Y/%m/%d %H:%M:%S") << " Load graph edges" << std::endl;
+
     if (immediate_stop)
     {        
+        w.start_step("Read edges (final) into summary graph", true);
         // Add the edges between the level 1 and level 0
         k_type zero_level = 0;
 
@@ -1474,9 +1501,8 @@ int main(int ac, char *av[])
         auto t_first_edges{boost::chrono::system_clock::now()};
         auto time_t_first_edges{boost::chrono::system_clock::to_time_t(t_first_edges)};
         std::tm *ptm_first_edges{std::localtime(&time_t_first_edges)};
-        std::cout << std::put_time(ptm_first_edges, "%Y/%m/%d %H:%M:%S") << " Loading initial/terminal condensed data edges (0001-->0000)" << std::endl;
+        std::cout << std::put_time(ptm_first_edges, "%Y/%m/%d %H:%M:%S") << " Loading initial/terminal condensed data edges (0001-->0000) " << std::flush;  // We don't end the line so we can add statistics later
 
-        w.start_step("Read edges (final) into summary graph", true);
         read_graph_into_summary_timed(graph_file, node_to_block_map, block_map, initial_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
 
         // This corresponds to the one block that has no outgoing edges.
@@ -1488,7 +1514,6 @@ int main(int ac, char *av[])
                 block_to_interval_map[living_block_key_val.first] = {first_level, current_level};
             }
         }
-        w.stop_step();
 
         if (fixed_point_reached)  // In this case we loaded in the fixed point edges, but we still need to add the edges between k=1 and k=0
         {
@@ -1505,10 +1530,20 @@ int main(int ac, char *av[])
                 }
             }
         }
+        w.stop_step();
+
+        std::ofstream ad_hoc_output(experiment_directory + "ad_hoc_results/data_edges_statistics_condensed-0001to0000.json", std::ios::trunc);
 
         auto t_write_graph_instant{boost::chrono::system_clock::now()};
         auto time_t_write_graph_instant{boost::chrono::system_clock::to_time_t(t_write_graph_instant)};
         std::tm *ptm_write_graph_instant{std::localtime(&time_t_write_graph_instant)};
+        auto t_edges_end{boost::chrono::system_clock::now()};
+        auto step_info = w.get_times().back();
+        auto step_duration = boost::chrono::ceil<boost::chrono::milliseconds>(step_info.duration).count();
+        ad_hoc_output << "{\n    \"Time taken (ms)\": " << step_duration
+                        << ",\n    \"Memory footprint (kB)\": " << step_info.memory_in_kb << "\n}";
+        ad_hoc_output.flush();
+        std::cout << "(Time taken: " << boost::chrono::ceil<boost::chrono::milliseconds>(t_edges_end - t_loading_graph).count() << " ms, memory = " << step_info.memory_in_kb << " kB)" << std::endl;
         std::cout << std::put_time(ptm_write_graph_instant, "%Y/%m/%d %H:%M:%S") << " Writing condensed summary graph to disk" << std::endl;
 
         uint64_t edge_count = 0;
@@ -1563,39 +1598,62 @@ int main(int ac, char *av[])
         std::cout << std::put_time(ptm_early_counts, "%Y/%m/%d %H:%M:%S") << " vertex count: " << summary_nodes.size() << std::endl;
         std::cout << std::put_time(ptm_early_counts, "%Y/%m/%d %H:%M:%S") << " edge count: " << edge_count << std::endl;
 
+        w_total.stop_step();
+        auto experiment_info = w.get_times().back();
+        auto experiment_duration = boost::chrono::ceil<boost::chrono::milliseconds>(experiment_info.duration).count();
+        int maximum_memory_footprint = 0;
+        for (auto step: w.get_times())
+        {
+            maximum_memory_footprint = std::max(maximum_memory_footprint, step.memory_in_kb);
+        }
+        std::ofstream summary_graph_stats_output(experiment_directory + "ad_hoc_results/summary_graph_stats.json", std::ios::trunc);
+        summary_graph_stats_output << "{\n    \"Vertex count\": " << summary_nodes.size()
+                                   << ",\n    \"Edge count\": " << edge_count
+                                   << ",\n    \"Total time taken (ms)\": " << experiment_duration
+                                   << ",\n    \"Maximum memory footprint (kB)\": " << maximum_memory_footprint << "\n}";
+        summary_graph_stats_output.flush();
+
         exit(0);  // Close the program
     }
     
+    std::ostringstream current_level_stringstream;
+    current_level_stringstream << std::setw(4) << std::setfill('0') << current_level;
+    std::string current_level_string(current_level_stringstream.str());
+
+    std::ostringstream previous_level_stringstream;
+    previous_level_stringstream << std::setw(4) << std::setfill('0') << current_level-1;
+    std::string previous_level_string(previous_level_stringstream.str());
+
+    std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_level_string + "to" + current_level_string + ".bin";
+    std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
+
+    w.start_step("Read edges into summary graph", true);
     if (fixed_point_reached)
     {
+        std::cout << std::put_time(ptm_loading_graph, "%Y/%m/%d %H:%M:%S") << " Creating initial condensed data edges (" + current_level_string + "-->" + current_level_string + ") " << std::endl;
         SplitToMergedMap fixed_point_map;
         for (auto index_block_pair: old_living_blocks)
         {
             fixed_point_map.add_pair(index_block_pair.first, index_block_pair.first);  // At the fixed point, all blocks map to themselves
         }
         // Create the final set of data edges (between k and k-1)
-        w.start_step("Read edges into summary graph", true);
         read_graph_into_summary_timed(graph_file, node_to_block_map, block_map, fixed_point_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
         old_split_to_merged_map = fixed_point_map;
         w.stop_step();
+
+        std::ofstream ad_hoc_output(experiment_directory + "ad_hoc_results/data_edges_statistics_condensed-" + current_level_string + "to" + current_level_string + ".json", std::ios::trunc);
+        auto step_info = w.get_times().back();
+        auto step_duration = boost::chrono::ceil<boost::chrono::milliseconds>(step_info.duration).count();
+        ad_hoc_output << "{\n    \"Time taken (ms)\": " << step_duration
+                        << ",\n    \"Memory footprint (kB)\": " << step_info.memory_in_kb << "\n}";
+        ad_hoc_output.flush();
     }
     else
     {
-        std::ostringstream current_level_stringstream;
-        current_level_stringstream << std::setw(4) << std::setfill('0') << current_level;
-        std::string current_level_string(current_level_stringstream.str());
-
-        std::ostringstream previous_level_stringstream;
-        previous_level_stringstream << std::setw(4) << std::setfill('0') << current_level-1;
-        std::string previous_level_string(previous_level_stringstream.str());
-
-        std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_level_string + "to" + current_level_string + ".bin";
-        std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
-
         auto t_first_edges{boost::chrono::system_clock::now()};
         auto time_t_first_edges{boost::chrono::system_clock::to_time_t(t_first_edges)};
         std::tm *ptm_first_edges{std::localtime(&time_t_first_edges)};
-        std::cout << std::put_time(ptm_first_edges, "%Y/%m/%d %H:%M:%S") << " Creating initial condensed data edges (" + current_level_string + "-->" + previous_level_string + ")" << std::endl;
+        std::cout << std::put_time(ptm_first_edges, "%Y/%m/%d %H:%M:%S") << " Creating initial condensed data edges (" + current_level_string + "-->" + previous_level_string + ") " << std::endl;
 
         while (true)
         {
@@ -1663,9 +1721,15 @@ int main(int ac, char *av[])
         }
 
         // Create the final set of data edges (between k and k-1)
-        w.start_step("Read edges into summary graph", true);
         read_graph_into_summary_timed(graph_file, node_to_block_map, block_map, old_split_to_merged_map, block_to_interval_map, current_level, include_zero_outcome, fixed_point_reached, gs);
         w.stop_step();
+
+        std::ofstream ad_hoc_output(experiment_directory + "ad_hoc_results/data_edges_statistics_condensed-" + current_level_string + "to" + previous_level_string + ".json", std::ios::trunc);
+        auto step_info = w.get_times().back();
+        auto step_duration = boost::chrono::ceil<boost::chrono::milliseconds>(step_info.duration).count();
+        ad_hoc_output << "{\n    \"Time taken (ms)\": " << step_duration
+                        << ",\n    \"Memory footprint (kB)\": " << step_info.memory_in_kb << "\n}";
+        ad_hoc_output.flush();
     }
 
     // This corresponds to the one block that has no outgoing edges.
@@ -1714,7 +1778,8 @@ int main(int ac, char *av[])
         auto t_edges{boost::chrono::system_clock::now()};
         auto time_t_edges{boost::chrono::system_clock::to_time_t(t_edges)};
         std::tm *ptm_edges{std::localtime(&time_t_edges)};
-        std::cout << std::put_time(ptm_edges, "%Y/%m/%d %H:%M:%S") << " Creating condensed data edges (" + current_level_string + "-->" + previous_level_string + ")" << std::endl;
+        std::cout << std::put_time(ptm_edges, "%Y/%m/%d %H:%M:%S") << " Creating condensed data edges (" + current_level_string + "-->" + previous_level_string + ") " << std::flush;  // We don't end the line so we can add statistics later
+        w.start_step("Adding data edges (" + current_level_string + "-->" + previous_level_string + ")", true);  // Set newline to true
 
         // Read a mapping file
         while (true)
@@ -1916,6 +1981,17 @@ int main(int ac, char *av[])
         }
 
         old_split_to_merged_map = std::move(current_split_to_merged_map);
+        w.stop_step();
+
+        std::ofstream ad_hoc_output(experiment_directory + "ad_hoc_results/data_edges_statistics_condensed-" + current_level_string + "to" + previous_level_string + ".json", std::ios::trunc);
+
+        auto t_edges_end{boost::chrono::system_clock::now()};
+        auto step_info = w.get_times().back();
+        auto step_duration = boost::chrono::ceil<boost::chrono::milliseconds>(step_info.duration).count();
+        ad_hoc_output << "{\n    \"Time taken (ms)\": " << step_duration
+                        << ",\n    \"Memory footprint (kB)\": " << step_info.memory_in_kb << "\n}";
+        ad_hoc_output.flush();
+        std::cout << "(Time taken: " << boost::chrono::ceil<boost::chrono::milliseconds>(t_edges_end - t_start).count() << " ms, memory = " << step_info.memory_in_kb << " kB)" << std::endl;
     }
 
     if (!include_zero_outcome)  // If we don't have an explicit outcome for k=0, then we will manually add those data edges now, otherwise they should have automatically been added
@@ -1923,7 +1999,8 @@ int main(int ac, char *av[])
         auto t_last_edges{boost::chrono::system_clock::now()};
         auto time_t_last_edges{boost::chrono::system_clock::to_time_t(t_last_edges)};
         std::tm *ptm_last_edges{std::localtime(&time_t_last_edges)};
-        std::cout << std::put_time(ptm_last_edges, "%Y/%m/%d %H:%M:%S") << " Creating condensed data edges (0001-->0000)" << std::endl;
+        std::cout << std::put_time(ptm_last_edges, "%Y/%m/%d %H:%M:%S") << " Creating condensed data edges (0001-->0000) " << std::flush;  // We don't end the line so we can add statistics later
+        w.start_step("Adding data edges (0001-->0000)", true);  // Set newline to true
 
         // Add the edges between the level 1 and level 0
         k_type zero_level = 0;
@@ -1944,6 +2021,17 @@ int main(int ac, char *av[])
                 gs.add_edge_to_node(subject_image, predicate, global_universal_block);
             }
         }
+        w.stop_step();
+
+        std::ofstream ad_hoc_output(experiment_directory + "ad_hoc_results/data_edges_statistics_condensed-0001to0000.json", std::ios::trunc);
+
+        auto t_last_edges_end{boost::chrono::system_clock::now()};
+        auto step_info = w.get_times().back();
+        auto step_duration = boost::chrono::ceil<boost::chrono::milliseconds>(step_info.duration).count();
+        ad_hoc_output << "{\n    \"Time taken (ms)\": " << step_duration
+                        << ",\n    \"Memory footprint (kB)\": " << step_info.memory_in_kb << "\n}";
+        ad_hoc_output.flush();
+        std::cout << "(Time taken: " << boost::chrono::ceil<boost::chrono::milliseconds>(t_last_edges_end - t_last_edges).count() << " ms, memory = " << step_info.memory_in_kb << " kB)" << std::endl;
     }
 
     auto t_write_graph{boost::chrono::system_clock::now()};
@@ -2002,4 +2090,19 @@ int main(int ac, char *av[])
     std::tm *ptm_counts{std::localtime(&time_t_counts)};
     std::cout << std::put_time(ptm_counts, "%Y/%m/%d %H:%M:%S") << " vertex count: " << summary_nodes.size() << std::endl;
     std::cout << std::put_time(ptm_counts, "%Y/%m/%d %H:%M:%S") << " edge count: " << edge_count << std::endl;
+
+    w_total.stop_step();
+    auto experiment_info = w.get_times().back();
+    auto experiment_duration = boost::chrono::ceil<boost::chrono::milliseconds>(experiment_info.duration).count();
+    int maximum_memory_footprint = 0;
+    for (auto step: w.get_times())
+    {
+        maximum_memory_footprint = std::max(maximum_memory_footprint, step.memory_in_kb);
+    }
+    std::ofstream summary_graph_stats_output(experiment_directory + "ad_hoc_results/summary_graph_stats.json", std::ios::trunc);
+    summary_graph_stats_output << "{\n    \"Vertex count\": " << summary_nodes.size()
+                               << ",\n    \"Edge count\": " << edge_count
+                               << ",\n    \"Total time taken (ms)\": " << experiment_duration
+                               << ",\n    \"Maximum memory footprint (kB)\": " << maximum_memory_footprint << "\n}";
+    summary_graph_stats_output.flush();
 }
