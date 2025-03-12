@@ -11,5 +11,6 @@ version = "0.0.1"
 dependencies = [
     "networkx",
     "matplotlib",
+    "tqdm",
 ]
 requires-python = ">=3.12"

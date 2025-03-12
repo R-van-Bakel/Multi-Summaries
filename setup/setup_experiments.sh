@@ -39,6 +39,14 @@ trap handle_error ERR
 # Remove carriage returns from the config file, in oder to convert potential Windows line endings to Unix line endings
 sed -i 's/\r//g' ./settings.config
 
+skip_user_read=false
+for var in "$@"
+do
+  if [ "$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
 # Load in the settings
 . ./settings.config
 
@@ -48,24 +56,26 @@ boost_path=$(realpath $boost_path)/
 # Handle the case if the directory does not exist
 if [ ! -d "$boost_path" ]; then
   echo "${boost_path} does not exist"
-  while true; do
-    read -p $'Would you like to set up boost in the specified directory? [y/n]\n'
-    if [ ${REPLY,,} == "y" ]; then
-        mkdir -p $boost_path
-        (
-          cd $boost_path;
-          wget https://boostorg.jfrog.io/artifactory/main/release/1.84.0/source/boost_1_84_0.tar.bz2;
-          tar -v --strip-components=1 --bzip2 -xf ./boost_1_84_0.tar.bz2;
-          rm ./boost_1_84_0.tar.bz2
-        )
-        break
-    elif [ ${REPLY,,} == "n" ]; then
-        echo $'Please change boost_path in settings.config to a valid boost installation\nAborting'
-        exit 1
-    else
-        echo 'Unrecognized response'
-    fi
-  done
+  if ! $skip_user_read; then
+    while true; do
+      read -p $'Would you like to set up boost in the specified directory? [y/n]\n'
+      if [ ${REPLY,,} == "y" ]; then
+          break
+      elif [ ${REPLY,,} == "n" ]; then
+          echo $'Please change boost_path in settings.config to a valid boost installation\nAborting'
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  mkdir -p $boost_path
+  (
+    cd $boost_path;
+    wget https://boostorg.jfrog.io/artifactory/main/release/1.84.0/source/boost_1_84_0.tar.bz2;
+    tar -v --strip-components=1 --bzip2 -xf ./boost_1_84_0.tar.bz2;
+    rm ./boost_1_84_0.tar.bz2
+  )
 fi
 
 # # Code for the DAS6 HPC system. Get the gcc version and if too old (older than 11.0) try to activate a module with version 12
@@ -83,38 +93,42 @@ fi
 
 # Ask the user about the g++ version
 g++ --version
-while true; do
-  read -p $'Would you like to use the above g++ version? [y/n]\n'
-  if [ ${REPLY,,} == "y" ]; then
-      break
-  elif [ ${REPLY,,} == "n" ]; then
-      echo $'Please change the g++ version manually. Calling `scl enable gcc-toolset-[version] bash` followed by `module del gnu9` might work'
-      exit 1
-  else
-      echo 'Unrecognized response'
-  fi
-done
-
-# Check if the boost binaries are (properly) installed. If not, ask the user to either compile them or abort
-if [ ! -d "${boost_path}bin.v2/" ] || [ ! -d "${boost_path}include/" ] || [ ! -d "${boost_path}lib/" ]; then
-  echo 'The boost binaries do not seem (properly) installed'
+if ! $skip_user_read; then
   while true; do
-    read -p $'Would you like to (re)install the boost binaries? [y/n]\n'
+    read -p $'Would you like to use the above g++ version? [y/n]\n'
     if [ ${REPLY,,} == "y" ]; then
-        (
-          cd $boost_path;
-          ./bootstrap.sh --prefix=./;
-          ./b2 install
-        )
         break
     elif [ ${REPLY,,} == "n" ]; then
-        echo "Please properly install the boost binaries in ${boost_path}"
-        echo 'Aborting'
+        echo $'Please change the g++ version manually. Calling `scl enable gcc-toolset-[version] bash` followed by `module del gnu9` might work'
         exit 1
     else
         echo 'Unrecognized response'
     fi
   done
+fi
+
+# Check if the boost binaries are (properly) installed. If not, ask the user to either compile them or abort
+if [ ! -d "${boost_path}bin.v2/" ] || [ ! -d "${boost_path}include/" ] || [ ! -d "${boost_path}lib/" ]; then
+  echo 'The boost binaries do not seem (properly) installed'
+  if ! $skip_user_read; then
+    while true; do
+      read -p $'Would you like to (re)install the boost binaries? [y/n]\n'
+      if [ ${REPLY,,} == "y" ]; then
+          break
+      elif [ ${REPLY,,} == "n" ]; then
+          echo "Please properly install the boost binaries in ${boost_path}"
+          echo 'Aborting'
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  (
+    cd $boost_path;
+    ./bootstrap.sh --prefix=./;
+    ./b2 install
+  )
 fi
 
 # Activate anaconda
@@ -130,42 +144,46 @@ fi
 git_hash=$(git rev-parse HEAD)
 echo Creating directory from git hash: $git_hash
 if [ -d ../$git_hash/ ]; then
-    echo Directory exists.
+  echo Directory exists.
+  if ! $skip_user_read; then
     while true; do
-        read -p $'Would you like to delete the old experiment? [y/n]\n'
-        if [ ${REPLY,,} == "y" ]; then
-            # If the directory is over 1 GiB then ask an extra question as the whether the results should be deleted
-            if [ $(cd ../$git_hash/;du -sb . | awk '{print $1}') -ge $((1024 ** 3)) ]; then  # 1024 ** 3 = 1 GiB
-                while true; do
-                    read -p $'The directory is over 1 GiB. Are you sure you want to remove it? [y/n]\n'
-                    if [ ${REPLY,,} == "y" ]; then
-                        break
-                    elif [ ${REPLY,,} == "n" ]; then
-                        echo Aborting
-                        exit 1
-                    else
-                        echo 'Unrecognized response'
-                    fi
-                done
-            fi
-            # Clear up the associated conda environment if needed
-            if [ -d ../$git_hash/code/python/.conda/ ] && [ $using_conda ]; then
-                conda_env=$(cd ../$git_hash/code/python/.conda/; pwd)
-                if conda activate $conda_env; then
-                    conda activate base
-                    conda env remove -y -p $conda_env
-                fi
-            fi
-            rm -r ../$git_hash/
-            break
-        elif [ ${REPLY,,} == "n" ]; then
-            echo Experiment cancelled, because $git_hash already exists
-            echo Aborting
-            exit 1
-        else
-            echo 'Unrecognized response'
-        fi
+      read -p $'Would you like to delete the old experiment? [y/n]\n'
+      if [ ${REPLY,,} == "y" ]; then
+        break
+      elif [ ${REPLY,,} == "n" ]; then
+        echo Experiment cancelled, because $git_hash already exists
+        echo Aborting
+        exit 1
+      else
+        echo 'Unrecognized response'
+      fi
     done
+  fi
+  # If the directory is over 1 GiB then ask an extra question as the whether the results should be deleted
+  if [ $(cd ../$git_hash/;du -sb . | awk '{print $1}') -ge $((1024 ** 3)) ]; then  # 1024 ** 3 = 1 GiB
+    if ! $skip_user_read; then
+      while true; do
+        read -p $'The directory is over 1 GiB. Are you sure you want to remove it? [y/n]\n'
+        if [ ${REPLY,,} == "y" ]; then
+          break
+        elif [ ${REPLY,,} == "n" ]; then
+          echo Aborting
+          exit 1
+        else
+          echo 'Unrecognized response'
+        fi
+      done
+    fi
+  fi
+  # Clear up the associated conda environment if needed
+  if [ -d ../$git_hash/code/python/.conda/ ] && [ $using_conda ]; then
+    conda_env=$(cd ../$git_hash/code/python/.conda/; pwd)
+    if conda activate $conda_env; then
+      conda activate base
+      conda env remove -y -p $conda_env
+    fi
+  fi
+  rm -r ../$git_hash/
 fi
 
 # Create the directory for the compiled files and experiments
@@ -354,6 +372,14 @@ if [ \$# -eq 0 ]; then
   exit 1
 fi
 
+skip_user_read=false
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
 # Load in the settings
 . ./preprocessor.config
 
@@ -397,18 +423,20 @@ echo laundromat=\$laundromat
 echo use_lz4=\$use_lz4
 echo lz4_command=\$lz4_command
 
-# Ask the user to run the experiment with the aforementioned settings
-while true; do
-  read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
-  if [ \${REPLY,,} == "y" ]; then
-      break
-  elif [ \${REPLY,,} == "n" ]; then
-      echo $'Please change the settings in preprocessor.config\nAborting'
-      exit 1
-  else
-      echo 'Unrecognized response'
-  fi
-done
+if ! \$skip_user_read; then
+  # Ask the user to run the experiment with the aforementioned settings
+  while true; do
+    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Please change the settings in preprocessor.config\nAborting'
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
 
 # Create a directory for the experiments
 dataset_path="\${1}"
@@ -489,25 +517,27 @@ if [ ! \$sbatch_command == '' ]; then
 else
   echo sbatch command not found
   echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
-  while true; do
-    read -p \$'Would you like to directly run the preprocessor locally instead? [y/n]\n'
-    if [ \${REPLY,,} == "y" ]; then
-        echo Running slurm script directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-        (cd \$output_dir; \$preprocessor_job)
-        echo Successfully ran preprocessor directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran preprocessor directly" >> \$log_file
-        break
-    elif [ \${REPLY,,} == "n" ]; then
-        echo $'Direct execution declined\nAborting'
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
-        exit 1
-    else
-        echo 'Unrecognized response'
-    fi
-  done
+  if ! \$skip_user_read; then
+    while true; do
+      read -p \$'Would you like to directly run the preprocessor locally instead? [y/n]\n'
+      if [ \${REPLY,,} == "y" ]; then
+          break
+      elif [ \${REPLY,,} == "n" ]; then
+          echo $'Direct execution declined\nAborting'
+          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  echo Running slurm script directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+  (cd \$output_dir; \$preprocessor_job)
+  echo Successfully ran preprocessor directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran preprocessor directly" >> \$log_file
 fi
 EOF
 
@@ -593,6 +623,14 @@ if [ \$# -eq 0 ]; then
   exit 1
 fi
 
+skip_user_read=false
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
 # Load in the settings
 . ./bisimulator.config
 
@@ -608,18 +646,20 @@ echo nodelist=\$nodelist
 echo bisimulation_mode=\$bisimulation_mode
 echo typed_start=\$typed_start
 
-# Ask the user to run the experiment with the aforementioned settings
-while true; do
-  read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
-  if [ \${REPLY,,} == "y" ]; then
-      break
-  elif [ \${REPLY,,} == "n" ]; then
-      echo $'Please change the settings in bisimulator.config\nAborting'
-      exit 1
-  else
-      echo 'Unrecognized response'
-  fi
-done
+if ! \$skip_user_read; then
+  # Ask the user to run the experiment with the aforementioned settings
+  while true; do
+    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Please change the settings in bisimulator.config\nAborting'
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
 
 # Select a directory for the experiments
 output_dir="\${1}"
@@ -683,25 +723,27 @@ if [ ! \$sbatch_command == '' ]; then
 else
   echo sbatch command not found
   echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
-  while true; do
-    read -p \$'Would you like to directly run the bisimulator locally instead? [y/n]\n'
-    if [ \${REPLY,,} == "y" ]; then
-        echo Running slurm script directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-        (cd \$output_dir; \$bisimulator_job)
-        echo Successfully ran bisimulator directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran bisimulator directly" >> \$log_file
-        break
-    elif [ \${REPLY,,} == "n" ]; then
-        echo $'Direct execution declined\nAborting'
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
-        exit 1
-    else
-        echo 'Unrecognized response'
-    fi
-  done
+  if ! \$skip_user_read; then
+    while true; do
+      read -p \$'Would you like to directly run the bisimulator locally instead? [y/n]\n'
+      if [ \${REPLY,,} == "y" ]; then
+          break
+      elif [ \${REPLY,,} == "n" ]; then
+          echo $'Direct execution declined\nAborting'
+          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  echo Running slurm script directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+  (cd \$output_dir; \$bisimulator_job)
+  echo Successfully ran bisimulator directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran bisimulator directly" >> \$log_file
 fi
 EOF
 
@@ -785,6 +827,14 @@ if [ \$# -eq 0 ]; then
   exit 1
 fi
 
+skip_user_read=false
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
 # Load in the settings
 . ./postprocessor.config
 
@@ -798,18 +848,20 @@ echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
 
-# Ask the user to run the experiment with the aforementioned settings
-while true; do
-  read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
-  if [ \${REPLY,,} == "y" ]; then
-      break
-  elif [ \${REPLY,,} == "n" ]; then
-      echo $'Please change the settings in postprocessor.config\nAborting'
-      exit 1
-  else
-      echo 'Unrecognized response'
-  fi
-done
+if ! \$skip_user_read; then
+  # Ask the user to run the experiment with the aforementioned settings
+  while true; do
+    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Please change the settings in postprocessor.config\nAborting'
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
 
 # Select a directory for the experiments
 output_dir="\${1}"
@@ -864,25 +916,27 @@ if [ ! \$sbatch_command == '' ]; then
 else
   echo sbatch command not found
   echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
-  while true; do
-    read -p \$'Would you like to directly run the postprocessor locally instead? [y/n]\n'
-    if [ \${REPLY,,} == "y" ]; then
-        echo Running slurm script directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-        (cd \$output_dir; \$postprocessor_job)
-        echo Successfully ran postprocessor directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran postprocessor directly" >> \$log_file
-        break
-    elif [ \${REPLY,,} == "n" ]; then
-        echo $'Direct execution declined\nAborting'
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
-        exit 1
-    else
-        echo 'Unrecognized response'
-    fi
-  done
+  if ! \$skip_user_read; then
+    while true; do
+      read -p \$'Would you like to directly run the postprocessor locally instead? [y/n]\n'
+      if [ \${REPLY,,} == "y" ]; then
+          break
+      elif [ \${REPLY,,} == "n" ]; then
+          echo $'Direct execution declined\nAborting'
+          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  echo Running slurm script directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+  (cd \$output_dir; \$postprocessor_job)
+  echo Successfully ran postprocessor directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran postprocessor directly" >> \$log_file
 fi
 EOF
 
@@ -967,6 +1021,14 @@ if [ \$# -eq 0 ]; then
   exit 1
 fi
 
+skip_user_read=false
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
 # Load in the settings
 . ./summary_graphs_creator.config
 
@@ -988,18 +1050,20 @@ echo output=\$output
 echo nodelist=\$nodelist
 echo multi_summary=\$multi_summary
 
+if ! \$skip_user_read; then
 # Ask the user to run the experiment with the aforementioned settings
-while true; do
-  read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
-  if [ \${REPLY,,} == "y" ]; then
-      break
-  elif [ \${REPLY,,} == "n" ]; then
-      echo $'Please change the settings in summary_graphs_creator.config\nAborting'
-      exit 1
-  else
-      echo 'Unrecognized response'
-  fi
-done
+  while true; do
+    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Please change the settings in summary_graphs_creator.config\nAborting'
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
 
 # Select a directory for the experiments
 output_dir="\${1}"
@@ -1055,25 +1119,27 @@ if [ ! \$sbatch_command == '' ]; then
 else
   echo sbatch command not found
   echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
-  while true; do
-    read -p \$'Would you like to directly run the summary graphs creator locally instead? [y/n]\n'
-    if [ \${REPLY,,} == "y" ]; then
-        echo Running slurm script directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-        (cd \$output_dir; \$summary_graphs_creator_job)
-        echo Successfully ran summary graphs creator directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran summary graphs creator directly" >> \$log_file
-        break
-    elif [ \${REPLY,,} == "n" ]; then
-        echo $'Direct execution declined\nAborting'
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
-        exit 1
-    else
-        echo 'Unrecognized response'
-    fi
-  done
+  if ! \$skip_user_read; then
+    while true; do
+      read -p \$'Would you like to directly run the summary graphs creator locally instead? [y/n]\n'
+      if [ \${REPLY,,} == "y" ]; then
+          break
+      elif [ \${REPLY,,} == "n" ]; then
+          echo $'Direct execution declined\nAborting'
+          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  echo Running slurm script directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+  (cd \$output_dir; \$summary_graphs_creator_job)
+  echo Successfully ran summary graphs creator directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran summary graphs creator directly" >> \$log_file
 fi
 EOF
 
@@ -1158,6 +1224,14 @@ if [ \$# -eq 0 ]; then
   exit 1
 fi
 
+skip_user_read=false
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
 # Load in the settings
 . ./results_plotter.config
 
@@ -1172,18 +1246,20 @@ echo output=\$output
 echo nodelist=\$nodelist
 echo k=\$k
 
-# Ask the user to run the experiment with the aforementioned settings
-while true; do
-  read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
-  if [ \${REPLY,,} == "y" ]; then
-      break
-  elif [ \${REPLY,,} == "n" ]; then
-      echo $'Please change the settings in results_plotter.config\nAborting'
-      exit 1
-  else
-      echo 'Unrecognized response'
-  fi
-done
+if ! \$skip_user_read; then
+  # Ask the user to run the experiment with the aforementioned settings
+  while true; do
+    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Please change the settings in results_plotter.config\nAborting'
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
 
 # Select a directory for the experiments
 output_dir="\${1}"
@@ -1222,9 +1298,10 @@ cat >\$results_plotter_job << EOF2
 working_directory=\\\$(pwd)
 source activate base
 source \\\$HOME/.bashrc
+cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory
 conda activate
-/usr/bin/time -v python \\\$working_directory/../code/bin/plot_outcome_results.py \\\$working_directory/ \$k
-/usr/bin/time -v python \\\$working_directory/../code/bin/plot_summary_graph_results.py \\\$working_directory/ \$k
+conda activate \\\$working_directory/../code/python/.conda/
+python \\\$working_directory/../code/python/summary_loader/graph_stats.py ./ -v
 EOF2
 
 # Make sure the file will have Unix style line endings
@@ -1244,25 +1321,27 @@ if [ ! \$sbatch_command == '' ]; then
 else
   echo sbatch command not found
   echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
-  while true; do
-    read -p \$'Would you like to directly run the results plotter locally instead? [y/n]\n'
-    if [ \${REPLY,,} == "y" ]; then
-        echo Running slurm script directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-        (cd \$output_dir; \$results_plotter_job)
-        echo Successfully ran results plotter directly
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran results plotter directly" >> \$log_file
-        break
-    elif [ \${REPLY,,} == "n" ]; then
-        echo $'Direct execution declined\nAborting'
-        echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
-        echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
-        exit 1
-    else
-        echo 'Unrecognized response'
-    fi
-  done
+  if ! \$skip_user_read; then
+    while true; do
+      read -p \$'Would you like to directly run the results plotter locally instead? [y/n]\n'
+      if [ \${REPLY,,} == "y" ]; then
+          break
+      elif [ \${REPLY,,} == "n" ]; then
+          echo $'Direct execution declined\nAborting'
+          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  echo Running slurm script directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+  (cd \$output_dir; \$results_plotter_job)
+  echo Successfully ran results plotter directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran results plotter directly" >> \$log_file
 fi
 EOF
 
@@ -1331,6 +1410,14 @@ if [ \$# -eq 0 ]; then
   exit 1
 fi
 
+y_flag=""
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    y_flag=-y
+  fi
+done
+
 # Load in the settings
 . ./preprocessor.config
 
@@ -1345,15 +1432,15 @@ dataset_path_absolute=\$(realpath \$dataset_path)/
 output_dir=../\$dataset_name/
 
 echo -e "\n##### SETTING UP PREPROCESSOR EXPERIMENT #####"
-./preprocessor.sh \$dataset_path
+./preprocessor.sh \$dataset_path \$y_flag
 echo -e "\n##### SETTING UP BISIMULATOR EXPERIMENT #####"
-./bisimulator.sh \$output_dir
+./bisimulator.sh \$output_dir \$y_flag
 echo -e "\n##### SETTING UP POSTPROCESSOR EXPERIMENT #####"
-./postprocessor.sh \$output_dir
+./postprocessor.sh \$output_dir \$y_flag
 echo -e "\n##### SETTING UP SUMMARY GRAPH CREATOR EXPERIMENT #####"
-./summary_graphs_creator.sh \$output_dir
+./summary_graphs_creator.sh \$output_dir \$y_flag
 echo -e "\n##### SETTING UP RESULT PLOTTER EXPERIMENT #####"
-./results_plotter.sh \$output_dir
+./results_plotter.sh \$output_dir \$y_flag
 EOF
 
 # Make sure the file will have Unix style line endings

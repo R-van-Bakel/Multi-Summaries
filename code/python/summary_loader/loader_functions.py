@@ -132,7 +132,7 @@ def compute_edge_intervals(edges:list[int], node_intervals:dict[int,list[int]], 
         edge_intervals.append([max(s1,s2+1),min(e1,e2+1)])
     return edge_intervals
 
-def get_sizes(experiment_directory:str, depth:int, typed_start=True) -> list[tuple[Counter[int,int],Counter[int,int]]]:
+def get_sizes(experiment_directory:str, depth:int, typed_start=True) -> list[dict[str,Counter[int,int]]]:
     assert os.path.exists(experiment_directory), "The experiment directory string should refer to a valid (existing) directory"
     statistics = []
     sizes = dict()
@@ -162,7 +162,7 @@ def get_sizes(experiment_directory:str, depth:int, typed_start=True) -> list[tup
                 sizes[block_id] = block_size
                 accumulated_sizes[(i,block_id)]=block_size
                 f.seek(block_size*BYTES_PER_ENTITY, 1)
-        statistics.append((Counter(sizes.values()), Counter(accumulated_sizes.values())))
+        statistics.append({"Block sizes": Counter(sizes.values()), "Block sizes (accumulated)": Counter(accumulated_sizes.values())})
 
     return statistics
 
