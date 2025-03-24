@@ -4,6 +4,8 @@ from matplotlib import pyplot as plt
 from matplotlib import gridspec
 from collections import Counter
 from math import ceil, log10
+import numpy as np
+from test_kde import generic_universal_kde_via_integral_plot, EpanechnikovCDF
 from summary_loader.loader_functions import (
     get_sizes,
     get_fixed_point,
@@ -152,17 +154,6 @@ if __name__ == "__main__":
     summary_graph_statistics = get_summary_graph_statistics(experiment_directory)
     block_sizes = get_sizes(experiment_directory, fixed_point)
 
-    plot_statistics(statistics, result_directory)
-    plot_data_edge_statistics(data_edge_statistics, result_directory)
-    plot_block_sizes(block_sizes, result_directory)
-
-    edge_index, edge_type = get_summary_graph(experiment_directory)
-    edges = list(map(list, zip(*edge_index)))
-    node_intervals = get_node_intervals(experiment_directory)
-    edge_intervals = compute_edge_intervals(edges, node_intervals, fixed_point)
-
-    plot_edges_per_layer(edge_intervals)
-
     if verbose:
         print("Statistics:")
         for stats in statistics:
@@ -181,3 +172,61 @@ if __name__ == "__main__":
 
     print("\nSummary graph statistics:")
     print(summary_graph_statistics)
+    print()
+
+    print("Plotting statistics")
+    plot_statistics(statistics, result_directory)
+    print("Plotting data edge statistics")
+    plot_data_edge_statistics(data_edge_statistics, result_directory)
+    print("Plotting block sizes")
+    plot_block_sizes(block_sizes, result_directory)
+
+    edge_index, edge_type = get_summary_graph(experiment_directory)
+    edges = list(map(list, zip(*edge_index)))
+    node_intervals = get_node_intervals(experiment_directory)
+    edge_intervals = compute_edge_intervals(edges, node_intervals, fixed_point)
+
+    print("Plotting edges per layer")
+    plot_edges_per_layer(edge_intervals)
+
+    # Plot the block sizes heatmap
+    print("Plotting heatmap of block sizes per layer")
+    data_points = []
+    for level, data in enumerate(block_sizes):
+        for size, count in data["Block sizes"].items():
+            data_points.append((level, size, count))
+    data_points = np.stack(data_points)  # shape = number_of_data_points x 3
+
+    via_integration_kwargs = {
+        "dimension": 2,
+        "resolution": 512,
+        "weight_type": "vertex_based",
+        "log_size": True,
+        "log_base": 10,
+        "log_heatmap": True,
+        "clip": 0.00,
+        "clip_removes": False,
+    }
+    base_scale = 0.4
+    base_epsilon = 0.5
+    padding = 0.05
+
+    epanechnikov_args = ()
+    maximum_size = int(data_points[:, 1].max())
+    epsilon = (1 - padding) * base_epsilon / fixed_point
+    epanechnikov_kwargs = {
+        "scale": base_scale / maximum_size,
+        "epsilon": epsilon,
+    }
+    
+    log_string = "LOG " if via_integration_kwargs["log_heatmap"] else ""
+    plt.title(f"Heatmap of {log_string}vertex count in block sizes")
+    generic_universal_kde_via_integral_plot(
+        data_points,
+        experiment_directory,
+        EpanechnikovCDF,
+        epanechnikov_args,
+        epanechnikov_kwargs,
+        fixed_point,
+        **via_integration_kwargs,
+    )
