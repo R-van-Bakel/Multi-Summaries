@@ -307,6 +307,41 @@ class EpanechnikovCDF:
         return measure.squeeze()
 
 
+class UniformCDF:
+    def __init__(self, level: int, size: int, scale: int, epsilon: int) -> None:
+        self.size = size
+        self.scale = scale
+        self.level = level
+        self.epsilon = epsilon
+
+        self.slope = 1/(2*scale)
+
+    def __apply_uniform_cdf(self, x: np.ndarray) -> np.ndarray:
+        y = np.empty_like(x)
+        x_centered = x - self.size
+        lower_mask = x_centered <= -self.scale
+        upper_mask = x_centered >= self.scale
+        inner_mask = np.logical_not(
+            np.logical_or(lower_mask, upper_mask)
+        )  # The complement of the union of the lower and upper masks
+        y[lower_mask] = np.zeros_like(x[lower_mask])
+        y[upper_mask] = np.ones_like(x[upper_mask])
+        y[inner_mask] = self.slope * (x_centered[inner_mask]+self.scale)
+        return y
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        measure = np.zeros((x.shape[0], 1))
+        mask = np.logical_and(
+            x[:, 0] > self.level - self.epsilon, x[:, 0] < self.level + self.epsilon
+        )  # Mask everything outside our uniform distribution
+        measure[np.expand_dims(mask, 1)] = self.__apply_uniform_cdf(
+            x[:, 1][mask]
+        ) / (
+            2 * self.epsilon
+        )  # The calculation for the Epanechnikov cdf kernel, reweighed by the width of the uniform distribution
+        return measure.squeeze()
+
+
 def kde_via_sampling(
     kernels: (
         list[parameterized_diagonal_multivariate_gaussian]
@@ -831,7 +866,7 @@ if __name__ == "__main__":
         "clip": 0.00,
         "clip_removes": False,
     }
-    base_scale = 0.4
+    base_scale = 0.5
     base_epsilon = 0.5
     padding = 0.05
 
@@ -846,7 +881,7 @@ if __name__ == "__main__":
     generic_universal_kde_via_integral_plot(
         data_points,
         experiment_directory,
-        EpanechnikovCDF,
+        UniformCDF,
         epanechnikov_args,
         epanechnikov_kwargs,
         fixed_point,

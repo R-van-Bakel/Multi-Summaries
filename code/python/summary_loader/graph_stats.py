@@ -5,7 +5,7 @@ from matplotlib import gridspec
 from collections import Counter
 from math import ceil, log10
 import numpy as np
-from test_kde import generic_universal_kde_via_integral_plot, EpanechnikovCDF
+from test_kde import generic_universal_kde_via_integral_plot, EpanechnikovCDF, UniformCDF
 from summary_loader.loader_functions import (
     get_sizes,
     get_fixed_point,
@@ -207,7 +207,7 @@ if __name__ == "__main__":
         "clip": 0.00,
         "clip_removes": False,
     }
-    base_scale = 0.4
+    base_scale = 0.5
     base_epsilon = 0.5
     padding = 0.05
 
@@ -224,7 +224,7 @@ if __name__ == "__main__":
     generic_universal_kde_via_integral_plot(
         data_points,
         experiment_directory,
-        EpanechnikovCDF,
+        UniformCDF,
         epanechnikov_args,
         epanechnikov_kwargs,
         fixed_point,
