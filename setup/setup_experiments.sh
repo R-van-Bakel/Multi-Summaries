@@ -226,22 +226,6 @@ echo Compiling bisimulator.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling bisimulator.cpp" >> $log_file
 ./compile.sh ../$git_hash/code/src/bisimulator.cpp ../$git_hash/code/bin/bisimulator
 
-# Compile the postprocessor
-echo Copying postprocessor.cpp
-echo $(date) $(hostname) "${logging_process}.Info: Copying postprocessor.cpp" >> $log_file
-cp ../code/postprocessor.cpp ../$git_hash/code/src/postprocessor.cpp
-echo Compiling postprocessor.cpp
-echo $(date) $(hostname) "${logging_process}.Info: Compiling postprocessor.cpp" >> $log_file
-./compile.sh ../$git_hash/code/src/postprocessor.cpp ../$git_hash/code/bin/postprocessor
-
-# # Compile the summary graph program
-# echo Copying create_quotient_graphs_from_partitions.cpp
-# echo $(date) $(hostname) "${logging_process}.Info: Copying create_quotient_graphs_from_partitions.cpp" >> $log_file
-# cp ../code/create_quotient_graphs_from_partitions.cpp ../$git_hash/code/src/create_quotient_graphs_from_partitions.cpp
-# echo Compiling create_quotient_graphs_from_partitions.cpp
-# echo $(date) $(hostname) "${logging_process}.Info: Compiling create_quotient_graphs_from_partitions.cpp" >> $log_file
-# ./compile.sh ../code/create_quotient_graphs_from_partitions.cpp ../$git_hash/code/create_quotient_graphs_from_partitions
-
 # Compile the condensed summary graph program
 echo Copying create_condensed_summary_graph_from_partitions.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Copying create_condensed_summary_graph_from_partitions.cpp" >> $log_file
@@ -253,21 +237,6 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiling create_condensed_su
 # Echo that the compilation was successful
 echo C++ cpoying and compiling successful
 echo $(date) $(hostname) "${logging_process}.Info: C++ cpoying and compiling successful" >> $log_file
-
-# # Copy the python binary loader program
-# echo Copying python_binary_loader.py
-# echo $(date) $(hostname) "${logging_process}.Info: Copying python_binary_loader.py" >> $log_file
-# cp ../code/python_binary_loader.py ../$git_hash/code/python_binary_loader.py
-
-# # Copy the plot outcome results program
-# echo Copying plot_outcome_results.py
-# echo $(date) $(hostname) "${logging_process}.Info: Copying plot_outcome_results.py" >> $log_file
-# cp ../code/plot_outcome_results.py ../$git_hash/code/plot_outcome_results.py
-
-# # Copy the plot summary graph results program
-# echo Copying plot_summary_graph_results.py
-# echo $(date) $(hostname) "${logging_process}.Info: Copying plot_summary_graph_results.py" >> $log_file
-# cp ../code/plot_summary_graph_results.py ../$git_hash/code/plot_summary_graph_results.py
 
 # Copy the python package for loading, testing, displaying and plotting results
 echo Copying python codebase
@@ -752,199 +721,6 @@ sed -i 's/\r//g' $bisimulator
 
 # Make sure the bisimulator can be executed
 chmod +x $bisimulator
-
-# Create the config for the postprocessor experiment
-echo Creating postprocessor.config
-echo $(date) $(hostname) "${logging_process}.Info: Creating postprocessor.config" >> $log_file
-postprocessor_config=../$git_hash/scripts/postprocessor.config
-touch $postprocessor_config
-cat >$postprocessor_config << EOF
-job_name=postprocessing
-time=01:00:00
-N=1
-ntasks_per_node=1
-partition=defq
-output=slurm_postprocessor.out
-nodelist=
-EOF
-
-# Make sure the file will have Unix style line endings
-sed -i 's/\r//g' $postprocessor_config
-
-# Create the shell file for the postprocessor experiment
-echo Creating postprocessor.sh
-echo $(date) $(hostname) "${logging_process}.Info: Creating postprocessor.sh" >> $log_file
-postprocessor=../$git_hash/scripts/postprocessor.sh
-touch $postprocessor
-cat >$postprocessor << EOF
-#!/bin/bash
-
-# Using error handling code from https://linuxsimply.com/bash-scripting-tutorial/error-handling-and-debugging/error-handling/trap-err/
-##################################################
-
-# Define error handler function
-function handle_error() {
-  # Get information about the error
-  local error_code=\$?
-  local error_line=\$BASH_LINENO
-  local error_command=\$BASH_COMMAND
-
-  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
-    echo "Ignored error on line \$error_line: \$error_command"
-    echo "This command is expected to fail if \`sbatch\` is not available"
-    return 0
-  fi
-
-  # Log the error details
-  echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
-  echo "Exiting with code: 1"
-
-  # Check if log_file has been set
-  if [[ ! -z "\$log_file" ]]; then
-    # Check log_file refers to an actual log file
-    if [[ -f "\$log_file" ]] && [[ \$log_file == *.log ]]; then
-      # If no process name has been set, then use "default"
-      if [[ -z "\$logging_process" ]]; then
-        logging_process=default
-      fi
-      echo \$(date) \$(hostname) "\${logging_process}.Err: Error occurred on line \$error_line: \$error_command (exit code: \$error_code)" >> \$log_file
-      echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
-    fi
-  fi
-
-  # Optionally exit the script gracefully
-  exit 1
-}
-
-# Set the trap for any error (non-zero exit code)
-trap handle_error ERR
-
-##################################################
-
-# Check if a path to a dataset has been provided
-if [ \$# -eq 0 ]; then
-  echo 'Please provide a path to a dataset directory. This directory should have been created by preprocessor.sh'
-  exit 1
-fi
-
-skip_user_read=false
-for var in "\$@"
-do
-  if [ "\$var" = "-y" ]; then
-    skip_user_read=true
-  fi
-done
-
-# Load in the settings
-. ./postprocessor.config
-
-# Print the settings
-echo Using the following settings:
-echo job_name=\$job_name
-echo time=\$time
-echo N=\$N
-echo ntasks_per_node=\$ntasks_per_node
-echo partition=\$partition
-echo output=\$output
-echo nodelist=\$nodelist
-
-if ! \$skip_user_read; then
-  # Ask the user to run the experiment with the aforementioned settings
-  while true; do
-    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
-    if [ \${REPLY,,} == "y" ]; then
-        break
-    elif [ \${REPLY,,} == "n" ]; then
-        echo $'Please change the settings in postprocessor.config\nAborting'
-        exit 1
-    else
-        echo 'Unrecognized response'
-    fi
-  done
-fi
-
-# Select a directory for the experiments
-output_dir="\${1}"
-output_dir_absolute=\$(realpath \$output_dir)/
-
-# The log file for the experiments
-log_file=\${output_dir}experiments.log
-logging_process=Postprocessor
-
-# Log the settings
-echo \$(date) \$(hostname) "\${logging_process}.Info: Performing postprocessing in: \${output_dir_absolute}" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: Using the following settings:" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: job_name=\$job_name" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: time=\$time" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: N=\$N" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_per_node" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
-
-# Create the slurm script
-echo Creating slurm script
-echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
-postprocessor_job=\${output_dir}slurm_postprocessor.sh
-touch \$postprocessor_job
-cat >\$postprocessor_job << EOF2
-#!/bin/bash
-#SBATCH --job-name=\$job_name
-#SBATCH --time=\$time
-#SBATCH -N \$N
-#SBATCH --ntasks-per-node=\$ntasks_per_node
-#SBATCH --partition=\$partition
-#SBATCH --output=\$output
-#SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../code/bin/postprocessor ./
-EOF2
-
-# Make sure the file will have Unix style line endings
-sed -i 's/\r//g' \$postprocessor_job
-
-# Make sure the postprocessor job script can be executed (in case of local execution)
-chmod +x \$postprocessor_job
-
-# Queueing slurm script or ask to execute directly
-sbatch_command=\$(command -v sbatch)
-if [ ! \$sbatch_command == '' ]; then
-  echo Queueing slurm script
-  echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
-  (cd \$output_dir; sbatch \$postprocessor_job)
-  echo Postprocessor queued successfully, see \$output for the results
-  echo \$(date) \$(hostname) "\${logging_process}.Info: Postprocessor queued successfully, see \$output for the results" >> \$log_file
-else
-  echo sbatch command not found
-  echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
-  if ! \$skip_user_read; then
-    while true; do
-      read -p \$'Would you like to directly run the postprocessor locally instead? [y/n]\n'
-      if [ \${REPLY,,} == "y" ]; then
-          break
-      elif [ \${REPLY,,} == "n" ]; then
-          echo $'Direct execution declined\nAborting'
-          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
-          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
-          exit 1
-      else
-          echo 'Unrecognized response'
-      fi
-    done
-  fi
-  echo Running slurm script directly
-  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
-  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$postprocessor_job)
-  echo Successfully ran postprocessor directly
-  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran postprocessor directly" >> \$log_file
-fi
-EOF
-
-# Make sure the file will have Unix style line endings
-sed -i 's/\r//g' $postprocessor
-
-# Make sure the postprocessor can be executed
-chmod +x $postprocessor
 
 # Create the config for the summary graphs experiment
 echo Creating summary_graphs_creator.config
@@ -1435,8 +1211,6 @@ echo -e "\n##### SETTING UP PREPROCESSOR EXPERIMENT #####"
 ./preprocessor.sh \$dataset_path \$y_flag
 echo -e "\n##### SETTING UP BISIMULATOR EXPERIMENT #####"
 ./bisimulator.sh \$output_dir \$y_flag
-echo -e "\n##### SETTING UP POSTPROCESSOR EXPERIMENT #####"
-./postprocessor.sh \$output_dir \$y_flag
 echo -e "\n##### SETTING UP SUMMARY GRAPH CREATOR EXPERIMENT #####"
 ./summary_graphs_creator.sh \$output_dir \$y_flag
 echo -e "\n##### SETTING UP RESULT PLOTTER EXPERIMENT #####"
