@@ -1678,7 +1678,7 @@ int main(int ac, char *av[])
                 block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
                 if (split_block == 0)
                 {
-                    BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
+                    BlockMap& block_to_singletons = blocks_to_singletons.get_map(current_level);
                     for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
                     {
                         assert(singleton <= MAX_SIGNED_BLOCK_SIZE); // Check if the following cast is possible
@@ -1775,6 +1775,12 @@ int main(int ac, char *av[])
         std::string current_mapping = experiment_directory + "bisimulation/mapping-" + previous_level_string + "to" + current_level_string + ".bin";
         std::ifstream current_mapping_file(current_mapping, std::ifstream::in);
         
+        const int BufferSize = 8 * 16184;
+
+        char _buffer[BufferSize];
+    
+        current_mapping_file.rdbuf()->pubsetbuf(_buffer, BufferSize);
+        
         auto t_edges{boost::chrono::system_clock::now()};
         auto time_t_edges{boost::chrono::system_clock::to_time_t(t_edges)};
         std::tm *ptm_edges{std::localtime(&time_t_edges)};
@@ -1804,7 +1810,7 @@ int main(int ac, char *av[])
                 block_index split_block = read_uint_BLOCK_little_endian(current_mapping_file);
                 if (split_block == 0)
                 {
-                    BlockMap block_to_singletons = blocks_to_singletons.get_map(current_level);
+                    BlockMap& block_to_singletons = blocks_to_singletons.get_map(current_level);
                     for (node_index singleton: block_to_singletons.get_node_set(merged_block).get_nodes())
                     {
                         assert(singleton <= MAX_SIGNED_BLOCK_SIZE); // Check if the following cast is possible
@@ -1859,18 +1865,28 @@ int main(int ac, char *av[])
         // std::cout << std::endl;
         // std::cout << "DEBUG current level: " << current_level << std::endl;
         // Add the incomming edges for the blocks that died in the current level
+        // auto t_debug_2{boost::chrono::system_clock::now()};
+        // auto time_t_debug_2{boost::chrono::system_clock::to_time_t(t_debug_2)};
+        // std::tm *ptm_debug_2{std::localtime(&time_t_debug_2)};
+        // std::cout << "\n" << std::put_time(ptm_debug_2, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before add current incomming" << std::endl;
+        // u_int64_t outer_loop_count = 0;
+        // u_int64_t inner_loop_a_count = 0;
+        // u_int64_t inner_loop_b_count = 0;
+        // u_int64_t inner_loop_c_count = 0;
         for (block_or_singleton_index dying_block: dying_blocks)
         {
+            // outer_loop_count++;
             block_or_singleton_index object_image = current_split_to_merged_map.map_block(dying_block);
             for (auto predicate_subject_pair: gs.get_reverse_nodes()[dying_block].get_pairs())
             {
+                // inner_loop_a_count++;
                 block_or_singleton_index subject = predicate_subject_pair.second;
 
                 if (old_living_blocks.find(subject) == old_living_blocks.cend())
                 {
                     continue;
                 }
-
+                // inner_loop_b_count++;
                 block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
 
                 // if (subject_image == 195){
@@ -1903,7 +1919,7 @@ int main(int ac, char *av[])
                     // std::cout << "DEBUG skipped edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
                     continue;
                 }
-
+                // inner_loop_c_count++;
                 
                 edge_type predicate = predicate_subject_pair.first;
 
@@ -1911,19 +1927,34 @@ int main(int ac, char *av[])
                 gs.add_edge_to_node(subject_image, predicate, object_image);
             }
         }
+        // auto t_debug_loop1{boost::chrono::system_clock::now()};
+        // auto time_t_debug_loop1{boost::chrono::system_clock::to_time_t(t_debug_loop1)};
+        // std::tm *ptm_debug_loop1{std::localtime(&time_t_debug_loop1)};
+        // std::cout << std::put_time(ptm_debug_loop1, "%Y/%m/%d %H:%M:%S") << " DEBUG: out:" << outer_loop_count << " in1:" << inner_loop_a_count << " in2:" << inner_loop_b_count << " in3:" << inner_loop_c_count << std::endl;
 
         // Add the outgoing edges for the blocks that died in the previous level
+        // auto t_debug_1{boost::chrono::system_clock::now()};
+        // auto time_t_debug_1{boost::chrono::system_clock::to_time_t(t_debug_1)};
+        // std::tm *ptm_debug_1{std::localtime(&time_t_debug_1)};
+        // std::cout << std::put_time(ptm_debug_1, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before add previous outgoing" << std::endl;
+        // outer_loop_count = 0;
+        // inner_loop_a_count = 0;
+        // inner_loop_b_count = 0;
+        // inner_loop_c_count = 0;
         for (block_or_singleton_index old_dying_block: old_dying_blocks)
         {
+            // outer_loop_count++;
             block_or_singleton_index subject_image = old_split_to_merged_map.map_block(old_dying_block);
             for (auto predicate_object_pair: gs.get_nodes()[old_dying_block].get_pairs())
             {
+                // inner_loop_a_count++;
                 block_or_singleton_index object = predicate_object_pair.second;
 
                 if (new_living_blocks.find(object) == new_living_blocks.cend())
                 {
                     continue;
                 }
+                // inner_loop_b_count++;
 
                 block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
 
@@ -1933,11 +1964,16 @@ int main(int ac, char *av[])
                     // std::cout << "DEBUG skipped edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
                     continue;
                 }
+                // inner_loop_c_count++;
 
                 edge_type predicate = predicate_object_pair.first;
                 gs.add_edge_to_node(subject_image, predicate, object_image);
             }
         }
+        // auto t_debug_loop2{boost::chrono::system_clock::now()};
+        // auto time_t_debug_loop2{boost::chrono::system_clock::to_time_t(t_debug_loop2)};
+        // std::tm *ptm_debug_loop2{std::localtime(&time_t_debug_loop2)};
+        // std::cout << std::put_time(ptm_debug_loop2, "%Y/%m/%d %H:%M:%S") << " DEBUG: out:" << outer_loop_count << " in1:" << inner_loop_a_count << " in2:" << inner_loop_b_count << " in3:" << inner_loop_c_count << std::endl;
 
 
         // std::cout << std::endl;
@@ -1957,29 +1993,69 @@ int main(int ac, char *av[])
         // std::cout << std::endl;
 
         // Copy the new living blocks into the old living blocks
+        // auto t_debug1{boost::chrono::system_clock::now()};
+        // auto time_t_debug1{boost::chrono::system_clock::to_time_t(t_debug1)};
+        // std::tm *ptm_debug1{std::localtime(&time_t_debug1)};
+        // std::cout << std::put_time(ptm_debug1, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before clear old living blocks" << std::endl;
         old_living_blocks.clear();
+        // auto t_debug2{boost::chrono::system_clock::now()};
+        // auto time_t_debug2{boost::chrono::system_clock::to_time_t(t_debug2)};
+        // std::tm *ptm_debug2{std::localtime(&time_t_debug2)};
+        // std::cout << std::put_time(ptm_debug2, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before update old living blocks" << std::endl;
         for (auto living_block_key_val: new_living_blocks)
         {
             old_living_blocks[living_block_key_val.first] = living_block_key_val.second;
         }
 
         // Update living_blocks by removing the dying blocks and adding the spawning blocks
+        // auto t_debug3{boost::chrono::system_clock::now()};
+        // auto time_t_debug3{boost::chrono::system_clock::to_time_t(t_debug3)};
+        // std::tm *ptm_debug3{std::localtime(&time_t_debug3)};
+        // std::cout << std::put_time(ptm_debug3, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before erase new living blocks" << std::endl;
         for (block_or_singleton_index dying_block: dying_blocks)
         {
             new_living_blocks.erase(dying_block);
         }
+        // auto t_debug4{boost::chrono::system_clock::now()};
+        // auto time_t_debug4{boost::chrono::system_clock::to_time_t(t_debug4)};
+        // std::tm *ptm_debug4{std::localtime(&time_t_debug4)};
+        // std::cout << std::put_time(ptm_debug4, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before merge new living blocks" << std::endl;
         new_living_blocks.merge(spawning_blocks);
+        // auto t_debug5{boost::chrono::system_clock::now()};
+        // auto time_t_debug5{boost::chrono::system_clock::to_time_t(t_debug5)};
+        // std::tm *ptm_debug5{std::localtime(&time_t_debug5)};
+        // std::cout << std::put_time(ptm_debug5, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before move into old dying blocks" << std::endl;
         old_dying_blocks = std::move(dying_blocks);
+        // auto t_debug6{boost::chrono::system_clock::now()};
+        // auto time_t_debug6{boost::chrono::system_clock::to_time_t(t_debug6)};
+        // std::tm *ptm_debug6{std::localtime(&time_t_debug6)};
+        // std::cout << std::put_time(ptm_debug6, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before clear dyings blocks" << std::endl;
         dying_blocks.clear();
+        // auto t_debug7{boost::chrono::system_clock::now()};
+        // auto time_t_debug7{boost::chrono::system_clock::to_time_t(t_debug7)};
+        // std::tm *ptm_debug7{std::localtime(&time_t_debug7)};
+        // std::cout << std::put_time(ptm_debug7, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before clear spawing blocks" << std::endl;
         spawning_blocks.clear();
 
         // Update the new local to global living block mapping
+        // auto t_debug8{boost::chrono::system_clock::now()};
+        // auto time_t_debug8{boost::chrono::system_clock::to_time_t(t_debug8)};
+        // std::tm *ptm_debug8{std::localtime(&time_t_debug8)};
+        // std::cout << std::put_time(ptm_debug8, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before clear new local to global living blocks" << std::endl;
         new_local_to_global_living_blocks.clear();
+        // auto t_debug9{boost::chrono::system_clock::now()};
+        // auto time_t_debug9{boost::chrono::system_clock::to_time_t(t_debug9)};
+        // std::tm *ptm_debug9{std::localtime(&time_t_debug9)};
+        // std::cout << std::put_time(ptm_debug9, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before update new local to global living blocks" << std::endl;
         for (auto living_block_key_val: new_living_blocks)
         {
             new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
         }
 
+        // auto t_debug10{boost::chrono::system_clock::now()};
+        // auto time_t_debug10{boost::chrono::system_clock::to_time_t(t_debug10)};
+        // std::tm *ptm_debug10{std::localtime(&time_t_debug10)};
+        // std::cout << std::put_time(ptm_debug10, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before move into old split to merged map" << std::endl;
         old_split_to_merged_map = std::move(current_split_to_merged_map);
         w.stop_step();
 

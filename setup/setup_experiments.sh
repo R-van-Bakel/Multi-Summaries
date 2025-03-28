@@ -504,7 +504,7 @@ else
   echo Running slurm script directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
   echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$preprocessor_job)
+  (cd \$output_dir; \$preprocessor_job > slurm_preprocessor.out)
   echo Successfully ran preprocessor directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran preprocessor directly" >> \$log_file
 fi
@@ -710,7 +710,7 @@ else
   echo Running slurm script directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
   echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$bisimulator_job)
+  (cd \$output_dir; \$bisimulator_job > slurm_bisimulator.out)
   echo Successfully ran bisimulator directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran bisimulator directly" >> \$log_file
 fi
@@ -913,7 +913,7 @@ else
   echo Running slurm script directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
   echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$summary_graphs_creator_job)
+  (cd \$output_dir; \$summary_graphs_creator_job > slurm_summary_graphs_creator.out)
   echo Successfully ran summary graphs creator directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran summary graphs creator directly" >> \$log_file
 fi
@@ -1115,7 +1115,7 @@ else
   echo Running slurm script directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
   echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$results_plotter_job)
+  (cd \$output_dir; \$results_plotter_job > slurm_results_plotter.out)
   echo Successfully ran results plotter directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran results plotter directly" >> \$log_file
 fi

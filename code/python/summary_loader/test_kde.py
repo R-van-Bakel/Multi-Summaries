@@ -1,10 +1,13 @@
 import sys
-from math import sqrt, pi, log, floor
+from math import sqrt, pi, log, floor, e
 import numpy as np
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import Colormap
 from typing import Any, Type, Protocol
 from summary_loader.loader_functions import get_fixed_point, get_sizes
+from functools import partial
 
 # Using the following setting:
 # n1 = parameterized_diagonal_multivariate_gaussian(means, standard_deviations)
@@ -17,6 +20,52 @@ from summary_loader.loader_functions import get_fixed_point, get_sizes
 ArgsType = tuple[Any]
 KwargsType = dict[str, Any]
 
+# class ParadisoSemiCmap(Colormap):
+#     def __init__(self) -> None:
+#         super().__init__("paradiso", 256)
+
+#         SKEW = 0.8
+#         s = -1/(e*log(2*(1-SKEW), e))
+#         self.numerator = -s**2
+#         offset_term = sqrt(4*s**2+1)/2
+#         self.horizontal_offset = offset_term - 1/2
+#         self.vertical_offset = -offset_term - 1/2
+    
+#     def __call__(self, X: np.ndarray, *args, bytes=False, **kwargs) -> tuple[float,float,float,float]:
+#         xa = np.array(X, copy=True)
+#         mix_factor=self.numerator/(xa + self.horizontal_offset)-self.vertical_offset
+#         mix_factor = np.expand_dims(mix_factor, axis=2)
+
+#         rgba = plt.cm.YlGnBu(xa)
+#         rgba[:,:,:3] = mix_factor*rgba[:,:,:3] + (1-mix_factor)*1  # Change the "rgb" channels (and leave the "a" channel intact)
+#         if bytes:
+#             rgba = np.round(rgba*255).astype(np.uint8)
+#         return rgba
+
+# PARADISO: Colormap = ParadisoSemiCmap()
+INFERNO: Colormap = plt.cm.inferno
+# PARADISO: Colormap = plt.cm.inferno_r
+
+colors = INFERNO(np.arange(INFERNO.N))
+# inverted_colors = 1 - colors[:, :3]  # Invert rgb values
+# PARADISO: Colormap = LinearSegmentedColormap.from_list("paradiso", inverted_colors)
+
+def whiten_cmap(cmap: Colormap, name: str, skew: float = 0.8) -> Colormap:
+    xa = np.arange(cmap.N)/cmap.N
+    s = -1/(e*log(2*(1-skew), e))
+    numerator = -s**2
+    offset_term = sqrt(4*s**2+1)/2
+    horizontal_offset = offset_term - 1/2
+    vertical_offset = -offset_term - 1/2
+    mix_factor=numerator/(xa + horizontal_offset)-vertical_offset
+    mix_factor = np.expand_dims(mix_factor, axis=1)
+
+    rgba = cmap(xa)
+    rgba[:,:3] = mix_factor*rgba[:,:3] + (1-mix_factor)*1  # Change rgb values
+    return LinearSegmentedColormap.from_list(name, rgba)
+
+SKEW = 0.8
+PARADISO: Colormap = whiten_cmap(plt.cm.YlGnBu, "paradiso", SKEW)
 
 # A function for calculating
 def parametric_diagonal_multivariate_gaussian(
@@ -558,11 +607,11 @@ def generic_universal_kde_via_integral_plot(
         plt.yticks(y_tick_positions, y_tick_labels)
 
     # Label the axes
-    plt.xlabel("Bisumulation level")
+    plt.xlabel("Bisimulation level")
     plt.ylabel("Block size")
 
     # Plot our data as a heatmap
-    plt.imshow(kde, origin="lower", cmap="inferno", interpolation="nearest")
+    plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
     plt.savefig(experiment_directory + "results/block_sizes_integral_kde.svg", dpi=resolution)
 
 
@@ -692,11 +741,11 @@ def generic_universal_kde_plot(
         plt.yticks(y_tick_positions, y_tick_labels)
 
     # Label the axes
-    plt.xlabel("Bisumulation level")
+    plt.xlabel("Bisimulation level")
     plt.ylabel("Block size")
 
     # Plot our data as a heatmap
-    plt.imshow(kde, origin="lower", cmap="inferno", interpolation="nearest")
+    plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
     plt.savefig(experiment_directory + "results/block_sizes_generic_universal_kde.svg", dpi=resolution)
 
 
@@ -802,11 +851,11 @@ def gaussian_log_log_kde_plot(
         plt.yticks(y_tick_positions, y_tick_labels)
 
     # Label the axes
-    plt.xlabel("Bisumulation level")
+    plt.xlabel("Bisimulation level")
     plt.ylabel("Block size")
 
     # Plot our data as a heatmap
-    plt.imshow(kde, origin="lower", cmap="inferno", interpolation="nearest")
+    plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
     plt.savefig(experiment_directory + "results/block_sizes_gaussian_log_log_kde.svg", dpi=resolution)
 
 
