@@ -195,10 +195,16 @@ if __name__ == "__main__":
     for level, data in enumerate(block_sizes):
         for size, count in data["Block sizes"].items():
             data_points.append((level, size, count))
+
+    # Add the singletons to the data points
+    statistics = get_statistics(experiment_directory, fixed_point)
+    for level, per_level_statistics in enumerate(statistics):
+        data_points.append((level, 1, per_level_statistics["Singleton count"]))
+
+    # Turn the data points into a nmupy array
     data_points = np.stack(data_points)  # shape = number_of_data_points x 3
 
     via_integration_kwargs = {
-        "dimension": 2,
         "resolution": 512,
         "weight_type": "vertex_based",
         "log_size": True,
@@ -206,6 +212,7 @@ if __name__ == "__main__":
         "log_heatmap": True,
         "clip": 0.00,
         "clip_removes": False,
+        "plot_name": "block_sizes_integral_kde.svg",
     }
     base_scale = 0.5
     base_epsilon = 0.5
@@ -219,11 +226,9 @@ if __name__ == "__main__":
         "epsilon": epsilon,
     }
     
-    log_string = "LOG " if via_integration_kwargs["log_heatmap"] else ""
-    plt.title(f"Heatmap of {log_string}vertex count in block sizes")
     generic_universal_kde_via_integral_plot(
         data_points,
-        experiment_directory,
+        result_directory,
         UniformCDF,
         epanechnikov_args,
         epanechnikov_kwargs,
