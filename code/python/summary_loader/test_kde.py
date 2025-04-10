@@ -6,7 +6,11 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import Colormap
 from typing import Any, Type, Protocol
-from summary_loader.loader_functions import get_fixed_point, get_sizes, get_statistics
+from summary_loader.loader_functions import (
+    get_fixed_point,
+    get_sizes_and_split_blocks,
+    get_statistics,
+)
 from functools import partial
 
 # Using the following setting:
@@ -67,85 +71,85 @@ SKEW = 0.8
 PARADISO: Colormap = whiten_cmap(plt.cm.YlGnBu, "paradiso", SKEW)
 
 
-# A function for calculating a multivariate Gaussian
-def parametric_diagonal_multivariate_gaussian(
-    x: np.ndarray, means: np.ndarray, standard_deviations: np.ndarray
-) -> np.ndarray:
-    dimension = means.size
-    variances = np.square(standard_deviations)
-    determinant = np.prod(variances)
+# # A function for calculating a multivariate Gaussian
+# def parametric_diagonal_multivariate_gaussian(
+#     x: np.ndarray, means: np.ndarray, standard_deviations: np.ndarray
+# ) -> np.ndarray:
+#     dimension = means.size
+#     variances = np.square(standard_deviations)
+#     determinant = np.prod(variances)
 
-    normalization_constant = (2 * pi) ** (-dimension / 2) * determinant ** (-1 / 2)
-    measure = np.exp((-1 / 2) * np.square(x - means) * np.reciprocal(variances))
-    return normalization_constant * measure
-
-
-# Create a callable parameterized 2D kernel that is uniform in one direction and Epanechnikov in the other
-class parameterized_uniform_epanechnikov:
-    def __init__(self, level: int, size: int, scale: int, epsilon: int = 0.1) -> None:
-        self.level = level
-        self.epsilon = epsilon
-        self.size = size
-        self.scale = scale
-        self.normalization_constant = scale * 3 / 4
-
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        measure = np.zeros((x.shape[0], 1))
-        mask = np.logical_and(
-            x[:, 0] > self.level - self.epsilon, x[:, 0] < self.level + self.epsilon
-        )  # Mask everything outside our uniform distribution
-        measure[np.expand_dims(mask, 1)] = np.maximum(
-            0, 1 - ((x[:, 1][mask] - self.size) / self.scale) ** 2
-        ) / (
-            2 * self.epsilon
-        )  # The calculation for the Epanechnikov kernel, reweighed by the width of the uniform distribution
-        return self.normalization_constant * measure.squeeze()
+#     normalization_constant = (2 * pi) ** (-dimension / 2) * determinant ** (-1 / 2)
+#     measure = np.exp((-1 / 2) * np.square(x - means) * np.reciprocal(variances))
+#     return normalization_constant * measure
 
 
-# Create a callable parameterized 2D kernel that is uniform in one direction and Gaussian in the other
-class parameterized_uniform_gaussian:
-    def __init__(
-        self, level: int, size: int, standard_deviation: int, epsilon: int = 0.1
-    ) -> None:
-        self.level = level
-        self.epsilon = epsilon
-        self.size = size
-        determinant = variance = standard_deviation**2
+# # Create a callable parameterized 2D kernel that is uniform in one direction and Epanechnikov in the other
+# class parameterized_uniform_epanechnikov:
+#     def __init__(self, level: int, size: int, scale: int, epsilon: int = 0.1) -> None:
+#         self.level = level
+#         self.epsilon = epsilon
+#         self.size = size
+#         self.scale = scale
+#         self.normalization_constant = scale * 3 / 4
 
-        self.normalization_constant = (2 * pi * determinant) ** (-1 / 2)
-        self.partial_exponent = -1 / (2 * variance)
-
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        measure = np.zeros((x.shape[0], 1))
-        mask = np.logical_and(
-            x[:, 0] > self.level - self.epsilon, x[:, 0] < self.level + self.epsilon
-        )  # Mask everything outside our uniform distribution
-        measure[np.expand_dims(mask, 1)] = np.exp(
-            np.square(x[:, 1][mask] - self.size) * self.partial_exponent
-        ) / (
-            2 * self.epsilon
-        )  # The calculation for the Gaussian, reweighed by the width of the uniform distribution
-        return self.normalization_constant * measure.squeeze()
+#     def __call__(self, x: np.ndarray) -> np.ndarray:
+#         measure = np.zeros((x.shape[0], 1))
+#         mask = np.logical_and(
+#             x[:, 0] > self.level - self.epsilon, x[:, 0] < self.level + self.epsilon
+#         )  # Mask everything outside our uniform distribution
+#         measure[np.expand_dims(mask, 1)] = np.maximum(
+#             0, 1 - ((x[:, 1][mask] - self.size) / self.scale) ** 2
+#         ) / (
+#             2 * self.epsilon
+#         )  # The calculation for the Epanechnikov kernel, reweighed by the width of the uniform distribution
+#         return self.normalization_constant * measure.squeeze()
 
 
-# Create a callable parameterized Gaussian. By parameterizing a head of time this function can effectively be reused several times
-class parameterized_diagonal_multivariate_gaussian:
-    def __init__(self, means: np.ndarray, standard_deviations: np.ndarray) -> None:
-        self.means = means
-        dimension = means.size
-        variances = np.square(standard_deviations)
-        determinant = np.prod(variances)
+# # Create a callable parameterized 2D kernel that is uniform in one direction and Gaussian in the other
+# class parameterized_uniform_gaussian:
+#     def __init__(
+#         self, level: int, size: int, standard_deviation: int, epsilon: int = 0.1
+#     ) -> None:
+#         self.level = level
+#         self.epsilon = epsilon
+#         self.size = size
+#         determinant = variance = standard_deviation**2
 
-        self.normalization_constant = (2 * pi) ** (-dimension / 2) * determinant ** (
-            -1 / 2
-        )
-        self.partial_exponent = (-1 / 2) * np.reciprocal(variances)
+#         self.normalization_constant = (2 * pi * determinant) ** (-1 / 2)
+#         self.partial_exponent = -1 / (2 * variance)
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        measure = np.exp(
-            np.sum(np.square(x - self.means) * self.partial_exponent, axis=1)
-        )
-        return self.normalization_constant * measure
+#     def __call__(self, x: np.ndarray) -> np.ndarray:
+#         measure = np.zeros((x.shape[0], 1))
+#         mask = np.logical_and(
+#             x[:, 0] > self.level - self.epsilon, x[:, 0] < self.level + self.epsilon
+#         )  # Mask everything outside our uniform distribution
+#         measure[np.expand_dims(mask, 1)] = np.exp(
+#             np.square(x[:, 1][mask] - self.size) * self.partial_exponent
+#         ) / (
+#             2 * self.epsilon
+#         )  # The calculation for the Gaussian, reweighed by the width of the uniform distribution
+#         return self.normalization_constant * measure.squeeze()
+
+
+# # Create a callable parameterized Gaussian. By parameterizing a head of time this function can effectively be reused several times
+# class parameterized_diagonal_multivariate_gaussian:
+#     def __init__(self, means: np.ndarray, standard_deviations: np.ndarray) -> None:
+#         self.means = means
+#         dimension = means.size
+#         variances = np.square(standard_deviations)
+#         determinant = np.prod(variances)
+
+#         self.normalization_constant = (2 * pi) ** (-dimension / 2) * determinant ** (
+#             -1 / 2
+#         )
+#         self.partial_exponent = (-1 / 2) * np.reciprocal(variances)
+
+#     def __call__(self, x: np.ndarray) -> np.ndarray:
+#         measure = np.exp(
+#             np.sum(np.square(x - self.means) * self.partial_exponent, axis=1)
+#         )
+#         return self.normalization_constant * measure
 
 
 def add_minor_log_ticks(
@@ -193,7 +197,7 @@ def add_minor_log_ticks(
         raise ValueError(
             f"The `positions` parameter is supposed to have 1 dimension, but instead it has {positions.ndim}"
         )
-    
+
     start = start if start is not None else positions[0]
     end = end if end is not None else positions[-1]
 
@@ -277,47 +281,47 @@ def means_weights_from_data(data_points: np.ndarray) -> tuple[np.ndarray, np.nda
     return means, kernel_weights
 
 
-def determine_standard_deviation(
-    data_point_count: int, dimension: int, variance_type: str
-) -> np.ndarray:
-    """
-    Set the standard deviation of the multivariate Gaussian kernel using either Scott's or Silverman' rule.
+# def determine_standard_deviation(
+#     data_point_count: int, dimension: int, variance_type: str
+# ) -> np.ndarray:
+#     """
+#     Set the standard deviation of the multivariate Gaussian kernel using either Scott's or Silverman' rule.
 
-    Parameters
-    ----------
-    data_point_count : int
-        The data point count.
-    dimension : int
-        The dimension of the multivariate Gaussian kernel.
-    variance_type : str
-        The variance rule to be applied. It should be one of variance_type should be one of "scott" or "silverman".
+#     Parameters
+#     ----------
+#     data_point_count : int
+#         The data point count.
+#     dimension : int
+#         The dimension of the multivariate Gaussian kernel.
+#     variance_type : str
+#         The variance rule to be applied. It should be one of variance_type should be one of "scott" or "silverman".
 
-    Returns
-    -------
-    np.ndarray
-        A one-dimensional array containing variances per dimension.
-        Note that the variance will be the same for each dimension.
+#     Returns
+#     -------
+#     np.ndarray
+#         A one-dimensional array containing variances per dimension.
+#         Note that the variance will be the same for each dimension.
 
-    Raises
-    ------
-    ValueError
-        `variance_type` should be one of "scott" or "silverman"
-    """
-    # Set the variance according to either Scott's or Silverman's rule
-    # Note that 1) the covariance matrix is effectively a diagonal matrix with the same value sqrt(variance) along its diagonal
-    # and 2) we use the exact same variance for each kernel (as opposed to the means which are unique for every kernel)
-    if variance_type == "scott":
-        variance = data_point_count ** (-1.0 / (dimension + 4))
-    elif variance_type == "silverman":
-        variance = (data_point_count * (dimension + 2) / 4.0) ** (
-            -1.0 / (dimension + 4)
-        )
-    else:
-        raise ValueError('`variance_type` should be one of "scott" or "silverman"')
-    standard_deviations = np.full(
-        shape=dimension, fill_value=sqrt(variance), dtype=np.float64
-    )
-    return standard_deviations
+#     Raises
+#     ------
+#     ValueError
+#         `variance_type` should be one of "scott" or "silverman"
+#     """
+#     # Set the variance according to either Scott's or Silverman's rule
+#     # Note that 1) the covariance matrix is effectively a diagonal matrix with the same value sqrt(variance) along its diagonal
+#     # and 2) we use the exact same variance for each kernel (as opposed to the means which are unique for every kernel)
+#     if variance_type == "scott":
+#         variance = data_point_count ** (-1.0 / (dimension + 4))
+#     elif variance_type == "silverman":
+#         variance = (data_point_count * (dimension + 2) / 4.0) ** (
+#             -1.0 / (dimension + 4)
+#         )
+#     else:
+#         raise ValueError('`variance_type` should be one of "scott" or "silverman"')
+#     standard_deviations = np.full(
+#         shape=dimension, fill_value=sqrt(variance), dtype=np.float64
+#     )
+#     return standard_deviations
 
 
 class KernelCDFClass(Protocol):
@@ -521,69 +525,69 @@ class UniformCDF:
         return measure.squeeze()
 
 
-def kde_via_sampling(
-    kernels: (
-        list[parameterized_diagonal_multivariate_gaussian]
-        | list[parameterized_uniform_gaussian]
-    ),
-    data_points: np.ndarray,
-    kernel_weights: np.ndarray,
-    coordinates: np.ndarray,
-    resolution: int,
-    weight_type: str,
-) -> np.ndarray:
-    """
-    A function for calculating the kde of the (weighted) mean of `kernels` evaluated at `coordinates`.
+# def kde_via_sampling(
+#     kernels: (
+#         list[parameterized_diagonal_multivariate_gaussian]
+#         | list[parameterized_uniform_gaussian]
+#     ),
+#     data_points: np.ndarray,
+#     kernel_weights: np.ndarray,
+#     coordinates: np.ndarray,
+#     resolution: int,
+#     weight_type: str,
+# ) -> np.ndarray:
+#     """
+#     A function for calculating the kde of the (weighted) mean of `kernels` evaluated at `coordinates`.
 
-    Parameters
-    ----------
-    kernels : list[parameterized_diagonal_multivariate_gaussian]  |  list[parameterized_uniform_gaussian]
-        A list of kernels to use for kde.
-    data_points : np.ndarray
-        The data points may be used to weight the kernels, depending on the setting of `weight_type`.
-    kernel_weights : np.ndarray
-        These values are used to calculate a weighted mean over the kernels.
-    coordinates : np.ndarray
-        The coordinates at which we will evaluate the kernels.
-        The amount of coordinates will determine the amount of pixels in the final kde plot.
-    resolution : int
-        The resolution of the kde plot.
-        Note that we assume a square (i.e. `resolution` x `resolution`) plot.
-    weight_type : str
-        One of "block_based" or "vertex_based".
-        The "block_based" option only uses `kernel_weights`, while the "vertex_based" option also multiplies by `data_points[:, 1]`.
+#     Parameters
+#     ----------
+#     kernels : list[parameterized_diagonal_multivariate_gaussian]  |  list[parameterized_uniform_gaussian]
+#         A list of kernels to use for kde.
+#     data_points : np.ndarray
+#         The data points may be used to weight the kernels, depending on the setting of `weight_type`.
+#     kernel_weights : np.ndarray
+#         These values are used to calculate a weighted mean over the kernels.
+#     coordinates : np.ndarray
+#         The coordinates at which we will evaluate the kernels.
+#         The amount of coordinates will determine the amount of pixels in the final kde plot.
+#     resolution : int
+#         The resolution of the kde plot.
+#         Note that we assume a square (i.e. `resolution` x `resolution`) plot.
+#     weight_type : str
+#         One of "block_based" or "vertex_based".
+#         The "block_based" option only uses `kernel_weights`, while the "vertex_based" option also multiplies by `data_points[:, 1]`.
 
-    Returns
-    -------
-    np.ndarray
-        An (`resolution` x `resolution`) array, containing the weighted mean of the kde `kernels` evaluated at `coordinates`.
+#     Returns
+#     -------
+#     np.ndarray
+#         An (`resolution` x `resolution`) array, containing the weighted mean of the kde `kernels` evaluated at `coordinates`.
 
-    Raises
-    ------
-    ValueError
-        `weight_type` should be set to one of: "block_based" or "vertex_based"
-    """
-    # Calculate the average, weighted kernel
-    # The rule `running_mean*(weight/new_weight) + image(current_weight/new_weight)` prevents values from exploding or disappearing
-    weight = 0
-    data_point_count = len(kernels)
-    running_mean = np.zeros((resolution**2), dtype=np.float64)
-    for i in tqdm(range(data_point_count), desc="Calculating average of kernels"):
-        image = kernels[i](coordinates)
-        if weight_type == "block_based":
-            current_weight = kernel_weights[i]
-        elif weight_type == "vertex_based":
-            current_weight = kernel_weights[i] * data_points[i][1]
-        else:
-            raise ValueError(
-                '`weight_type` should be set to one of: "block_based" or "vertex_based"'
-            )
-        new_weight = weight + current_weight
-        running_mean = running_mean * (weight / new_weight) + image * (
-            current_weight / new_weight
-        )
-        weight = new_weight
-    return running_mean.reshape(resolution, resolution).T
+#     Raises
+#     ------
+#     ValueError
+#         `weight_type` should be set to one of: "block_based" or "vertex_based"
+#     """
+#     # Calculate the average, weighted kernel
+#     # The rule `running_mean*(weight/new_weight) + image(current_weight/new_weight)` prevents values from exploding or disappearing
+#     weight = 0
+#     data_point_count = len(kernels)
+#     running_mean = np.zeros((resolution**2), dtype=np.float64)
+#     for i in tqdm(range(data_point_count), desc="Calculating average of kernels"):
+#         image = kernels[i](coordinates)
+#         if weight_type == "block_based":
+#             current_weight = kernel_weights[i]
+#         elif weight_type == "vertex_based":
+#             current_weight = kernel_weights[i] * data_points[i][1]
+#         else:
+#             raise ValueError(
+#                 '`weight_type` should be set to one of: "block_based" or "vertex_based"'
+#             )
+#         new_weight = weight + current_weight
+#         running_mean = running_mean * (weight / new_weight) + image * (
+#             current_weight / new_weight
+#         )
+#         weight = new_weight
+#     return running_mean.reshape(resolution, resolution).T
 
 
 def kde_via_integration(
@@ -664,7 +668,7 @@ def generic_universal_kde_via_integral_plot(
     log_heatmap=True,
     clip: float = 0.0,
     clip_removes=False,
-    plot_name = "block_sizes_integral_kde.svg",
+    plot_name="block_sizes_integral_kde.svg",
 ) -> None:
     """
     Make a kde plot of `data_points`.
@@ -844,7 +848,11 @@ def generic_universal_kde_via_integral_plot(
 
         y_tick_labels = [f"${log_base}^{i}$" for i in range(y_tick_count)]
         y_tick_positions, y_tick_labels = add_minor_log_ticks(
-            y_tick_positions, y_tick_labels, base=log_base, start=None, end=resolution - 1
+            y_tick_positions,
+            y_tick_labels,
+            base=log_base,
+            start=None,
+            end=resolution - 1,
         )
 
         plt.yticks(y_tick_positions, y_tick_labels)
@@ -867,258 +875,260 @@ def generic_universal_kde_via_integral_plot(
     plt.savefig(result_directory + plot_name, dpi=resolution)
 
 
-def generic_universal_kde_plot(
-    data_points: np.ndarray,
-    experiment_directory: str,
-    fixed_point: int | None = None,
-    resolution: int = 512,
-    gaussian_kernels: bool = False,
-    variance: float = 0.01,
-    scale: float = 0.75,
-    weight_type: str = "vertex_based",
-    linear_sizes: bool = False,
-    log_base: int = 10,
-    epsilon: float = 0.5,
-    padding: float = 0.05,
-    clip: float = 0.95,
-    clip_removes=False,
-    **kwargs,
-) -> None:
-    SIZE_PADDING = 0.2
+# def generic_universal_kde_plot(
+#     data_points: np.ndarray,
+#     experiment_directory: str,
+#     fixed_point: int | None = None,
+#     resolution: int = 512,
+#     gaussian_kernels: bool = False,
+#     variance: float = 0.01,
+#     scale: float = 0.75,
+#     weight_type: str = "vertex_based",
+#     linear_sizes: bool = False,
+#     log_base: int = 10,
+#     epsilon: float = 0.5,
+#     padding: float = 0.05,
+#     clip: float = 0.95,
+#     clip_removes=False,
+#     **kwargs,
+# ) -> None:
+#     SIZE_PADDING = 0.2
 
-    if fixed_point is None:
-        fixed_point = np.max(data_points[:, 0])
-    # Process the data (e.g. normalize the means)
-    maximum_size = int(data_points[:, 1].max())
-    means, kernel_weights = means_weights_from_data(data_points)
+#     if fixed_point is None:
+#         fixed_point = np.max(data_points[:, 0])
+#     # Process the data (e.g. normalize the means)
+#     maximum_size = int(data_points[:, 1].max())
+#     means, kernel_weights = means_weights_from_data(data_points)
 
-    scale /= maximum_size
-    epsilon = (
-        (1 - padding) * epsilon / fixed_point
-    )  # Using (1 - padding) allows for the regions of adjacent levels not to overlap
+#     scale /= maximum_size
+#     epsilon = (
+#         (1 - padding) * epsilon / fixed_point
+#     )  # Using (1 - padding) allows for the regions of adjacent levels not to overlap
 
-    data_point_count = data_points.shape[0]
+#     data_point_count = data_points.shape[0]
 
-    if gaussian_kernels:
-        standard_deviation = sqrt(variance)
-        # Create all the separate Gaussian kernels, using the specified means
-        kernels = []
-        for i in tqdm(range(data_point_count), desc="Setting up kernels............"):
-            kernels.append(
-                parameterized_uniform_gaussian(
-                    means[i][0], means[i][1], standard_deviation, epsilon=epsilon
-                )
-            )
-    else:
-        kernels = []
-        for i in tqdm(range(data_point_count), desc="Setting up kernels............"):
-            kernels.append(
-                parameterized_uniform_epanechnikov(
-                    means[i][0], means[i][1], scale=scale, epsilon=epsilon
-                )
-            )
+#     if gaussian_kernels:
+#         standard_deviation = sqrt(variance)
+#         # Create all the separate Gaussian kernels, using the specified means
+#         kernels = []
+#         for i in tqdm(range(data_point_count), desc="Setting up kernels............"):
+#             kernels.append(
+#                 parameterized_uniform_gaussian(
+#                     means[i][0], means[i][1], standard_deviation, epsilon=epsilon
+#                 )
+#             )
+#     else:
+#         kernels = []
+#         for i in tqdm(range(data_point_count), desc="Setting up kernels............"):
+#             kernels.append(
+#                 parameterized_uniform_epanechnikov(
+#                     means[i][0], means[i][1], scale=scale, epsilon=epsilon
+#                 )
+#             )
 
-    levels = np.arange(resolution) / (resolution - 1)
-    levels = levels * ((fixed_point + 1) / fixed_point) - 1 / (
-        2 * fixed_point
-    )  # Adust the range, such that the first and last levels are displayed in full (not half)
+#     levels = np.arange(resolution) / (resolution - 1)
+#     levels = levels * ((fixed_point + 1) / fixed_point) - 1 / (
+#         2 * fixed_point
+#     )  # Adust the range, such that the first and last levels are displayed in full (not half)
 
-    if linear_sizes:
-        sizes = np.arange(resolution) / (resolution - 1)
-    else:
-        sizes = np.logspace(
-            0 - SIZE_PADDING,
-            log(maximum_size, log_base) + SIZE_PADDING,
-            num=resolution,
-            endpoint=True,
-            base=log_base,
-        ) / (
-            log_base ** (log(maximum_size, log_base) + SIZE_PADDING)
-            - log_base ** (0 - SIZE_PADDING)
-        )  # Logarithmically scaled numbers from 0 to 1
+#     if linear_sizes:
+#         sizes = np.arange(resolution) / (resolution - 1)
+#     else:
+#         sizes = np.logspace(
+#             0 - SIZE_PADDING,
+#             log(maximum_size, log_base) + SIZE_PADDING,
+#             num=resolution,
+#             endpoint=True,
+#             base=log_base,
+#         ) / (
+#             log_base ** (log(maximum_size, log_base) + SIZE_PADDING)
+#             - log_base ** (0 - SIZE_PADDING)
+#         )  # Logarithmically scaled numbers from 0 to 1
 
-    coordinates = np.array(np.meshgrid(levels, sizes)).T.reshape(-1, 2)
+#     coordinates = np.array(np.meshgrid(levels, sizes)).T.reshape(-1, 2)
 
-    kde = kde_via_sampling(
-        kernels, data_points, kernel_weights, coordinates, resolution, weight_type
-    )
+#     kde = kde_via_sampling(
+#         kernels, data_points, kernel_weights, coordinates, resolution, weight_type
+#     )
 
-    kde /= np.max(kde)  # Normalize
-    if not linear_sizes:
-        kde[kde > 1 - clip] = 0 if clip_removes else 1 - clip  # Clip "large" values
-        kde /= np.max(
-            kde
-        )  # Renomalize (note that if clip_removes == True, then np.max(kde) == 1-clip)
+#     kde /= np.max(kde)  # Normalize
+#     if not linear_sizes:
+#         kde[kde > 1 - clip] = 0 if clip_removes else 1 - clip  # Clip "large" values
+#         kde /= np.max(
+#             kde
+#         )  # Renomalize (note that if clip_removes == True, then np.max(kde) == 1-clip)
 
-    x_tick_labels = range(fixed_point + 1)
-    x_tick_positions = [
-        label * (resolution - 1) / fixed_point for label in x_tick_labels
-    ]
-    x_tick_positions = [
-        position * (fixed_point / (fixed_point + 1))
-        + resolution / (2 * (fixed_point + 1))
-        for position in x_tick_positions
-    ]  # Since we rescaled the levels earlier, we will have to change the ticks accordingly
-    plt.xticks(x_tick_positions, x_tick_labels)
+#     x_tick_labels = range(fixed_point + 1)
+#     x_tick_positions = [
+#         label * (resolution - 1) / fixed_point for label in x_tick_labels
+#     ]
+#     x_tick_positions = [
+#         position * (fixed_point / (fixed_point + 1))
+#         + resolution / (2 * (fixed_point + 1))
+#         for position in x_tick_positions
+#     ]  # Since we rescaled the levels earlier, we will have to change the ticks accordingly
+#     plt.xticks(x_tick_positions, x_tick_labels)
 
-    if linear_sizes:
-        y_tick_count = 6
-        y_tick_labels = [
-            int(round(i * maximum_size / (y_tick_count - 1)))
-            for i in range(y_tick_count)
-        ]
-        y_tick_positions = [
-            label * (resolution - 1) / maximum_size for label in y_tick_labels
-        ]
-        plt.yticks(y_tick_positions, y_tick_labels)
-    else:
-        start = 1 - log_base ** (-SIZE_PADDING)
-        log_maximum_size = log(maximum_size, log_base)
-        log_maximum_size_padded = log(maximum_size + SIZE_PADDING, log_base)
-        y_tick_count = int(floor(log_maximum_size_padded)) + 1
-        y_tick_positions = (
-            np.asarray([i for i in range(y_tick_count)], dtype=np.float64)
-            / y_tick_count
-        )
-        y_tick_positions = (y_tick_positions * (log_maximum_size - start) + start) * (
-            1 / log_maximum_size_padded
-        )
-        y_tick_positions *= resolution
-        y_tick_labels = [f"${log_base}^{i}$" for i in range(y_tick_count)]
-        y_tick_positions, y_tick_labels = add_minor_log_ticks(
-            y_tick_positions, y_tick_labels, base=log_base, start=0, end=resolution - 1
-        )
-        plt.yticks(y_tick_positions, y_tick_labels)
+#     if linear_sizes:
+#         y_tick_count = 6
+#         y_tick_labels = [
+#             int(round(i * maximum_size / (y_tick_count - 1)))
+#             for i in range(y_tick_count)
+#         ]
+#         y_tick_positions = [
+#             label * (resolution - 1) / maximum_size for label in y_tick_labels
+#         ]
+#         plt.yticks(y_tick_positions, y_tick_labels)
+#     else:
+#         start = 1 - log_base ** (-SIZE_PADDING)
+#         log_maximum_size = log(maximum_size, log_base)
+#         log_maximum_size_padded = log(maximum_size + SIZE_PADDING, log_base)
+#         y_tick_count = int(floor(log_maximum_size_padded)) + 1
+#         y_tick_positions = (
+#             np.asarray([i for i in range(y_tick_count)], dtype=np.float64)
+#             / y_tick_count
+#         )
+#         y_tick_positions = (y_tick_positions * (log_maximum_size - start) + start) * (
+#             1 / log_maximum_size_padded
+#         )
+#         y_tick_positions *= resolution
+#         y_tick_labels = [f"${log_base}^{i}$" for i in range(y_tick_count)]
+#         y_tick_positions, y_tick_labels = add_minor_log_ticks(
+#             y_tick_positions, y_tick_labels, base=log_base, start=0, end=resolution - 1
+#         )
+#         plt.yticks(y_tick_positions, y_tick_labels)
 
-    # Label the axes
-    plt.xlabel("Bisimulation level")
-    plt.ylabel("Block size")
+#     # Label the axes
+#     plt.xlabel("Bisimulation level")
+#     plt.ylabel("Block size")
 
-    # Plot our data as a heatmap
-    plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
-    plt.savefig(
-        experiment_directory + "results/block_sizes_generic_universal_kde.svg",
-        dpi=resolution,
-    )
+#     # Plot our data as a heatmap
+#     plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
+#     plt.savefig(
+#         experiment_directory + "results/block_sizes_generic_universal_kde.svg",
+#         dpi=resolution,
+#     )
 
 
-def gaussian_log_log_kde_plot(
-    data_points: np.ndarray,
-    experiment_directory: str,
-    fixed_point: int | None = None,
-    dimension: int = 2,
-    resolution: int = 512,
-    variance_type: str = "scott",
-    variance_factor: float = 0.01,
-    weight_type: str = "vertex_based",
-    log_base: int = 10,
-    **kwargs,
-) -> None:
-    if fixed_point is None:
-        fixed_point = np.max(data_points[:, 0])
+# def gaussian_log_log_kde_plot(
+#     data_points: np.ndarray,
+#     experiment_directory: str,
+#     fixed_point: int | None = None,
+#     dimension: int = 2,
+#     resolution: int = 512,
+#     variance_type: str = "scott",
+#     variance_factor: float = 0.01,
+#     weight_type: str = "vertex_based",
+#     log_base: int = 10,
+#     **kwargs,
+# ) -> None:
+#     if fixed_point is None:
+#         fixed_point = np.max(data_points[:, 0])
 
-    # Process the data (e.g. normalize the means)
-    maximum_size = int(data_points[:, 1].max())
-    means, kernel_weights = means_weights_from_data(data_points)
+#     # Process the data (e.g. normalize the means)
+#     maximum_size = int(data_points[:, 1].max())
+#     means, kernel_weights = means_weights_from_data(data_points)
 
-    # We use `variance_factor` if we want to manually scale the variance
-    data_point_count = data_points.shape[0]
-    standard_deviations = determine_standard_deviation(
-        data_point_count, dimension, variance_type
-    ) * sqrt(variance_factor)
+#     # We use `variance_factor` if we want to manually scale the variance
+#     data_point_count = data_points.shape[0]
+#     standard_deviations = determine_standard_deviation(
+#         data_point_count, dimension, variance_type
+#     ) * sqrt(variance_factor)
 
-    # Create all the separate Gaussian kernels, using the specified means
-    kernels = []
-    for i in tqdm(range(data_point_count), desc="Setting up kernels............"):
-        kernels.append(
-            parameterized_diagonal_multivariate_gaussian(means[i], standard_deviations)
-        )
+#     # Create all the separate Gaussian kernels, using the specified means
+#     kernels = []
+#     for i in tqdm(range(data_point_count), desc="Setting up kernels............"):
+#         kernels.append(
+#             parameterized_diagonal_multivariate_gaussian(means[i], standard_deviations)
+#         )
 
-    # Create the coordinates, used for sampling the kde kernels
-    log_sizes = (
-        np.logspace(
-            0, log(maximum_size, log_base), num=resolution, endpoint=True, base=log_base
-        )
-        / maximum_size
-    )  # Logarithmically scaled numbers from 0 to 1
-    log_levels = (
-        np.logspace(
-            0,
-            log(fixed_point + 1, log_base),
-            num=resolution,
-            endpoint=True,
-            base=log_base,
-        )
-        - 1
-    ) / fixed_point  # Logarithmically scaled numbers from 0 to 1
-    log_coordinates = np.array(np.meshgrid(log_levels, log_sizes)).T.reshape(-1, 2)
+#     # Create the coordinates, used for sampling the kde kernels
+#     log_sizes = (
+#         np.logspace(
+#             0, log(maximum_size, log_base), num=resolution, endpoint=True, base=log_base
+#         )
+#         / maximum_size
+#     )  # Logarithmically scaled numbers from 0 to 1
+#     log_levels = (
+#         np.logspace(
+#             0,
+#             log(fixed_point + 1, log_base),
+#             num=resolution,
+#             endpoint=True,
+#             base=log_base,
+#         )
+#         - 1
+#     ) / fixed_point  # Logarithmically scaled numbers from 0 to 1
+#     log_coordinates = np.array(np.meshgrid(log_levels, log_sizes)).T.reshape(-1, 2)
 
-    # Get the final result from sampling our kernels at the given coordinates
-    kde = kde_via_sampling(
-        kernels, data_points, kernel_weights, log_coordinates, resolution, weight_type
-    )
+#     # Get the final result from sampling our kernels at the given coordinates
+#     kde = kde_via_sampling(
+#         kernels, data_points, kernel_weights, log_coordinates, resolution, weight_type
+#     )
 
-    # Set the x and y ticks differently for small numbers (less that log_base) than for big numbers
-    if fixed_point < log_base:
-        x_tick_positions = np.asarray(
-            [log(i, log_base) for i in range(1, fixed_point + 2)]
-        )
-        x_tick_positions = x_tick_positions * (
-            (resolution - 1) / float(np.max(x_tick_positions))
-        )
-        x_tick_labels = [f"{i}" for i in range(fixed_point + 1)]
-        plt.xticks(x_tick_positions, x_tick_labels)
-    else:
-        log_fixed_point = log(fixed_point + 1, log_base)
-        x_tick_count = int(floor(log_fixed_point)) + 1
-        x_tick_positions = np.asarray(
-            [i for i in range(x_tick_count)], dtype=np.float64
-        ) * (resolution / log_fixed_point)
-        x_tick_labels = [f"${log_base}^{i}$" for i in range(x_tick_count)]
-        x_tick_positions, x_tick_labels = add_minor_log_ticks(
-            x_tick_positions, x_tick_labels, base=log_base, resolution=resolution
-        )
-        plt.xticks(x_tick_positions, x_tick_labels)
+#     # Set the x and y ticks differently for small numbers (less that log_base) than for big numbers
+#     if fixed_point < log_base:
+#         x_tick_positions = np.asarray(
+#             [log(i, log_base) for i in range(1, fixed_point + 2)]
+#         )
+#         x_tick_positions = x_tick_positions * (
+#             (resolution - 1) / float(np.max(x_tick_positions))
+#         )
+#         x_tick_labels = [f"{i}" for i in range(fixed_point + 1)]
+#         plt.xticks(x_tick_positions, x_tick_labels)
+#     else:
+#         log_fixed_point = log(fixed_point + 1, log_base)
+#         x_tick_count = int(floor(log_fixed_point)) + 1
+#         x_tick_positions = np.asarray(
+#             [i for i in range(x_tick_count)], dtype=np.float64
+#         ) * (resolution / log_fixed_point)
+#         x_tick_labels = [f"${log_base}^{i}$" for i in range(x_tick_count)]
+#         x_tick_positions, x_tick_labels = add_minor_log_ticks(
+#             x_tick_positions, x_tick_labels, base=log_base, resolution=resolution
+#         )
+#         plt.xticks(x_tick_positions, x_tick_labels)
 
-    if maximum_size < log_base:
-        y_tick_positions = np.asarray(
-            [log(i, log_base) for i in range(1, maximum_size + 2)]
-        )
-        y_tick_positions = y_tick_positions * (
-            (resolution - 1) / float(np.max(y_tick_positions))
-        )
-        y_tick_labels = [f"{i}" for i in range(maximum_size + 1)]
-        plt.yticks(y_tick_positions, y_tick_labels)
-    else:
-        log_maximum_size = log(maximum_size, log_base)
-        y_tick_count = int(floor(log_maximum_size)) + 1
-        y_tick_positions = np.asarray(
-            [i for i in range(y_tick_count)], dtype=np.float64
-        ) * (resolution / log_maximum_size)
-        y_tick_labels = [f"${log_base}^{i}$" for i in range(y_tick_count)]
-        y_tick_positions, y_tick_labels = add_minor_log_ticks(
-            y_tick_positions, y_tick_labels, base=log_base, start=0, end=resolution - 1
-        )
-        plt.yticks(y_tick_positions, y_tick_labels)
+#     if maximum_size < log_base:
+#         y_tick_positions = np.asarray(
+#             [log(i, log_base) for i in range(1, maximum_size + 2)]
+#         )
+#         y_tick_positions = y_tick_positions * (
+#             (resolution - 1) / float(np.max(y_tick_positions))
+#         )
+#         y_tick_labels = [f"{i}" for i in range(maximum_size + 1)]
+#         plt.yticks(y_tick_positions, y_tick_labels)
+#     else:
+#         log_maximum_size = log(maximum_size, log_base)
+#         y_tick_count = int(floor(log_maximum_size)) + 1
+#         y_tick_positions = np.asarray(
+#             [i for i in range(y_tick_count)], dtype=np.float64
+#         ) * (resolution / log_maximum_size)
+#         y_tick_labels = [f"${log_base}^{i}$" for i in range(y_tick_count)]
+#         y_tick_positions, y_tick_labels = add_minor_log_ticks(
+#             y_tick_positions, y_tick_labels, base=log_base, start=0, end=resolution - 1
+#         )
+#         plt.yticks(y_tick_positions, y_tick_labels)
 
-    # Label the axes
-    plt.xlabel("Bisimulation level")
-    plt.ylabel("Block size")
+#     # Label the axes
+#     plt.xlabel("Bisimulation level")
+#     plt.ylabel("Block size")
 
-    # Plot our data as a heatmap
-    plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
-    plt.savefig(
-        experiment_directory + "results/block_sizes_gaussian_log_log_kde.svg",
-        dpi=resolution,
-    )
+#     # Plot our data as a heatmap
+#     plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
+#     plt.savefig(
+#         experiment_directory + "results/block_sizes_gaussian_log_log_kde.svg",
+#         dpi=resolution,
+#     )
 
 
 if __name__ == "__main__":
     experiment_directory = sys.argv[1]
 
+    # TODO add a color legend
+
     # Load in the data
     fixed_point = get_fixed_point(experiment_directory)
-    block_sizes = get_sizes(experiment_directory, fixed_point)
+    block_sizes = get_sizes_and_split_blocks(experiment_directory, fixed_point)
     data_points = []
     for level, data in enumerate(block_sizes):
         for size, count in data["Block sizes"].items():
@@ -1132,38 +1142,38 @@ if __name__ == "__main__":
     # Turn the data points into a nmupy array
     data_points = np.stack(data_points)  # shape = number_of_data_points x 3
 
-    # Create a multivariate Gaussian kde plot, shown in log-log scale
-    gaussian_log_log_kwargs = {
-        "dimension": 2,
-        "resolution": int(512 * 2**0),
-        "variance_type": "scott",
-        "variance_factor": 0.001,
-        "weight_type": "vertex_based",
-        "log_base": 10,
-    }
-    gaussian_log_log_kde_plot(
-        data_points, experiment_directory, fixed_point, **gaussian_log_log_kwargs
-    )
-    # plt.show()
+    # # Create a multivariate Gaussian kde plot, shown in log-log scale
+    # gaussian_log_log_kwargs = {
+    #     "dimension": 2,
+    #     "resolution": int(512 * 2**0),
+    #     "variance_type": "scott",
+    #     "variance_factor": 0.001,
+    #     "weight_type": "vertex_based",
+    #     "log_base": 10,
+    # }
+    # gaussian_log_log_kde_plot(
+    #     data_points, experiment_directory, fixed_point, **gaussian_log_log_kwargs
+    # )
+    # # plt.show()
 
-    # Create a 2D (Gaussian or Epanechnikov)-universal kde plot, shown in lin-log scale
-    generic_universal_kwargs = {
-        "resolution": 512,
-        "gaussian_kernels": False,
-        "variance": 0.001,
-        "scale": 0.5,
-        "weight_type": "vertex_based",
-        "linear_sizes": False,
-        "log_base": 10,
-        "epsilon": 0.5,
-        "padding": 0.05,
-        "clip": 0.90,
-        "clip_removes": False,
-    }
-    generic_universal_kde_plot(
-        data_points, experiment_directory, fixed_point, **generic_universal_kwargs
-    )
-    # plt.show()
+    # # Create a 2D (Gaussian or Epanechnikov)-universal kde plot, shown in lin-log scale
+    # generic_universal_kwargs = {
+    #     "resolution": 512,
+    #     "gaussian_kernels": False,
+    #     "variance": 0.001,
+    #     "scale": 0.5,
+    #     "weight_type": "vertex_based",
+    #     "linear_sizes": False,
+    #     "log_base": 10,
+    #     "epsilon": 0.5,
+    #     "padding": 0.05,
+    #     "clip": 0.90,
+    #     "clip_removes": False,
+    # }
+    # generic_universal_kde_plot(
+    #     data_points, experiment_directory, fixed_point, **generic_universal_kwargs
+    # )
+    # # plt.show()
 
     # Create a 2D (Gaussian or Epanechnikov or custom)-universal kde plot that uses integration instead of sampling to get the heatmap values, shown in lin-log scale
     via_integration_kwargs = {

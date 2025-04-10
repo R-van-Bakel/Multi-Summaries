@@ -5,9 +5,13 @@ from matplotlib import gridspec
 from collections import Counter
 from math import ceil, log10
 import numpy as np
-from test_kde import generic_universal_kde_via_integral_plot, EpanechnikovCDF, UniformCDF
+from test_kde import (
+    generic_universal_kde_via_integral_plot,
+    EpanechnikovCDF,
+    UniformCDF,
+)
 from summary_loader.loader_functions import (
-    get_sizes,
+    get_sizes_and_split_blocks,
     get_fixed_point,
     get_statistics,
     get_data_edge_statistics,
@@ -42,7 +46,10 @@ SUMMARY_GRAPH_STATISTICS_KEYS = {
 }
 BLOCK_SIZES_KEYS = {"Block sizes", "Block sizes (accumulated)"}
 
-def bar_data_from_counter(counter: Counter[any,any]) -> tuple[list[any],list[int],range]:
+
+def bar_data_from_counter(
+    counter: Counter[any, any],
+) -> tuple[list[any], list[int], range]:
     keys = sorted(counter.keys())
     values = [counter[key] for key in keys]
     index_itt = range(len(keys))
@@ -78,7 +85,10 @@ def plot_data_edge_statistics(
 
 
 def plot_block_sizes(
-    block_sizes: list[dict[str, Counter[int, int]]], result_directory: str, sinlgetons: list[int] | None = None) -> None:
+    block_sizes: list[dict[str, Counter[int, int]]],
+    result_directory: str,
+    sinlgetons: list[int] | None = None,
+) -> None:
     colors = [
         "#0000ff",
         "#3300cc",
@@ -111,9 +121,9 @@ def plot_block_sizes(
             digits_largest_bar = int(ceil(log10(largest_bar)))
             offset_digits = digits_largest_bar + 1
             maximum_digits_in_bar = 13
-            margin = offset_digits/(maximum_digits_in_bar-offset_digits)
+            margin = offset_digits / (maximum_digits_in_bar - offset_digits)
             ax_objs[-1].set_ymargin(margin)
-            
+
             i += 1
         fig.tight_layout()
         file_name = (
@@ -122,7 +132,9 @@ def plot_block_sizes(
         fig.savefig(result_directory + file_name)
 
 
-def plot_edges_per_layer(edge_intervals: list[list[int]]) -> None:
+def plot_edges_per_layer(
+    edge_intervals: list[list[int]], result_directory: str
+) -> None:
     edges_per_level_counter = Counter()
     for interval in edge_intervals:
         start_level, end_level = interval
@@ -140,6 +152,83 @@ def plot_edges_per_layer(edge_intervals: list[list[int]]) -> None:
     return
 
 
+def plot_split_block_count(
+    split_blocks: list[dict[int, int]], result_directory: str
+) -> None:
+    x = []
+    y = []
+    for i, blocks in enumerate(split_blocks):
+        x.append(i)
+        y.append(len(blocks.keys()))
+
+    fig, ax = plt.subplots()
+    ax.plot(x, y, color="#3300cc")
+    ax.set_title("Number of split blocks per level")
+    file_name = "split_block_counts.svg"
+    fig.savefig(result_directory + file_name)
+
+
+def plot_split_vertex_count(
+    split_blocks: list[set[int]], result_directory: str
+) -> None:
+    x = []
+    y = []
+    for i, blocks in enumerate(split_blocks):
+        vertex_count = 0
+        for count in blocks.values():
+            vertex_count += count
+        x.append(i)
+        y.append(vertex_count)
+
+    fig, ax = plt.subplots()
+    ax.plot(x, y, color="#3300cc")
+    ax.set_title("Number of vertices in split blocks per level")
+    file_name = "split_vertex_counts.svg"
+    fig.savefig(result_directory + file_name)
+
+
+def plot_split_blocks_and_vertices_and_singletons(
+    statistics: dict[str, int], split_blocks: list[set[int]], result_directory: str
+) -> None:
+    x = []
+    y_singletons = []
+    y_split_blocks = []
+    y_split_vertices = []
+
+    for i, statistic in enumerate(statistics):
+        x.append(i)
+        y_singletons.append(statistic["Singleton count"])
+
+    for blocks in split_blocks:
+        vertex_count = 0
+        for count in blocks.values():
+            vertex_count += count
+        y_split_blocks.append(len(blocks.keys()))
+        y_split_vertices.append(vertex_count)
+
+    fig, ax = plt.subplots()
+    WIDTH = 0.9
+    ax.bar(
+        x[:-1], y_split_blocks, color="#00cc33", width=WIDTH, label="Splitting Blocks"
+    )
+    ax.bar(x, y_singletons, color="#3300cc", width=0.5 * WIDTH, label="Singletons")
+    ax.bar(
+        x[:-1],
+        y_split_vertices,
+        color="#cc3300",
+        width=0.2 * WIDTH,
+        label="Vertices in Splitting Blocks",
+    )
+    ax.set_title("Statistics per level")
+    ax.set_xlabel("Bisimulation level")
+    ax.set_ylabel("Count")
+    ax.legend(loc="upper right")
+    ymin, ymax = ax.get_ylim()
+    ax.set_ylim(ymin, ymax * 1.2)  # Padding to accomodate for the legend
+    file_name = "per_level_statistics.svg"
+    fig.savefig(result_directory + file_name)
+
+
 if __name__ == "__main__":
     experiment_directory = sys.argv[1]
     verbose = "-v" in sys.argv
@@ -152,7 +241,9 @@ if __name__ == "__main__":
     data_edge_statistics = get_data_edge_statistics(experiment_directory, fixed_point)
     graph_statistics = get_graph_statistics(experiment_directory)
     summary_graph_statistics = get_summary_graph_statistics(experiment_directory)
-    block_sizes = get_sizes(experiment_directory, fixed_point)
+    block_sizes, split_blocks = get_sizes_and_split_blocks(
+        experiment_directory, fixed_point
+    )
 
     if verbose:
         print("Statistics:")
@@ -187,7 +278,18 @@ if __name__ == "__main__":
     edge_intervals = compute_edge_intervals(edges, node_intervals, fixed_point)
 
     print("Plotting edges per layer")
-    plot_edges_per_layer(edge_intervals)
+    plot_edges_per_layer(edge_intervals, result_directory)
+
+    print("Plotting split block counts")
+    plot_split_block_count(split_blocks, result_directory)
+
+    print("Plotting split vertex counts")
+    plot_split_vertex_count(split_blocks, result_directory)
+
+    print("Plotting statistics per level")
+    plot_split_blocks_and_vertices_and_singletons(
+        statistics, split_blocks, result_directory
+    )
 
     # Plot the block sizes heatmap
     print("Plotting heatmap of block sizes per layer")
@@ -206,7 +308,7 @@ if __name__ == "__main__":
 
     via_integration_kwargs = {
         "resolution": 512,
-        "weight_type": "vertex_based",
+        "weight_type": "block_based",
         "log_size": True,
         "log_base": 10,
         "log_heatmap": True,
@@ -225,7 +327,7 @@ if __name__ == "__main__":
         "scale": base_scale / maximum_size,
         "epsilon": epsilon,
     }
-    
+
     generic_universal_kde_via_integral_plot(
         data_points,
         result_directory,
