@@ -188,7 +188,10 @@ def plot_split_vertex_count(
 
 
 def plot_split_blocks_and_vertices_and_singletons(
-    statistics: dict[str, int], split_blocks: list[set[int]], result_directory: str
+    statistics: dict[str, int],
+    split_blocks: list[set[int]],
+    result_directory: str,
+    log_scale: bool = False,
 ) -> None:
     x = []
     y_singletons = []
@@ -211,20 +214,37 @@ def plot_split_blocks_and_vertices_and_singletons(
     ax.bar(
         x[:-1], y_split_blocks, color="#00cc33", width=WIDTH, label="Splitting Blocks"
     )
-    ax.bar(x, y_singletons, color="#3300cc", width=0.5 * WIDTH, label="Singletons")
+    ax.bar(x, y_singletons, color="#3300cc", width=0.4 * WIDTH, label="Singletons")
     ax.bar(
         x[:-1],
         y_split_vertices,
         color="#cc3300",
-        width=0.2 * WIDTH,
+        width=0.15 * WIDTH,
         label="Vertices in Splitting Blocks",
     )
-    ax.set_title("Statistics per level")
     ax.set_xlabel("Bisimulation level")
     ax.set_ylabel("Count")
     ax.legend(loc="upper right")
     ymin, ymax = ax.get_ylim()
-    ax.set_ylim(ymin, ymax * 1.2)  # Padding to accomodate for the legend
+    if log_scale:
+        ax.set_title("Log statistics per level")
+        ax.set_yscale("log")
+        new_ymax = 10 ** (log10(ymax) * 1.3)
+        ax.set_ylim(
+            0.1, new_ymax
+        )  # Padding to accomodate for the legend and padding to increas visibilty of small values
+        new_ymax
+        y_ticks = [1]
+        highest_tick = 10
+        while highest_tick < new_ymax:
+            y_ticks.append(highest_tick)
+            highest_tick *= 10
+        ax.set_yticks(y_ticks)
+    else:
+        ax.set_title("Statistics per level")
+        ax.set_ylim(
+            ymin, ymax * 1.2
+        )  # Padding to accomodate for the legend and padding to increas visibilty of small values
     file_name = "per_level_statistics.svg"
     fig.savefig(result_directory + file_name)
 
@@ -288,7 +308,7 @@ if __name__ == "__main__":
 
     print("Plotting statistics per level")
     plot_split_blocks_and_vertices_and_singletons(
-        statistics, split_blocks, result_directory
+        statistics, split_blocks, result_directory, True
     )
 
     # Plot the block sizes heatmap
