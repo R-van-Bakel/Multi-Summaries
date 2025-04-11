@@ -226,10 +226,11 @@ def plot_split_blocks_and_vertices_and_singletons(
     ax.set_ylabel("Count")
     ax.legend(loc="upper right")
     ymin, ymax = ax.get_ylim()
+    PADDING_FACTOR = 1.3
     if log_scale:
         ax.set_title("Log statistics per level")
         ax.set_yscale("log")
-        new_ymax = 10 ** (log10(ymax) * 1.3)
+        new_ymax = 10 ** (log10(ymax) * PADDING_FACTOR)
         ax.set_ylim(
             0.1, new_ymax
         )  # Padding to accomodate for the legend and padding to increas visibilty of small values
@@ -243,7 +244,7 @@ def plot_split_blocks_and_vertices_and_singletons(
     else:
         ax.set_title("Statistics per level")
         ax.set_ylim(
-            ymin, ymax * 1.2
+            ymin, ymax * PADDING_FACTOR
         )  # Padding to accomodate for the legend and padding to increas visibilty of small values
     file_name = "per_level_statistics.svg"
     fig.savefig(result_directory + file_name)
