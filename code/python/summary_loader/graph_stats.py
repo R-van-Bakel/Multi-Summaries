@@ -63,7 +63,7 @@ def plot_statistics(statistics: dict[str, int], result_directory: str) -> None:
         ax.plot(values, color="#3300cc")
         ax.set_title(key)
         file_name = (
-            "statistics_" + key.split("(")[0].lower().replace(" ", "_") + ".svg"
+            "statistics_" + key.split("(")[0].lower().replace(" ", "_") + ".pdf"
         )  # Change the key to a more file-friendly format
         fig.savefig(result_directory + file_name)
 
@@ -79,7 +79,7 @@ def plot_data_edge_statistics(
         file_name = (
             "data_edge_statistics_"
             + key.split("(")[0].lower().replace(" ", "_")
-            + ".svg"
+            + ".pdf"
         )  # Change the key to a more file-friendly format
         fig.savefig(result_directory + file_name)
 
@@ -127,7 +127,7 @@ def plot_block_sizes(
             i += 1
         fig.tight_layout()
         file_name = (
-            key.replace("(", "").replace(")", "").lower().replace(" ", "_") + ".svg"
+            key.replace("(", "").replace(")", "").lower().replace(" ", "_") + ".pdf"
         )  # Change the key to a more file-friendly format
         fig.savefig(result_directory + file_name)
 
@@ -147,7 +147,7 @@ def plot_edges_per_layer(
     ax.plot(values, color="#3300cc")
     ax.set_xticks(levels)
     ax.set_title("Data edges per level")
-    file_name = "data_edge_counts.svg"
+    file_name = "data_edge_counts.pdf"
     fig.savefig(result_directory + file_name)
     return
 
@@ -164,7 +164,7 @@ def plot_split_block_count(
     fig, ax = plt.subplots()
     ax.plot(x, y, color="#3300cc")
     ax.set_title("Number of split blocks per level")
-    file_name = "split_block_counts.svg"
+    file_name = "split_block_counts.pdf"
     fig.savefig(result_directory + file_name)
 
 
@@ -183,7 +183,7 @@ def plot_split_vertex_count(
     fig, ax = plt.subplots()
     ax.plot(x, y, color="#3300cc")
     ax.set_title("Number of vertices in split blocks per level")
-    file_name = "split_vertex_counts.svg"
+    file_name = "split_vertex_counts.pdf"
     fig.savefig(result_directory + file_name)
 
 
@@ -192,6 +192,7 @@ def plot_split_blocks_and_vertices_and_singletons(
     split_blocks: list[set[int]],
     result_directory: str,
     log_scale: bool = False,
+    mode: str = "standard",
 ) -> None:
     x = []
     y_singletons = []
@@ -210,18 +211,88 @@ def plot_split_blocks_and_vertices_and_singletons(
         y_split_vertices.append(vertex_count)
 
     fig, ax = plt.subplots()
-    WIDTH = 0.9
-    ax.bar(
-        x[:-1], y_split_blocks, color="#00cc33", width=WIDTH, label="Splitting Blocks"
-    )
-    ax.bar(x, y_singletons, color="#3300cc", width=0.4 * WIDTH, label="Singletons")
-    ax.bar(
-        x[:-1],
-        y_split_vertices,
-        color="#cc3300",
-        width=0.15 * WIDTH,
-        label="Vertices in Splitting Blocks",
-    )
+    if mode == "standard":
+        WIDTH = 0.8
+        ax.bar(
+            x[:-1],
+            y_split_blocks,
+            color="#00cc33",
+            width=WIDTH,
+            alpha=1,
+            label="Splitting Blocks",
+        )
+        ax.bar(
+            x,
+            y_singletons,
+            color="#3300cc",
+            width=0.4 * WIDTH,
+            alpha=1,
+            label="Singletons",
+        )
+        ax.bar(
+            x[:-1],
+            y_split_vertices,
+            color="#cc3300",
+            width=0.15 * WIDTH,
+            alpha=1,
+            label="Vertices in Splitting Blocks",
+        )
+    elif mode == "large_transparant":
+        WIDTH = 0.8
+        ax.bar(
+            x[:-1],
+            y_split_blocks,
+            color="#00cc33",
+            width=WIDTH,
+            alpha=0.8,
+            label="Splitting Blocks",
+        )
+        ax.bar(
+            x,
+            y_singletons,
+            color="#3300cc",
+            width=0.4 * WIDTH,
+            alpha=0.3,
+            label="Singletons",
+        )
+        ax.bar(
+            x[:-1],
+            y_split_vertices,
+            color="#cc3300",
+            width=0.15 * WIDTH,
+            alpha=0.3,
+            label="Vertices in Splitting Blocks",
+        )
+    elif mode == "large_opaque":
+        WIDTH = 0.8
+        ax.bar(
+            x,
+            y_singletons,
+            color="#3300cc",
+            width=0.4 * WIDTH,
+            alpha=1,
+            label="Singletons",
+        )
+        ax.bar(
+            x[:-1],
+            y_split_vertices,
+            color="#cc3300",
+            width=0.15 * WIDTH,
+            alpha=1,
+            label="Vertices in Splitting Blocks",
+        )
+        ax.bar(
+            x[:-1],
+            y_split_blocks,
+            color="#00cc33",
+            width=WIDTH,
+            alpha=1,
+            label="Splitting Blocks",
+        )
+    else:
+        raise ValueError(
+            '`mode` should be set to one of: "standard", "large_transparant", or "large_opaque"'
+        )
     ax.set_xlabel("Bisimulation level")
     ax.set_ylabel("Count")
     ax.legend(loc="upper right")
@@ -246,13 +317,16 @@ def plot_split_blocks_and_vertices_and_singletons(
         ax.set_ylim(
             ymin, ymax * PADDING_FACTOR
         )  # Padding to accomodate for the legend and padding to increas visibilty of small values
-    file_name = "per_level_statistics.svg"
+    file_name = "per_level_statistics.pdf"
     fig.savefig(result_directory + file_name)
 
 
 if __name__ == "__main__":
     experiment_directory = sys.argv[1]
+    mode = sys.argv[2]
     verbose = "-v" in sys.argv
+
+    mode = "standard" if mode == "" else mode  # Set an empty value to the default of "standard"
 
     result_directory = experiment_directory + "results/"
     os.makedirs(result_directory, exist_ok=True)
@@ -309,7 +383,7 @@ if __name__ == "__main__":
 
     print("Plotting statistics per level")
     plot_split_blocks_and_vertices_and_singletons(
-        statistics, split_blocks, result_directory, True
+        statistics, split_blocks, result_directory, True, mode
     )
 
     # Plot the block sizes heatmap
@@ -335,7 +409,7 @@ if __name__ == "__main__":
         "log_heatmap": True,
         "clip": 0.00,
         "clip_removes": False,
-        "plot_name": "block_sizes_integral_kde.svg",
+        "plot_name": "block_sizes_integral_kde.pdf",
     }
     base_scale = 0.5
     base_epsilon = 0.5

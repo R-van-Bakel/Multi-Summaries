@@ -939,6 +939,7 @@ partition=defq
 output=slurm_results_plotter.out
 nodelist=
 k=-1
+mode=standard
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -1021,6 +1022,7 @@ echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
 echo k=\$k
+echo mode=\$mode
 
 if ! \$skip_user_read; then
   # Ask the user to run the experiment with the aforementioned settings
@@ -1056,6 +1058,7 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> 
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: k=\$k" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: mode=\$mode" >> \$log_file
 
 # Create the slurm script
 echo Creating slurm script
@@ -1072,12 +1075,13 @@ cat >\$results_plotter_job << EOF2
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
 working_directory=\\\$(pwd)
+mode=\$mode
 source activate base
 source \\\$HOME/.bashrc
 cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory
 conda activate
 conda activate \\\$working_directory/../code/python/.conda/
-python \\\$working_directory/../code/python/summary_loader/graph_stats.py ./ -v
+python \\\$working_directory/../code/python/summary_loader/graph_stats.py ./ \\\$mode -v
 EOF2
 
 # Make sure the file will have Unix style line endings
