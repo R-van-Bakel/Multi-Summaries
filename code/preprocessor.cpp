@@ -26,6 +26,9 @@ bool trigfile;
 // This variable should be set in main. It indicates whether or not we want to skip rdf-lists
 bool skipRDFlists;
 
+// This variable should be set in main. It indicates whether or not we want to skip literals.
+bool skip_literals;
+
 // This variable should be set in main. It indicates whether or not we want to put type information on the predicates instead of the object.
 bool types_to_predicates;
 
@@ -292,6 +295,13 @@ void convert_graph(std::istream &inputstream,
     while (std::getline(inputstream, line))
     {
         const std::string original_line(line);
+
+        if (line_counter % 1000000 == 0)
+        {
+            auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
+            std::tm* ptm{std::localtime(&now)};
+            std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
+        }
         line_counter++;
 
         boost::trim(line);
@@ -364,6 +374,10 @@ void convert_graph(std::istream &inputstream,
         }
         else if (object.front() == '"' && object.back() == '"')
         {
+            if (skip_literals)
+            {
+                continue;
+            }
             object = literal_node_string;
         }
         else
@@ -387,12 +401,6 @@ void convert_graph(std::istream &inputstream,
                 subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" ||
                 subject == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
             {
-                if (line_counter % 1000000 == 0)
-                {
-                    auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
-                    std::tm* ptm{std::localtime(&now)};
-                    std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
-                }
                 continue;
             }
         }
@@ -421,13 +429,6 @@ void convert_graph(std::istream &inputstream,
         write_uint_ENTITY_little_endian(outputstream, subject_index);
         write_uint_PREDICATE_little_endian(outputstream, edge_index);
         write_uint_ENTITY_little_endian(outputstream, object_index);
-
-        if (line_counter % 1000000 == 0)
-        {
-            auto now{boost::chrono::system_clock::to_time_t(boost::chrono::system_clock::now())};
-            std::tm* ptm{std::localtime(&now)};
-            std::cout << std::put_time(ptm, "%Y/%m/%d %H:%M:%S") << " done with " << line_counter << " triples" << std::endl;
-        }
     }
     if (inputstream.bad())
     {
@@ -446,6 +447,7 @@ int main(int ac, char *av[])
     global.add_options()("input_file", po::value<std::string>(), "Input file, must contain n-triples");
     global.add_options()("output_path", po::value<std::string>(), "Output path");
     global.add_options()("skipRDFlists", "Makes the code ignore RDF lists");
+    global.add_options()("skip_literals", "Triples with literal objects will be ignored.");
     global.add_options()("laundromat", "Set this flag to run on the LOD laundromat dataset");
     global.add_options()("types_to_predicates", "Transforms triples of the form <subject> <rdf:type> <object> to <subject> <object> _:rdfTypeNode");
     po::positional_options_description pos;
@@ -463,6 +465,9 @@ int main(int ac, char *av[])
 
     // Set the `skipRDFlists` global variable
     skipRDFlists = vm.count("skipRDFlists");
+
+    // Set the `skip_literals` global variable
+    skip_literals = vm.count("types_to_predicates");
 
     // Set the `trigfile` global variable
     trigfile = vm.count("laundromat");

@@ -21,6 +21,7 @@ The compiled C++ programs are located in `<hash>/code/bin/`. A copy of their sou
       - The first positional parameter is the path to the nt-triples to be processed.
     - Flags
       - `--skipRDFlists`: This flag specifies whether RDF lists should be ignored. This may be useful, as RDF-lists, due to their chain-like structure, can lead to very deep summaries.
+      - `--skip_literals`: This flag specifies whether triples with literal values should be ignored.
       - `--types_to_predicates`: This flag specifies whether triples of the type `<subject> <rdf:type> <object>` should be encoded as `<subject> <object> "_:rdfTypeNode"`.
       - `--laundromat`: This flag should be set only for the LODlaundromat dataset, since it uses a (rudimentary) trig file.
 - `bisimulator`: This program computes the partition refinement over the vertex set of the input graph. It also generates the "refines" edges between subsequent partitions of the refinement process.
@@ -63,6 +64,7 @@ Safe for the `run_all.sh` script, all scripts have settings for setting up a slu
       - `-y` Setting this flag automatically answers all requested user input with `y`.
     - Settings
       - `skipRDFlists` (default: `false`) This setting specifies whether the flag should be set to ignore RDF-lists.
+      - `skip_literals`: This setting specifies whether the flag should be set to ignore literals.
       - `laundromat` (default: `false`) This setting sets the flag required for the LODlaundromat dataset.
       - `types_to_predicates` (default: `true`) This setting sets the flag for encoding RDF-type objects as predicates.
       - `use_lz4` (default: `false`) This setting should be set to `true` when dealing with a compressed `.nt.lz4` file.
@@ -96,18 +98,3 @@ Safe for the `run_all.sh` script, all scripts have settings for setting up a slu
       - `-y` Setting this flag automatically answers all requested user input with `y`.
     - Settings
       - `iri_type` (default: `hash`) The second parameters specifies how IRIs for summary block nodes are created. It should be one of `id_set`, `iri_set`, or `hash`. The `hash` setting is recommended as it prevents extremely large IRIs from being produced.
-
-
-<!-- Run `set_up_and_run.sh` to compile the C++ files and test them on the `Laurence_Fishburne_Custom_Shuffled.trig` data.
-For this to work, the `BOOST_HOME` variable, in `set_up_and_run.sh` should be set to the location of your boost installation.
-Some basic commands are the following:
-- `g++ -std=c++20 -Wall -Wpedantic -Ofast -fdiagnostics-color=always -I <boost>/include/  ./code/lod_preprocessor.cpp -o ./bin/lod_preprocessor <boost>/lib/libboost_program_options.a`
-  - This compiles the preprocessor code. The preprocessor takes a `.trig` formatted file and writes it to a binary file.  You should replace `<boost>` with the directory in which you have installed boost (e.g. `/usr/include/boost_1_84_0`).
-- `./bin/lod_preprocessor ./data/Laurence_Fishburne_Custom_Shuffled.trig ./output/Laurence_Fishburne_Custom_Shuffled.bin`
-  - Using the compiled preprocessor, this command reads a trig file (`./data/Laurence_Fishburne_Custom_Shuffled.trig`) and writes it to a custom binary file (`./output/Laurence_Fishburne_Custom_Shuffled.bin`).
-- `g++ -static -std=c++20 -Wall -Wpedantic -Ofast -fdiagnostics-color=always -I <boost>/include/ ./code/full_bisimulation_from_binary.cpp -o ./bin/full_bisimulation_from_binary  <boost>/lib/libboost_program_options.a`
-  - This compiles the bisimulation code.
-- `./bin/full_bisimulation_from_binary run_timed ./output/Laurence_Fishburne_Custom_Shuffled.bin`
-  - This runs a timed bisimulation, using the file `./output/Laurence_Fishburne_Custom_Shuffled.bin` as input.
-- `./bin/full_bisimulation_from_binary run_k_bisimulation_store_partition_timed ./output/Laurence_Fishburne_Custom_Shuffled.bin --output=./output/outcome`
-  - This runs a timed bisimulation, but also writes the mapping for each node to its respective block to a file (for each layer, e.g. `./output/outcome-1.bin`). -->
