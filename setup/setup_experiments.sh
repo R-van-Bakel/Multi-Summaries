@@ -1085,7 +1085,6 @@ echo ntasks_per_node=\$ntasks_per_node
 echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
-echo k=\$k
 echo bar_chart_mode=\$bar_chart_mode
 
 if ! \$skip_user_read; then
@@ -1121,7 +1120,6 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_p
 echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: k=\$k" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: bar_chart_mode=\$bar_chart_mode" >> \$log_file
 
 # Create the slurm script
@@ -1301,7 +1299,6 @@ echo ntasks_per_node=\$ntasks_per_node
 echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
-echo k=\$k
 echo bar_chart_mode=\$bar_chart_mode
 
 if ! \$skip_user_read; then
