@@ -1145,7 +1145,7 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
     return outcome;
 }
 
-void run_k_bisimulation_store_partition_condensed_timed(const std::string &input_path, uint support, const std::string &output_path, bool skip_singletons, bool typed_start)
+void run_k_bisimulation_store_partition_condensed_timed(const std::string &input_path, uint support, const std::string &output_path, bool typed_start)
 {
 
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
@@ -1409,7 +1409,7 @@ int main(int ac, char *av[])
         po::options_description run_timed_desc("run_k_bisimulation_store_partition_timed 0   options");
         run_timed_desc.add_options()("support", po::value<uint>()->default_value(1), "Specify the required size for a block to be considered splittable");
         run_timed_desc.add_options()("output,o", po::value<std::string>(), "output, the output path");
-        run_timed_desc.add_options()("skip_singletons", "flag indicating that singletons must be skipped in the output");
+        // run_timed_desc.add_options()("skip_singletons", "flag indicating that singletons must be skipped in the output");
         run_timed_desc.add_options()("typed_start", "flag indicating that the nodes are initially (at k=0) partitioned acording to their RDF type set");
 
         // Collect all the unrecognized options from the first pass. This will include the
@@ -1425,13 +1425,13 @@ int main(int ac, char *av[])
 
         uint support = vm["support"].as<uint>();
         std::string output_path = vm["output"].as<std::string>();
-        bool skip_singletons = vm.count("skip_singletons");
+        // bool skip_singletons = vm.count("skip_singletons");
         bool typed_start = vm.count("typed_start");
 
         std::filesystem::create_directory(output_path + "bisimulation/");
         std::filesystem::create_directory(output_path + "ad_hoc_results/");
 
-        run_k_bisimulation_store_partition_condensed_timed(input_file, support, output_path, skip_singletons, typed_start);
+        run_k_bisimulation_store_partition_condensed_timed(input_file, support, output_path, typed_start);
 
         return 0;
     }

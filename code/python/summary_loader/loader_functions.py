@@ -38,7 +38,7 @@ def get_summary_graph(experiment_directory: str) -> tuple[list[list[int]], list[
     return edge_index, edge_type
 
 
-def get_node_intervals(experiment_directory: str) -> dict[int, list[int]]:
+def get_node_intervals(experiment_directory: str) -> dict[int, tuple[int,int]]:
     assert os.path.exists(
         experiment_directory
     ), "The experiment directory string should refer to a valid (existing) directory"
@@ -59,12 +59,15 @@ def get_node_intervals(experiment_directory: str) -> dict[int, list[int]]:
             )
             end_level = int.from_bytes(f.read(BYTES_PER_K_TYPE), "little", signed=False)
 
-            node_intervals[node_id] = [start_level, end_level]
+            node_intervals[node_id] = (start_level, end_level)
 
     return node_intervals
 
 
-def get_local_global_maps(experiment_directory: str) -> dict[(int, int), int]:
+def get_local_global_maps(
+    experiment_directory: str,
+    include_inverted_index=False,
+) -> tuple[dict[tuple[int, int], int], dict[int, tuple[int, int]]]:
     assert os.path.exists(
         experiment_directory
     ), "The experiment directory string should refer to a valid (existing) directory"
@@ -90,10 +93,11 @@ def get_local_global_maps(experiment_directory: str) -> dict[(int, int), int]:
             )
 
             local_to_global_map[(local_block_id, local_level)] = global_block_id
-            if global_block_id in global_to_local_map:
-                global_to_local_map[global_block_id].add((local_block_id, local_level))
-            else:
-                global_to_local_map[global_block_id] = {(local_block_id, local_level)}
+            if include_inverted_index:
+                if global_block_id in global_to_local_map:
+                    global_to_local_map[global_block_id].add((local_block_id, local_level))
+                else:
+                    global_to_local_map[global_block_id] = {(local_block_id, local_level)}
 
     return local_to_global_map, global_to_local_map
 
@@ -220,9 +224,6 @@ def get_sizes_and_split_blocks(
         ), "The outcome (binary) file should exist"
 
         if i > start:
-            assert os.path.exists(
-                experiment_directory
-            ), "The experiment directory string should refer to a valid (existing) directory"
             mapping_binary_file = (
                 experiment_directory + f"bisimulation/mapping-{i-1:04d}to{i:04d}.bin"
             )

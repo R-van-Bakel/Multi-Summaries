@@ -26,6 +26,9 @@ bool trigfile;
 // This variable should be set in main. It indicates whether or not we want to skip rdf-lists
 bool skipRDFlists;
 
+// This variable should be set in main. It indicates whether or not we want to put type information on the predicates instead of the object.
+bool types_to_predicates;
+
 class MyException : public std::exception
 {
 private:
@@ -247,13 +250,17 @@ void convert_graph(std::istream &inputstream,
     IDMapper<node_index> node_ID_Mapper;
     IDMapper<edge_type> edge_ID_Mapper;
 
-    // We make sure that the bisimulation:string is first in the node IDs. ie. maps to zero
-    std::string bisimulation_string = "bisimulation:string";
-    node_ID_Mapper.getID(bisimulation_string);
+    // We make sure that the _:literalNode is first in the node IDs. ie. maps to zero
+    std::string literal_node_string = "_:literalNode";
+    node_ID_Mapper.getID(literal_node_string);
+
+    // We add the _:rdfTypeNode node in case types_to_predicates is set to true
+    std::string rdf_type_node_string = "_:rdfTypeNode";
+    node_index rdf_type_node_id = node_ID_Mapper.getID(rdf_type_node_string);
 
     // We make sure that the rdf:type is first in the edge IDs. ie. maps to zero
     std::string rdf_type_string = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-    edge_ID_Mapper.getID(rdf_type_string);
+    edge_type rdf_type_id = edge_ID_Mapper.getID(rdf_type_string);
 
     const int BufferSize = 8 * 16184;
 
@@ -353,11 +360,11 @@ void convert_graph(std::istream &inputstream,
         }
         else if (object.substr(0, 2) == "_:")
         {
-            object = object.substr(2, object.size()-2);
+            object = object.substr(0, object.size()-2);
         }
         else if (object.front() == '"' && object.back() == '"')
         {
-            object = bisimulation_string;
+            object = literal_node_string;
         }
         else
         {
@@ -389,13 +396,26 @@ void convert_graph(std::istream &inputstream,
                 continue;
             }
         }
-
+        
         // subject
         node_index subject_index = node_ID_Mapper.getID(subject);
-        // object
-        node_index object_index = node_ID_Mapper.getID(object);
+
         // edge
         edge_type edge_index = edge_ID_Mapper.getID(predicate);
+
+        // object
+        node_index object_index;
+
+        if (types_to_predicates and (edge_index == rdf_type_id))
+        {
+            edge_index = edge_ID_Mapper.getID(object);  // TODO there is currently no check to see if this cast is possible (in practice it likely will be possible)
+            object_index = rdf_type_node_id;
+        }
+        else
+        {
+            object_index = node_ID_Mapper.getID(object);
+        }
+
         // Write the indices in our binary format
         // std::cout << "DEBUG wrote (" << subject << ", " << predicate << ", " << object << ") as (" << subject_index << ", " << edge_index << ", " << object_index << ")" << std::endl;
         write_uint_ENTITY_little_endian(outputstream, subject_index);
@@ -427,6 +447,7 @@ int main(int ac, char *av[])
     global.add_options()("output_path", po::value<std::string>(), "Output path");
     global.add_options()("skipRDFlists", "Makes the code ignore RDF lists");
     global.add_options()("laundromat", "Set this flag to run on the LOD laundromat dataset");
+    global.add_options()("types_to_predicates", "Transforms triples of the form <subject> <rdf:type> <object> to <subject> <object> _:rdfTypeNode");
     po::positional_options_description pos;
     pos.add("input_file", 1).add("output_path", 2);
 
@@ -440,11 +461,14 @@ int main(int ac, char *av[])
     std::string input_file = vm["input_file"].as<std::string>();
     std::string output_path = vm["output_path"].as<std::string>();
 
-    // Set the `skipRDFlists` variable
+    // Set the `skipRDFlists` global variable
     skipRDFlists = vm.count("skipRDFlists");
 
-    // Set the `trigfile` variable
+    // Set the `trigfile` global variable
     trigfile = vm.count("laundromat");
+
+    // Set the `types_to_predicates` global variable
+    types_to_predicates = vm.count("types_to_predicates");
     
     std::ifstream infile(input_file);
     std::ofstream outfile(output_path + "/binary_encoding.bin", std::ifstream::out);

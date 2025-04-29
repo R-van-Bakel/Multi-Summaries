@@ -278,6 +278,7 @@ output=slurm_preprocessor.out
 nodelist=
 skipRDFlists=false
 laundromat=false
+types_to_predicates=true
 use_lz4=false
 lz4_command=/usr/local/lz4
 EOF
@@ -371,6 +372,13 @@ case \$laundromat in
   *) echo "laundromat has been set to \\"\$laundromat\\" in preprocessor.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
 esac
 
+# Set a boolean based on the value of types_to_predicates
+case \$types_to_predicates in
+  'true') types_to_predicates_flag=' --types_to_predicates' ;;
+  'false') types_to_predicates_flag='' ;;
+  *) echo "types_to_predicates has been set to \\"\$types_to_predicates\\" in preprocessor.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
+esac
+
 # Sanity check the value of use_lz4
 case \$use_lz4 in
   'true');;
@@ -389,6 +397,7 @@ echo output=\$output
 echo nodelist=\$nodelist
 echo skipRDFlists=\$skipRDFlists
 echo laundromat=\$laundromat
+echo types_to_predicates=\$types_to_predicates
 echo use_lz4=\$use_lz4
 echo lz4_command=\$lz4_command
 
@@ -424,12 +433,12 @@ if [ \$use_lz4 == "true" ]; then
   preprocessor_command=\$(cat << EOM
 mkfifo ttl_buffer
 /usr/bin/time -v \$lz4_command -d -c \$dataset_path -d -c > ttl_buffer &
-../code/bin/preprocessor ./ttl_buffer ./\$skiplists\$laundromat_flag
+../code/bin/preprocessor ./ttl_buffer ./\$skiplists\$types_to_predicates_flag\$laundromat_flag
 rm ./ttl_buffer
 EOM
   )
 else
-  preprocessor_command="/usr/bin/time -v ../code/bin/preprocessor \$dataset_path ./\$skiplists"
+  preprocessor_command="/usr/bin/time -v ../code/bin/preprocessor \$dataset_path ./\$skiplists\$types_to_predicates_flag"
 fi
 
 # Create a log file for the experiments
@@ -449,6 +458,7 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: skipRDFlists=\$skipRDFlists" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: laundromat=\$laundromat" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: types_to_predicates=\$types_to_predicates" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: use_lz4=\$use_lz4" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: lz4_command=\$lz4_command" >> \$log_file
 
@@ -466,7 +476,19 @@ cat >\$preprocessor_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-\$preprocessor_command
+status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
+if [[ "\\\$status" == "ready_to_start" ]]; then
+  \$preprocessor_command
+  if [ \\\$? -eq 0 ]; then
+    sed -i '/^summary_status =/c\summary_status = "preprocessed"' state.toml
+  else
+    sed -i '/^summary_status =/c\summary_status = "failed_to_preprocess"' state.toml
+  fi
+else
+  warning_message="Did not preprocess, because the experiment is not in the right state. Expected state: \\\"ready_to_start\\\". Actual state: \\\"\\\$status\\\"."
+  echo \\\$warning_message
+  echo \\\$(date) \\\$(hostname) "\${logging_process}.Warning: \\\$warning_message" >> \$log_file
+fi
 EOF2
 
 # Make sure the file will have Unix style line endings
@@ -474,6 +496,15 @@ sed -i 's/\r//g' \$preprocessor_job
 
 # Make sure the preprocessor job script can be executed (in case of local execution)
 chmod +x \$preprocessor_job
+
+# Create a state file for the experiment
+touch \$output_dir/state.toml
+cat >\$output_dir/state.toml << EOF2
+[state]
+summary_status = "ready_to_start"
+plotted = false
+serialized = false
+EOF2
 
 # Queueing slurm script or ask to execute directly
 sbatch_command=\$(command -v sbatch)
@@ -485,7 +516,7 @@ if [ ! \$sbatch_command == '' ]; then
   echo \$(date) \$(hostname) "\${logging_process}.Info: Preprocessor queued successfully, see \$output for the results" >> \$log_file
 else
   echo sbatch command not found
-  echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Warning: sbatch command not found" >> \$log_file
   if ! \$skip_user_read; then
     while true; do
       read -p \$'Would you like to directly run the preprocessor locally instead? [y/n]\n'
@@ -504,9 +535,7 @@ else
   echo Running slurm script directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
   echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$preprocessor_job > slurm_preprocessor.out)
-  echo Successfully ran preprocessor directly
-  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran preprocessor directly" >> \$log_file
+  (cd \$output_dir; \$preprocessor_job > \$output)
 fi
 EOF
 
@@ -672,7 +701,19 @@ cat >\$bisimulator_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../code/bin/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./\$typed_start_flag
+status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
+if [[ "\\\$status" == "preprocessed" ]]; then
+  /usr/bin/time -v ../code/bin/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./\$typed_start_flag
+  if [ \\\$? -eq 0 ]; then
+    sed -i '/^summary_status =/c\summary_status = "bisimulation_complete"' state.toml
+  else
+    sed -i '/^summary_status =/c\summary_status = "failed_to_bisimulate"' state.toml
+  fi
+else
+  warning_message="Did not bisimulate, because the experiment is not in the right state. Expected state: \\\"preprocessed\\\". Actual state: \\\"\\\$status\\\"."
+  echo \\\$warning_message
+  echo \\\$(date) \\\$(hostname) "\${logging_process}.Warning: \\\$warning_message" >> \$log_file
+fi
 EOF2
 
 # Make sure the file will have Unix style line endings
@@ -691,7 +732,7 @@ if [ ! \$sbatch_command == '' ]; then
   echo \$(date) \$(hostname) "\${logging_process}.Info: Bisimulator queued successfully, see \$output for the results" >> \$log_file
 else
   echo sbatch command not found
-  echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Warning: sbatch command not found" >> \$log_file
   if ! \$skip_user_read; then
     while true; do
       read -p \$'Would you like to directly run the bisimulator locally instead? [y/n]\n'
@@ -710,9 +751,7 @@ else
   echo Running slurm script directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
   echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$bisimulator_job > slurm_bisimulator.out)
-  echo Successfully ran bisimulator directly
-  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran bisimulator directly" >> \$log_file
+  (cd \$output_dir; \$bisimulator_job > \$output)
 fi
 EOF
 
@@ -847,7 +886,7 @@ output_dir_absolute=\$(realpath \$output_dir)/
 
 # The log file for the experiments
 log_file=\${output_dir}experiments.log
-logging_process="Summary Graphs Creator"
+logging_process="Summary_Graphs_Creator"
 
 # Log the settings
 echo \$(date) \$(hostname) "\${logging_process}.Info: Creating summary graphs in: \${output_dir_absolute}" >> \$log_file
@@ -875,7 +914,19 @@ cat >\$summary_graphs_creator_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-/usr/bin/time -v ../code/bin/\$summary_graph_creator_executable ./
+status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
+if [[ "\\\$status" == "bisimulation_complete" ]]; then
+  /usr/bin/time -v ../code/bin/\$summary_graph_creator_executable ./
+  if [ \\\$? -eq 0 ]; then
+    sed -i '/^summary_status =/c\summary_status = "multi_summary_complete"' state.toml
+  else
+    sed -i '/^summary_status =/c\summary_status = "failed_to_create_multi_summary"' state.toml
+  fi
+else
+  warning_message="Did not create the multi summary, because the experiment is not in the right state. Expected state: \\\"bisimulation_complete\\\". Actual state: \\\"\\\$status\\\"."
+  echo \\\$warning_message
+  echo \\\$(date) \\\$(hostname) "\${logging_process}.Warning: \\\$warning_message" >> \$log_file
+fi
 EOF2
 
 # Make sure the file will have Unix style line endings
@@ -894,7 +945,7 @@ if [ ! \$sbatch_command == '' ]; then
   echo \$(date) \$(hostname) "\${logging_process}.Info: Summary graphs creator queued successfully, see \$output for the results" >> \$log_file
 else
   echo sbatch command not found
-  echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Warning: sbatch command not found" >> \$log_file
   if ! \$skip_user_read; then
     while true; do
       read -p \$'Would you like to directly run the summary graphs creator locally instead? [y/n]\n'
@@ -913,9 +964,7 @@ else
   echo Running slurm script directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
   echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$summary_graphs_creator_job > slurm_summary_graphs_creator.out)
-  echo Successfully ran summary graphs creator directly
-  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran summary graphs creator directly" >> \$log_file
+  (cd \$output_dir; \$summary_graphs_creator_job > \$output)
 fi
 EOF
 
@@ -925,21 +974,26 @@ sed -i 's/\r//g' $summary_graphs_creator
 # Make sure the summary graphs creator can be executed
 chmod +x $summary_graphs_creator
 
-# Create the config for the python plotting scrips
-echo Creating plot_results.config
-echo $(date) $(hostname) "${logging_process}.Info: Creating plot_results.config" >> $log_file
+# Set up a command for running with or without conda
+conda_command=$''
+if [ $using_conda ]; then
+  conda_command=$'\nconda activate\nconda activate \\$working_directory/../code/python/.conda/'
+fi
+
+# Create the config for the python plotting scripts
+echo Creating results_plotter.config
+echo $(date) $(hostname) "${logging_process}.Info: Creating results_plotter.config" >> $log_file
 results_plotter_config=../$git_hash/scripts/results_plotter.config
 touch $results_plotter_config
 cat >$results_plotter_config << EOF
 job_name=plotting_results
-time=01:00:00
+time=48:00:00
 N=1
 ntasks_per_node=1
 partition=defq
 output=slurm_results_plotter.out
 nodelist=
-k=-1
-mode=standard
+bar_chart_mode=standard
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -1022,7 +1076,7 @@ echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
 echo k=\$k
-echo mode=\$mode
+echo bar_chart_mode=\$bar_chart_mode
 
 if ! \$skip_user_read; then
   # Ask the user to run the experiment with the aforementioned settings
@@ -1045,7 +1099,7 @@ output_dir_absolute=\$(realpath \$output_dir)/
 
 # The log file for the experiments
 log_file=\${output_dir}experiments.log
-logging_process="Results Plotter"
+logging_process="Results_Plotter"
 
 # Log the settings
 echo \$(date) \$(hostname) "\${logging_process}.Info: Plotting results in: \${output_dir_absolute}" >> \$log_file
@@ -1058,7 +1112,7 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> 
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: k=\$k" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: mode=\$mode" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: bar_chart_mode=\$bar_chart_mode" >> \$log_file
 
 # Create the slurm script
 echo Creating slurm script
@@ -1075,13 +1129,26 @@ cat >\$results_plotter_job << EOF2
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
 working_directory=\\\$(pwd)
-mode=\$mode
+bar_chart_mode=\$bar_chart_mode
 source activate base
 source \\\$HOME/.bashrc
-cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory
-conda activate
-conda activate \\\$working_directory/../code/python/.conda/
-python \\\$working_directory/../code/python/summary_loader/graph_stats.py ./ \\\$mode -v
+cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory$conda_command
+
+status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
+if [[ "\\\$status" == "multi_summary_complete" ]]; then
+  /usr/bin/time -v python \\\$working_directory/../code/python/summary_loader/graph_stats.py ./ \\\$bar_chart_mode -v
+  if [ \\\$? -eq 0 ]; then
+    sed -i '/^plotted =/c\plotted = true' state.toml
+  else
+    error_message="Plotting did not finish with exit status 0."
+    echo \\\$error_message
+    echo \\\$(date) \\\$(hostname) "\${logging_process}.Err: \\\$error_message" >> \$log_file
+  fi
+else
+  warning_message="Did not plot, because the experiment is not in the right state. Expected state: \\\"multi_summary_complete\\\". Actual state: \\\"\\\$status\\\"."
+  echo \\\$warning_message
+  echo \\\$(date) \\\$(hostname) "\${logging_process}.Warning: \\\$warning_message" >> \$log_file
+fi
 EOF2
 
 # Make sure the file will have Unix style line endings
@@ -1100,7 +1167,7 @@ if [ ! \$sbatch_command == '' ]; then
   echo \$(date) \$(hostname) "\${logging_process}.Info: Results plotter queued successfully, see \$output for the results" >> \$log_file
 else
   echo sbatch command not found
-  echo \$(date) \$(hostname) "\${logging_process}.Info: sbatch command not found" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Warning: sbatch command not found" >> \$log_file
   if ! \$skip_user_read; then
     while true; do
       read -p \$'Would you like to directly run the results plotter locally instead? [y/n]\n'
@@ -1119,9 +1186,7 @@ else
   echo Running slurm script directly
   echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
   echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
-  (cd \$output_dir; \$results_plotter_job > slurm_results_plotter.out)
-  echo Successfully ran results plotter directly
-  echo \$(date) \$(hostname) "\${logging_process}.Info: Successfully ran results plotter directly" >> \$log_file
+  (cd \$output_dir; \$results_plotter_job > \$output)
 fi
 EOF
 
@@ -1131,8 +1196,228 @@ sed -i 's/\r//g' $results_plotter
 # Make sure the summary graphs creator can be executed
 chmod +x $results_plotter
 
+# Create the config for the python serialization scripts
+echo Creating serializer.config
+echo $(date) $(hostname) "${logging_process}.Info: Creating serializer.config" >> $log_file
+serializer_config=../$git_hash/scripts/serializer.config
+touch $serializer_config
+cat >$serializer_config << EOF
+job_name=serializing_to_ntriples
+time=48:00:00
+N=1
+ntasks_per_node=1
+partition=defq
+output=slurm_serializer.out
+nodelist=
+iri_type=hash
+EOF
+
 # Make sure the file will have Unix style line endings
-sed -i 's/\r//g' $results_plotter_config
+sed -i 's/\r//g' $serializer_config
+
+# Create the shell file for the serializer
+echo Creating serializer.sh
+echo $(date) $(hostname) "${logging_process}.Info: Creating serializer.sh" >> $log_file
+serializer=../$git_hash/scripts/serializer.sh
+touch $serializer
+cat >$serializer << EOF
+#!/bin/bash
+
+# Using error handling code from https://linuxsimply.com/bash-scripting-tutorial/error-handling-and-debugging/error-handling/trap-err/
+##################################################
+
+# Define error handler function
+function handle_error() {
+  # Get information about the error
+  local error_code=\$?
+  local error_line=\$BASH_LINENO
+  local error_command=\$BASH_COMMAND
+
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
+
+  # Log the error details
+  echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
+  echo "Exiting with code: 1"
+
+  # Check if log_file has been set
+  if [[ ! -z "\$log_file" ]]; then
+    # Check log_file refers to an actual log file
+    if [[ -f "\$log_file" ]] && [[ \$log_file == *.log ]]; then
+      # If no process name has been set, then use "default"
+      if [[ -z "\$logging_process" ]]; then
+        logging_process=default
+      fi
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Error occurred on line \$error_line: \$error_command (exit code: \$error_code)" >> \$log_file
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+    fi
+  fi
+
+  # Optionally exit the script gracefully
+  exit 1
+}
+
+# Set the trap for any error (non-zero exit code)
+trap handle_error ERR
+
+##################################################
+
+# Check if a path to a dataset has been provided
+if [ \$# -eq 0 ]; then
+  echo 'Please provide a path to a dataset directory. This directory should have been created by preprocessor.sh'
+  exit 1
+fi
+
+skip_user_read=false
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
+# Load in the settings
+. ./serializer.config
+
+# Print the settings
+echo Using the following settings:
+echo job_name=\$job_name
+echo time=\$time
+echo N=\$N
+echo ntasks_per_node=\$ntasks_per_node
+echo partition=\$partition
+echo output=\$output
+echo nodelist=\$nodelist
+echo k=\$k
+echo bar_chart_mode=\$bar_chart_mode
+
+if ! \$skip_user_read; then
+  # Ask the user to run the experiment with the aforementioned settings
+  while true; do
+    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Please change the settings in serializer.config\nAborting'
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
+
+# Select a directory for the experiments
+output_dir="\${1}"
+output_dir_absolute=\$(realpath \$output_dir)/
+
+# The log file for the experiments
+log_file=\${output_dir}experiments.log
+logging_process=Serializer
+
+# Log the settings
+echo \$(date) \$(hostname) "\${logging_process}.Info: Serializing in: \${output_dir_absolute}" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: Using the following settings:" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: job_name=\$job_name" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: time=\$time" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: N=\$N" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_per_node" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
+
+# Create the slurm script
+echo Creating slurm script
+echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
+serializer_job=\${output_dir}slurm_serializer.sh
+touch \$serializer_job
+cat >\$serializer_job << EOF2
+#!/bin/bash
+#SBATCH --job-name=\$job_name
+#SBATCH --time=\$time
+#SBATCH -N \$N
+#SBATCH --ntasks-per-node=\$ntasks_per_node
+#SBATCH --partition=\$partition
+#SBATCH --output=\$output
+#SBATCH --nodelist=\$nodelist
+working_directory=\\\$(pwd)
+source activate base
+source \\\$HOME/.bashrc
+cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory$conda_command
+
+status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
+if [[ "\\\$status" == "multi_summary_complete" ]]; then
+  /usr/bin/time -v python \\\$working_directory/../code/python/summary_loader/serialize_to_ntriples.py ./ \$iri_type
+  if [ \\\$? -eq 0 ]; then
+    sed -i '/^serialized =/c\serialized = true' state.toml
+  else
+    error_message="Serializing did not finish with exit status 0."
+    echo \\\$error_message
+    echo \\\$(date) \\\$(hostname) "\${logging_process}.Err: \\\$error_message" >> \$log_file
+  fi
+else
+  warning_message="Did not serialize, because the experiment is not in the right state. Expected state: \\\"multi_summary_complete\\\". Actual state: \\\"\\\$status\\\"."
+  echo \\\$warning_message
+  echo \\\$(date) \\\$(hostname) "\${logging_process}.Warning: \\\$warning_message" >> \$log_file
+fi
+EOF2
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' \$serializer_job
+
+# Make sure the results serializer script can be executed (in case of local execution)
+chmod +x \$serializer_job
+
+# Queueing slurm script or ask to execute directly
+sbatch_command=\$(command -v sbatch)
+if [ ! \$sbatch_command == '' ]; then
+  echo Queueing slurm script
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
+  (cd \$output_dir; sbatch \$serializer_job)
+  echo Serializer queued successfully, see \$output for the results
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Serializer queued successfully, see \$output for the results" >> \$log_file
+else
+  echo sbatch command not found
+  echo \$(date) \$(hostname) "\${logging_process}.Warning: sbatch command not found" >> \$log_file
+  if ! \$skip_user_read; then
+    while true; do
+      read -p \$'Would you like to directly run the serializer locally instead? [y/n]\n'
+      if [ \${REPLY,,} == "y" ]; then
+          break
+      elif [ \${REPLY,,} == "n" ]; then
+          echo $'Direct execution declined\nAborting'
+          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  echo Running slurm script directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+  (cd \$output_dir; \$serializer_job > \$output)
+fi
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $serializer
+
+# Make sure the summary graphs creator can be executed
+chmod +x $serializer
+
+# Create the config for the "run all" script
+echo Creating run_all.config
+echo $(date) $(hostname) "${logging_process}.Info: Creating run_all.config" >> $log_file
+run_all_config=../$git_hash/scripts/run_all.config
+touch $run_all_config
+cat >$run_all_config << EOF
+plot_statistics=true
+serialize_to_ntriples=true
+EOF
 
 # Create the shell file for running all experiments
 echo Creating run_all.sh
@@ -1199,7 +1484,12 @@ do
 done
 
 # Load in the settings
+. ./run_all.config
+
+# Load in the preprocessor settings
 . ./preprocessor.config
+
+logging_process="Run_All_Script"
 
 dataset_path="\${1}"
 dataset_file="\${1##*/}"
@@ -1210,15 +1500,91 @@ if [ \$use_lz4 == "true" ]; then
 fi
 dataset_path_absolute=\$(realpath \$dataset_path)/
 output_dir=../\$dataset_name/
+log_file=\${output_dir}experiments.log
+state_file=\${output_dir}state.toml
+
+# Check if plot_statistics is set to a sane value
+case \$plot_statistics in
+  'true') ;;
+  'false') ;;
+  *) echo "plot_statistics has been set to \\"\$plot_statistics\\" in run_all.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
+esac
+
+# Check if serialize_to_ntriples is set to a sane value
+case \$serialize_to_ntriples in
+  'true') ;;
+  'false') ;;
+  *) echo "serialize_to_ntriples has been set to \\"\$serialize_to_ntriples\\" in run_all.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
+esac
 
 echo -e "\n##### SETTING UP PREPROCESSOR EXPERIMENT #####"
 ./preprocessor.sh \$dataset_path \$y_flag
+# status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
+# if [[ "\$status" == "preprocessed" ]]; then
+#   echo Preprocessing successful
+#   echo \$(date) \$(hostname) "\${logging_process}.Info: Preprocessing successful" >> \$log_file
+# else
+#   echo Preprocessing failed
+#   echo \$(date) \$(hostname) "\${logging_process}.Err: Preprocessing failed" >> \$log_file
+#   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+#   exit 1
+# fi
+
 echo -e "\n##### SETTING UP BISIMULATOR EXPERIMENT #####"
 ./bisimulator.sh \$output_dir \$y_flag
+# status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
+# if [[ "\$status" == "bisimulation_complete" ]]; then
+#   echo Bisimulation successful
+#   echo \$(date) \$(hostname) "\${logging_process}.Info: Bisimulation successful" >> \$log_file
+# else
+#   echo Bisimulation failed
+#   echo \$(date) \$(hostname) "\${logging_process}.Err: Bisimulation failed" >> \$log_file
+#   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+#   exit 1
+# fi
+
 echo -e "\n##### SETTING UP SUMMARY GRAPH CREATOR EXPERIMENT #####"
 ./summary_graphs_creator.sh \$output_dir \$y_flag
-echo -e "\n##### SETTING UP RESULT PLOTTER EXPERIMENT #####"
-./results_plotter.sh \$output_dir \$y_flag
+# status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
+# if [[ "\$status" == "multi_summary_complete" ]]; then
+#   echo Summary graph creation successful
+#   echo \$(date) \$(hostname) "\${logging_process}.Info: Summary graph creation successful" >> \$log_file
+# else
+#   echo Summary graph creation failed
+#   echo \$(date) \$(hostname) "\${logging_process}.Err: Summary graph creation failed" >> \$log_file
+#   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+#   exit 1
+# fi
+
+if \$plot_statistics; then
+  echo -e "\n##### SETTING UP RESULT PLOTTER EXPERIMENT #####"
+  ./results_plotter.sh \$output_dir \$y_flag
+  # plotted_status=\$(grep 'plotted' \$state_file | cut -d'=' -f2 | tr -d ' "')
+  # if [[ "\$plotted_status" == "true" ]]; then
+  #   echo Plotting successful
+  #   echo \$(date) \$(hostname) "\${logging_process}.Info: Plotting successful" >> \$log_file
+  # else
+  #   echo Plotting failed
+  #   echo \$(date) \$(hostname) "\${logging_process}.Err: Plotting failed" >> \$log_file
+  #   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+  #   exit 1
+  # fi
+fi
+
+if \$serialize_to_ntriples; then
+  echo -e "\n##### SETTING UP SERIALIZER EXPERIMENT #####"
+  ./serializer.sh \$output_dir \$y_flag
+  # serialized_status=\$(grep 'serialized' \$state_file | cut -d'=' -f2 | tr -d ' "')
+  # if [[ "\$serialized_status" == "true" ]]; then
+  #   echo Serializing successful
+  #   echo \$(date) \$(hostname) "\${logging_process}.Info: Serializing successful" >> \$log_file
+  # else
+  #   echo Serializing failed
+  #   echo \$(date) \$(hostname) "\${logging_process}.Err: Serializing failed" >> \$log_file
+  #   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+  #   exit 1
+  # fi
+fi
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -1226,6 +1592,9 @@ sed -i 's/\r//g' $run_all
 
 # Make sure the run all script can be executed
 chmod +x $run_all
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $run_all_config
 
 # Echo that the script ended successfully
 (cd ../; working_directory=$(pwd); echo Everything set up in: $working_directory/$git_hash/)

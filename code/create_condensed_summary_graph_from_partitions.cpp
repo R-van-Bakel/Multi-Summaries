@@ -25,6 +25,7 @@ using node_to_block_map_type = boost::unordered_flat_map<node_index, block_or_si
 using local_to_global_map = boost::unordered_flat_map<std::pair<k_type,block_or_singleton_index>,block_or_singleton_index>;
 using predicate_object_pair_set = boost::unordered_flat_set<std::pair<edge_type,block_or_singleton_index>>;
 using time_interval = std::pair<k_type, k_type>;
+using interval_map = boost::unordered_flat_map<block_or_singleton_index, time_interval>;
 
 const int BYTES_PER_ENTITY = 5;
 const int BYTES_PER_PREDICATE = 4;
@@ -158,6 +159,26 @@ void write_uint_K_TYPE_little_endian(std::ostream &outputstream, k_type value)
         value = value >> 8;
     }
     outputstream.write(data, BYTES_PER_K_TYPE);
+    if (outputstream.fail())
+    {
+        std::cout << "Write block failed with code: " << outputstream.rdstate() << std::endl;
+        std::cout << "Goodbit: " << outputstream.good() << std::endl;
+        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
+        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
+        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
+        exit(outputstream.rdstate());
+    }
+}
+
+void write_uint_BLOCK_little_endian(std::ostream &outputstream, int64_t value)
+{
+    char data[BYTES_PER_BLOCK];
+    for (unsigned int i = 0; i < BYTES_PER_BLOCK; i++)
+    {
+        data[i] = char(value & 0x00000000000000FFull);
+        value = value >> 8;
+    }
+    outputstream.write(data, BYTES_PER_BLOCK);
     if (outputstream.fail())
     {
         std::cout << "Write block failed with code: " << outputstream.rdstate() << std::endl;
@@ -570,6 +591,38 @@ public:
     {
         block_to_singletons[k].add_node(merged_block, singleton);
     }
+    void write_map_to_file_binary(std::string output_directory)
+    {
+        for (auto block_to_singleton_map: this->get_maps())
+        {
+            k_type current_level = block_to_singleton_map.first;
+
+            std::ostringstream current_level_stringstream;
+            current_level_stringstream << std::setw(4) << std::setfill('0') << current_level;
+            std::string current_level_string(current_level_stringstream.str());
+
+            std::ostringstream previous_level_stringstream;
+            previous_level_stringstream << std::setw(4) << std::setfill('0') << current_level-1;
+            std::string previous_level_string(previous_level_stringstream.str());
+
+            std::string output_file_path = output_directory + "singleton_mapping-" + previous_level_string + "to" + current_level_string + ".bin";
+            std::ofstream output_file_binary(output_file_path, std::ios::trunc | std::ofstream::out);
+
+            for (auto merged_singletons_pair: block_to_singleton_map.second.get_map())
+            {
+                block_index merged_block = (block_index) merged_singletons_pair.first;
+                block_or_singleton_index singleton_count = (block_or_singleton_index) merged_singletons_pair.second.get_nodes().size();
+                write_uint_BLOCK_little_endian(output_file_binary,merged_block);
+                write_int_BLOCK_OR_SINGLETON_little_endian(output_file_binary,singleton_count);
+                for (auto singleton: merged_singletons_pair.second.get_nodes())
+                {
+                    block_or_singleton_index singleton_block = (block_or_singleton_index) -(singleton+1);
+                    write_int_BLOCK_OR_SINGLETON_little_endian(output_file_binary,singleton_block);
+                }
+            }
+            output_file_binary.flush();
+        }
+    }
 };
 
 class LocalBlockToGlobalBlockMap
@@ -630,13 +683,14 @@ public:
         }
         return global_block;
     }
-    void write_map_to_file_binary(std::ostream &outputstream)  // TODO this format is very inefficient (as the level is written for every block), instead store like: LEVEL,SIZE,{{LOCAL,GLOBAL}...}
+    void write_map_to_file_binary(std::ostream &outputstream, interval_map &block_to_interval_map)  // TODO this format is very inefficient (as the level is written for every block), instead store like: LEVEL,SIZE,{{LOCAL,GLOBAL}...}
     {
         for (auto local_global_pair: this->get_map())
         {
-            k_type level = local_global_pair.first.first;
+            // k_type level = local_global_pair.first.first;
             block_or_singleton_index local_block = local_global_pair.first.second;
             block_or_singleton_index global_block = local_global_pair.second;
+            k_type level = block_to_interval_map[global_block].first;
 
             write_uint_K_TYPE_little_endian(outputstream,level);
             write_int_BLOCK_OR_SINGLETON_little_endian(outputstream,local_block);
@@ -1321,6 +1375,10 @@ int main(int ac, char *av[])
         while (true)
         {
             block_index block = read_uint_BLOCK_little_endian(current_outcome_file);
+            // if (i == 1 and block == 1)
+            // {
+            //     std::cout << "DEBUG: found (1,1)" << std::endl;
+            // }
             if (current_outcome_file.eof())
             {
                 break;
@@ -1401,6 +1459,14 @@ int main(int ac, char *av[])
     for (auto iter = blocks.cbegin(); iter != blocks.cend(); iter++)
     {
         block_index block_id = iter->first;
+        // if (current_level == 1)
+        // {
+        //     std::cout << "DEBUG: map found level 1 #1" << std::endl;
+        // }
+        // if (current_level == 1 and block_id == 1)
+        // {
+        //     std::cout << "DEBUG: map found (1,1) #1";
+        // }
         size_t block_size = iter->second.size();
         if (block_size == 0)  // Empty blocks do not yield summary nodes
         {
@@ -1434,7 +1500,7 @@ int main(int ac, char *av[])
         new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
     }
 
-    boost::unordered_flat_map<block_or_singleton_index, time_interval> block_to_interval_map;
+    interval_map block_to_interval_map;
 
     // // This corresponds to the one block that has no outgoing edges.
     // // Since it never apears as a subject, it will not be added by our algorithm, therefore we will manually add it here
@@ -1561,7 +1627,8 @@ int main(int ac, char *av[])
         }
 
         // Write the condensed summary graph to a file
-        std::string output_graph_file_path = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
+        std::string output_directory = experiment_directory + "bisimulation/";
+        std::string output_graph_file_path = output_directory + "condensed_multi_summary_graph.bin";
         std::ofstream output_graph_file_binary(output_graph_file_path, std::ios::trunc | std::ofstream::out);
         gs.write_graph_to_file_binary(output_graph_file_binary);
 
@@ -1570,8 +1637,11 @@ int main(int ac, char *av[])
         std::tm *ptm_write_intervals_instant{std::localtime(&time_t_write_intervals_instant)};
         std::cout << std::put_time(ptm_write_intervals_instant, "%Y/%m/%d %H:%M:%S") << " Writing node intervals to disk" << std::endl;
 
+        // Write the merged block to singleton node map to a file
+        blocks_to_singletons.write_map_to_file_binary(output_directory);
+
         // Write node intvervals to a file
-        std::string output_interval_file_path = experiment_directory + "bisimulation/condensed_multi_summary_intervals.bin";
+        std::string output_interval_file_path = output_directory + "condensed_multi_summary_intervals.bin";
         std::ofstream output_interval_file_binary(output_interval_file_path, std::ios::trunc | std::ofstream::out);
         for (auto block_interval_pair: block_to_interval_map)  // We effectively write the following to disk: {block,start_time,end_time}
         {
@@ -1588,9 +1658,9 @@ int main(int ac, char *av[])
         std::cout << std::put_time(ptm_write_map_instant, "%Y/%m/%d %H:%M:%S") << " Writing local to global block map to disk" << std::endl;
 
         // Write the LocalBlockToGlobalBlockMap to a file
-        std::string output_map_file_path = experiment_directory + "bisimulation/condensed_multi_summary_local_global_map.bin";
+        std::string output_map_file_path = output_directory + "condensed_multi_summary_local_global_map.bin";
         std::ofstream output_map_file_binary(output_map_file_path, std::ios::trunc | std::ofstream::out);
-        block_map.write_map_to_file_binary(output_map_file_binary);
+        block_map.write_map_to_file_binary(output_map_file_binary, block_to_interval_map);
 
         auto t_early_counts{boost::chrono::system_clock::now()};
         auto time_t_early_counts{boost::chrono::system_clock::to_time_t(t_early_counts)};
@@ -1658,6 +1728,14 @@ int main(int ac, char *av[])
         while (true)
         {
             block_index merged_block = read_uint_BLOCK_little_endian(current_mapping_file);
+            // if (current_level == 1)
+            // {
+            //     std::cout << "DEBUG: map found level 1 #2" << std::endl;
+            // }
+            // if (current_level-1 == 1 and merged_block == 1)
+            // {
+            //     std::cout << "DEBUG: map found (1,1) #2";
+            // }
             if (current_mapping_file.eof())
             {
                 break;
@@ -1791,6 +1869,14 @@ int main(int ac, char *av[])
         while (true)
         {
             block_index merged_block = read_uint_BLOCK_little_endian(current_mapping_file);
+            // if (current_level-1 == 1)
+            // {
+            //     std::cout << "DEBUG: map found level 1 #3" << std::endl;
+            // }
+            // if (current_level-1 == 1 and merged_block == 1)
+            // {
+            //     std::cout << "DEBUG: map found (1,1) #3";
+            // }
             if (current_mapping_file.eof())
             {
                 break;
@@ -2130,9 +2216,13 @@ int main(int ac, char *av[])
     }
 
     // Write the condensed summary graph (along with the time intervals) to a file
-    std::string output_graph_file_path = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
+    std::string output_directory = experiment_directory + "bisimulation/";
+    std::string output_graph_file_path = output_directory + "condensed_multi_summary_graph.bin";
     std::ofstream output_graph_file_binary(output_graph_file_path, std::ios::trunc | std::ofstream::out);
     gs.write_graph_to_file_binary(output_graph_file_binary);
+
+    // Write the merged block to singleton node map to a file
+    blocks_to_singletons.write_map_to_file_binary(output_directory);
 
     auto t_write_intervals{boost::chrono::system_clock::now()};
     auto time_t_write_intervals{boost::chrono::system_clock::to_time_t(t_write_intervals)};
@@ -2140,7 +2230,7 @@ int main(int ac, char *av[])
     std::cout << std::put_time(ptm_write_intervals, "%Y/%m/%d %H:%M:%S") << " Writing node intervals to disk" << std::endl;
 
     // Write node intvervals to a file
-    std::string output_interval_file_path = experiment_directory + "bisimulation/condensed_multi_summary_intervals.bin";
+    std::string output_interval_file_path = output_directory + "condensed_multi_summary_intervals.bin";
     std::ofstream output_interval_file_binary(output_interval_file_path, std::ios::trunc | std::ofstream::out);
     for (auto block_interval_pair: block_to_interval_map)  // We effectively write the following to disk: {block,start_time,end_time}
     {
@@ -2157,9 +2247,9 @@ int main(int ac, char *av[])
     std::cout << std::put_time(ptm_write_map, "%Y/%m/%d %H:%M:%S") << " Writing local to global block map to disk" << std::endl;
 
     // Write the LocalBlockToGlobalBlockMap to a file
-    std::string output_map_file_path = experiment_directory + "bisimulation/condensed_multi_summary_local_global_map.bin";
+    std::string output_map_file_path = output_directory + "condensed_multi_summary_local_global_map.bin";
     std::ofstream output_map_file_binary(output_map_file_path, std::ios::trunc | std::ofstream::out);
-    block_map.write_map_to_file_binary(output_map_file_binary);
+    block_map.write_map_to_file_binary(output_map_file_binary, block_to_interval_map);
 
     auto t_counts{boost::chrono::system_clock::now()};
     auto time_t_counts{boost::chrono::system_clock::to_time_t(t_counts)};

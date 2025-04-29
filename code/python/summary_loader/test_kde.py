@@ -3,8 +3,7 @@ from math import sqrt, pi, log, floor, e
 import numpy as np
 from tqdm import tqdm
 from matplotlib import pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.colors import Colormap
+from matplotlib.colors import LinearSegmentedColormap, Colormap, LogNorm, SymLogNorm
 from typing import Any, Type, Protocol
 from summary_loader.loader_functions import (
     get_fixed_point,
@@ -668,7 +667,7 @@ def generic_universal_kde_via_integral_plot(
     log_heatmap=True,
     clip: float = 0.0,
     clip_removes=False,
-    plot_name="block_sizes_integral_kde.svg",
+    plot_name="block_sizes_integral_kde.pdf",
 ) -> None:
     """
     Make a kde plot of `data_points`.
@@ -678,7 +677,7 @@ def generic_universal_kde_via_integral_plot(
     data_points : np.ndarray
         The data to make the kde plot from.
     result_directory : str
-        The director in which to store the plot (called "block_sizes_integral_kde.svg").
+        The director in which to store the plot.
     kernel_cdf_generator : Type[KernelCDFClass]
         A class that parameterizes a callable CDF kernel.
     generator_args : ArgsType, optional
@@ -708,7 +707,7 @@ def generic_universal_kde_via_integral_plot(
         By default False.
     plot_name : str, optional
         The name of the file in which the figure will be saved.
-        By default "block_sizes_integral_kde.svg".
+        By default "block_sizes_integral_kde.pdf".
 
     Raises
     ------
@@ -756,12 +755,16 @@ def generic_universal_kde_via_integral_plot(
     if maximum_level is None:
         maximum_level = np.max(data_points[:, 0])
 
-    # Process the data (e.g. normalize the means)
     maximum_size = int(data_points[:, 1].max())
+    if weight_type == "vertex_based":
+        heatmap_weight = (data_points[:, 1]*data_points[:, 2]).max()
+    elif weight_type == "block_based":
+        heatmap_weight = int(data_points[:, 2].max())
+    
+    # Process the data (e.g. normalize the means)
     means, kernel_weights = means_weights_from_data(data_points)
 
     data_point_count = data_points.shape[0]
-
     kernel_CDFs = []
     for i in tqdm(range(data_point_count), desc="Setting up kernels............"):
         kernel_CDFs.append(
@@ -799,10 +802,10 @@ def generic_universal_kde_via_integral_plot(
         kernel_CDFs, data_points, kernel_weights, coordinates, resolution, weight_type
     )
 
-    if log_heatmap:
-        LOG_OFFSET = 0.1
-        kde = np.log10(kde * maximum_size + LOG_OFFSET)
-        kde -= np.min(kde)
+    # if log_heatmap:
+    #     LOG_OFFSET = 0.1
+    #     kde = np.log10(kde * maximum_size + LOG_OFFSET)
+    #     kde -= np.min(kde)
     kde /= np.max(kde)  # Normalize
 
     if clip > 0.0:
@@ -810,6 +813,12 @@ def generic_universal_kde_via_integral_plot(
         kde /= np.max(
             kde
         )  # Renomalize (note that if clip_removes == True, then np.max(kde) == 1-clip)
+    
+    kde *= heatmap_weight  # Scale to the original counts
+    print("Max kde 3:", np.max(kde))
+    print("Min kde 3:", np.min(kde))
+
+    fig, ax = plt.subplots()
 
     x_tick_labels = range(maximum_level + 1)
     x_tick_positions = [
@@ -820,7 +829,17 @@ def generic_universal_kde_via_integral_plot(
         + resolution / (2 * (maximum_level + 1))
         for position in x_tick_positions
     ]  # Since we rescaled the levels earlier, we will have to change the ticks accordingly
-    plt.xticks(x_tick_positions, x_tick_labels)
+
+    # If we have more than 10 ticks, we will only select 6
+    TICK_COUNT_CUTOFF = 10
+    tick_count = len(x_tick_positions)
+    if tick_count > TICK_COUNT_CUTOFF:
+        x_tick_indices = np.round(
+            np.linspace(0, tick_count - 1, num=6, endpoint=True)
+        ).astype(int)
+        x_tick_positions = [x_tick_positions[i] for i in x_tick_indices]
+        x_tick_labels = [x_tick_labels[i] for i in x_tick_indices]
+    ax.set_xticks(x_tick_positions, x_tick_labels)
 
     if not log_size:
         y_tick_count = 6
@@ -831,7 +850,7 @@ def generic_universal_kde_via_integral_plot(
         y_tick_positions = [
             label * (resolution - 1) / maximum_size for label in y_tick_labels
         ]
-        plt.yticks(y_tick_positions, y_tick_labels)
+        ax.set_yticks(y_tick_positions, y_tick_labels)
     else:
         log_range = log(maximum_size, log_base) + 2 * SIZE_PADDING
         log_offset = SIZE_PADDING / log_range
@@ -855,11 +874,11 @@ def generic_universal_kde_via_integral_plot(
             end=resolution - 1,
         )
 
-        plt.yticks(y_tick_positions, y_tick_labels)
+        ax.set_yticks(y_tick_positions, y_tick_labels)
 
     # Label the axes
-    plt.xlabel("Bisimulation level")
-    plt.ylabel("Block size")
+    ax.set_xlabel("Bisimulation level")
+    ax.set_ylabel("Block size")
 
     # Set the title
     log_size_string = "LOG " if log_size else ""
@@ -868,11 +887,23 @@ def generic_universal_kde_via_integral_plot(
         plot_type_string = "block count of given size"
     elif weight_type == "vertex_based":
         plot_type_string = "vertex count in blocks of given size"
-    plt.title(f"{log_heatmap_string}Heatmap of {log_size_string}{plot_type_string}")
+    ax.set_title(f"{log_heatmap_string}Heatmap of {log_size_string}{plot_type_string}")
+
+    # Set the norm for the colorbar later
+    norm = None
+    if log_heatmap:
+        linear_threshold = np.min(kde[np.nonzero(kde)])
+        norm = SymLogNorm(linthresh=linear_threshold)
 
     # Plot our data as a heatmap
-    plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
-    plt.savefig(result_directory + plot_name, dpi=resolution)
+    print("Max kde 4:", np.max(kde))
+    print("Min kde 4:", np.min(kde))
+    kde += 0.0
+    heatmap = ax.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest", norm=norm)
+    print("Linear threshold:", linear_threshold)
+    cbar = fig.colorbar(heatmap)
+    cbar.set_ticks(ticks=[0,linear_threshold,10**4], labels=[0,linear_threshold,10**4])
+    fig.savefig(result_directory + plot_name, dpi=resolution)
 
 
 # def generic_universal_kde_plot(
@@ -1005,7 +1036,7 @@ def generic_universal_kde_via_integral_plot(
 #     # Plot our data as a heatmap
 #     plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
 #     plt.savefig(
-#         experiment_directory + "results/block_sizes_generic_universal_kde.svg",
+#         experiment_directory + "results/block_sizes_generic_universal_kde.pdf",
 #         dpi=resolution,
 #     )
 
@@ -1116,7 +1147,7 @@ def generic_universal_kde_via_integral_plot(
 #     # Plot our data as a heatmap
 #     plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
 #     plt.savefig(
-#         experiment_directory + "results/block_sizes_gaussian_log_log_kde.svg",
+#         experiment_directory + "results/block_sizes_gaussian_log_log_kde.pdf",
 #         dpi=resolution,
 #     )
 
@@ -1184,7 +1215,7 @@ if __name__ == "__main__":
         "log_heatmap": True,
         "clip": 0.00,
         "clip_removes": False,
-        "plot_name": "block_sizes_integral_kde.svg",
+        "plot_name": "block_sizes_integral_kde.pdf",
     }
     base_scale = 0.5
     base_epsilon = 0.5

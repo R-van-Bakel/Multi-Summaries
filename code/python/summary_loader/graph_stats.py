@@ -323,10 +323,12 @@ def plot_split_blocks_and_vertices_and_singletons(
 
 if __name__ == "__main__":
     experiment_directory = sys.argv[1]
-    mode = sys.argv[2]
+    bar_chart_mode = sys.argv[2]
     verbose = "-v" in sys.argv
 
-    mode = "standard" if mode == "" else mode  # Set an empty value to the default of "standard"
+    bar_chart_mode = (
+        "standard" if bar_chart_mode == "" else bar_chart_mode
+    )  # Set an empty value to the default of "standard"
 
     result_directory = experiment_directory + "results/"
     os.makedirs(result_directory, exist_ok=True)
@@ -383,7 +385,7 @@ if __name__ == "__main__":
 
     print("Plotting statistics per level")
     plot_split_blocks_and_vertices_and_singletons(
-        statistics, split_blocks, result_directory, True, mode
+        statistics, split_blocks, result_directory, True, bar_chart_mode
     )
 
     # Plot the block sizes heatmap
@@ -403,13 +405,13 @@ if __name__ == "__main__":
 
     via_integration_kwargs = {
         "resolution": 512,
-        "weight_type": "block_based",
+        "weight_type": "vertex_based",
         "log_size": True,
         "log_base": 10,
         "log_heatmap": True,
         "clip": 0.00,
         "clip_removes": False,
-        "plot_name": "block_sizes_integral_kde.pdf",
+        "plot_name": "block_sizes_integral_kde.svg",
     }
     base_scale = 0.5
     base_epsilon = 0.5

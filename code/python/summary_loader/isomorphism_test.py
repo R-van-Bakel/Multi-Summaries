@@ -72,7 +72,7 @@ if __name__ == "__main__":
         sys.exit(1)
     edge_intervals = compute_edge_intervals(edges,node_intervals,fixed_point)
     nodes = set(node for edge in edge_index for node in edge)
-    local_to_global_map, global_to_local_map = get_local_global_maps(experiment_directory_test)
+    local_to_global_map, global_to_local_map = get_local_global_maps(experiment_directory_test,True)
 
     # Print some statistics on the test graph
     if verbose:

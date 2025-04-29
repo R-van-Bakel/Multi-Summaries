@@ -12,5 +12,6 @@ dependencies = [
     "networkx",
     "matplotlib",
     "tqdm",
+    "toml",
 ]
 requires-python = ">=3.12"
