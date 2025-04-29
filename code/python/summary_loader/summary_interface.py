@@ -49,6 +49,28 @@ class SummaryInterface:
         subprocess.run(command, cwd=scripts_directory)
         self.__load_state()
     
+    def merge_files(self, files_to_merge: str) -> None:
+        rdf_directory = self.__experiments_directory + self.dataset_name + "/rdf_summary_graph/"
+        if not self.__experiment_state["state"]["serialized"]:
+            raise ValueError("Can not merge files if the serializer has not successfully been executed")
+        files = []
+        if "c" in files_to_merge:
+            files.append("contains.nt")
+        if "d" in files_to_merge:
+            files.append("data.nt")
+        if "i" in files_to_merge:
+            files.append("intervals.nt")
+        if "r" in files_to_merge:
+            files.append("refines.nt")
+        if "s" in files_to_merge:
+            files.append("sizes.nt")
+        if len(files) < 2:
+            raise ValueError("`files_to_merge` should be a string containing at least two of \"cdirfs\" (in order two select at least two files to merge).")
+        cat_command = "cat " + " ".join(files) + " > output_graph.nt"
+        command = ["bash", "-c", cat_command]
+        subprocess.run(command, cwd=rdf_directory)
+        self.__load_state()
+    
     @property
     def dataset_path(self) -> None | str:
         return self.__dataset_path
@@ -116,4 +138,7 @@ my_interface.run_experiment()
 # We can check on the state of the experiment
 state = my_interface.experiment_state
 pprint.pp(state)
+
+# We can merge some of the RDF ntriples files together if we want one merged file
+my_interface.merge_files("drs")  # Merges data.nt, refines.nt and sizes.nt
 """

@@ -6,7 +6,7 @@ This project contains code for the summarizing a lot of linked open data.
     - Note that `setup_experiments.sh` can take a `-y` parameter to skip all the user input, by answering `y` to all.
     - If the path to the Boost installation does not exists, `setup_experiments.sh` will ask to automatically install Boost.
 2. Now `setup_experiments.sh` should have created a folder using the hash of the current git commit. This hash will also be printed by `setup_experiments.sh` during setup. This folder contains compiled code (for C++) along with the source code (for both C++ and Python) in the `<hash>/code/` folder. The `<hash>/scripts/` folder contains shell scripts (along with correpsondig config files) that in turn can create job scripts to run via a slurm system. These job scripts can also be run locally as a regular shell script.
-  - These scripts can all also be run with a `-y` parameter.
+    - These scripts can all also be run with a `-y` parameter.
 3. While setting up, if anaconda was available, an anaconda enviroment should have been created in `<hash>/code/python/.conda`. This enviroment should contain a working Python setup that has our Python code available as a library. Alternatively, our Python code can be installed in any environment as a library by running `pip install -e .` in the `<hash>/code/python/` folder.'
 4. With our Python library properly installed, there are now several ways to run our code:
     - In the `<hash>/scripts/` folder set the settings in the the config files and run any of the scripts  to run parts of the experiment. The `<hash>/scripts/run_all.sh` script will run the full bisimulation pipeline, along with optionally plotting results and serializing the output to RDF (see `run_all,config`).
