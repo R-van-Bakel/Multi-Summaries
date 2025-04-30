@@ -666,9 +666,10 @@ def generic_universal_kde_via_integral_plot(
     log_size: bool = True,
     log_base: float = 10,
     log_heatmap=True,
+    mark_smallest=True,
     clip: float = 0.0,
     clip_removes=False,
-    plot_name="block_sizes_integral_kde.pdf",
+    plot_name="block_sizes_integral_kde",
 ) -> None:
     """
     Make a kde plot of `data_points`.
@@ -699,6 +700,8 @@ def generic_universal_kde_via_integral_plot(
        The base of logarithm used for `log_size` and `log_heatmap`, by default 10.
     log_heatmap : bool, optional
         This indicates whether the heatmap (colours) should be plotted on log-scale, by default True.
+    mark_smallest : bool, optional
+        If log_heatmap is set to `True`, then this determines whether the colorbar of the heatmap should have a tick marking the smallest non-zero value, by default True.
     clip : float, optional
         This determines which fraction of the largest values are clipped.
         Ranging from clipping no values at 0.0 to clipping all values at 1.0.
@@ -708,7 +711,7 @@ def generic_universal_kde_via_integral_plot(
         By default False.
     plot_name : str, optional
         The name of the file in which the figure will be saved.
-        By default "block_sizes_integral_kde.pdf".
+        By default "block_sizes_integral_kde".
 
     Raises
     ------
@@ -785,10 +788,6 @@ def generic_universal_kde_via_integral_plot(
     if not log_size:
         sizes = np.arange(resolution + 1) / (resolution)
     else:
-        # adjusted_start = log_base**(-SIZE_PADDING)
-        # adjusted_end = maximum_size * log_base**SIZE_PADDING
-        # adjusted_range = adjusted_end-adjusted_start
-
         sizes = np.logspace(
             -SIZE_PADDING,
             log(maximum_size, log_base) + SIZE_PADDING,
@@ -805,13 +804,6 @@ def generic_universal_kde_via_integral_plot(
         kernel_CDFs, data_points, kernel_weights, coordinates, resolution, weight_type
     )
 
-    print("Max kde 2:", np.max(kde))
-    print("Min kde 2:", np.min(kde))
-
-    # if log_heatmap:
-    #     LOG_OFFSET = 0.1
-    #     kde = np.log10(kde * maximum_size + LOG_OFFSET)
-    #     kde -= np.min(kde)
     kde /= np.max(kde)  # Normalize
 
     if clip > 0.0:
@@ -821,8 +813,6 @@ def generic_universal_kde_via_integral_plot(
         )  # Renomalize (note that if clip_removes == True, then np.max(kde) == 1-clip)
     
     kde *= heatmap_weight  # Scale to the original counts
-    print("Max kde 3:", np.max(kde))
-    print("Min kde 3:", np.min(kde))
 
     fig, ax = plt.subplots()
 
@@ -902,19 +892,11 @@ def generic_universal_kde_via_integral_plot(
         norm = SymLogNorm(linthresh=LINEAR_THRESHOLD)
 
     # Plot our data as a heatmap
-    print("Max kde 4:", np.max(kde))
-    print("Min kde 4:", np.min(kde))
     kde += 0.0
     heatmap = ax.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest", norm=norm)
-    print("DEBUG: Smallest non zero2 :", smallest_non_zero)
     cbar = fig.colorbar(heatmap)
-    if log_heatmap:
-        # t = cbar.get_ticks()
-        # t=np.append(t,)
-        # tl=t.tolist()
-        # # tl[-1]=""
-        # # my_formatter = LogFormatterSciNotation()
-        # cbar.set_ticks(t)
+    if log_heatmap and mark_smallest:
+        # Add an extra tick, indicating the smallest non-zero value
         cbar.ax.yaxis.set_major_formatter(LogFormatterSciNotation())
         smallest_non_zero_label = "      Smallest"
         ticks = cbar.get_ticks()
@@ -924,13 +906,13 @@ def generic_universal_kde_via_integral_plot(
         
         # Make the tick label gray
         smallest_non_zero_index = len(ticks)-1
-        # cbar.ax.tick_params(axis='y', colors='red')
         cbar.ax.get_yticklabels()[smallest_non_zero_index].set_color("gray")
 
         # Make the tick mark gray
         ticks_obj = cbar.ax.yaxis.get_major_ticks()
         ticks_obj[smallest_non_zero_index]._apply_params(color="gray")
-    fig.savefig(result_directory + plot_name, dpi=resolution)
+    fig.savefig(result_directory + plot_name + ".svg", dpi=resolution)
+    fig.savefig(result_directory + plot_name + ".pdf", dpi=resolution)
 
 
 # def generic_universal_kde_plot(
@@ -1063,7 +1045,7 @@ def generic_universal_kde_via_integral_plot(
 #     # Plot our data as a heatmap
 #     plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
 #     plt.savefig(
-#         experiment_directory + "results/block_sizes_generic_universal_kde.pdf",
+#         experiment_directory + "results/block_sizes_generic_universal_kde.svg",
 #         dpi=resolution,
 #     )
 
@@ -1174,7 +1156,7 @@ def generic_universal_kde_via_integral_plot(
 #     # Plot our data as a heatmap
 #     plt.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest")
 #     plt.savefig(
-#         experiment_directory + "results/block_sizes_gaussian_log_log_kde.pdf",
+#         experiment_directory + "results/block_sizes_gaussian_log_log_kde.svg",
 #         dpi=resolution,
 #     )
 
@@ -1244,7 +1226,7 @@ if __name__ == "__main__":
         "log_heatmap": True,
         "clip": 0.00,
         "clip_removes": False,
-        "plot_name": "block_sizes_integral_kde.pdf",
+        "plot_name": "block_sizes_integral_kde",
     }
     base_scale = 0.5
     base_epsilon = 0.5

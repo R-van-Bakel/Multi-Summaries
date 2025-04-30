@@ -13,5 +13,7 @@ dependencies = [
     "matplotlib",
     "tqdm",
     "toml",
+    # "svglib",
+    # "reportlab",
 ]
 requires-python = ">=3.12"

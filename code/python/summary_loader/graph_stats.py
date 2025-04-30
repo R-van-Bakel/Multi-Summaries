@@ -62,10 +62,13 @@ def plot_statistics(statistics: dict[str, int], result_directory: str) -> None:
         fig, ax = plt.subplots()
         ax.plot(values, color="#3300cc")
         ax.set_title(key)
-        file_name = (
-            "statistics_" + key.split("(")[0].lower().replace(" ", "_") + ".pdf"
+        file_name_base = (
+            "statistics_" + key.split("(")[0].lower().replace(" ", "_") 
         )  # Change the key to a more file-friendly format
-        fig.savefig(result_directory + file_name)
+        file_name_base_svg = file_name_base + ".svg"
+        file_name_base_pdf = file_name_base + ".pdf"
+        fig.savefig(result_directory + file_name_base_svg)
+        fig.savefig(result_directory + file_name_base_pdf)
 
 
 def plot_data_edge_statistics(
@@ -76,12 +79,14 @@ def plot_data_edge_statistics(
         fig, ax = plt.subplots()
         ax.plot(values, color="#3300cc")
         ax.set_title(key)
-        file_name = (
+        file_name_base = (
             "data_edge_statistics_"
             + key.split("(")[0].lower().replace(" ", "_")
-            + ".pdf"
         )  # Change the key to a more file-friendly format
-        fig.savefig(result_directory + file_name)
+        file_name_base_svg = file_name_base + ".svg"
+        file_name_base_pdf = file_name_base + ".pdf"
+        fig.savefig(result_directory + file_name_base_svg)
+        fig.savefig(result_directory + file_name_base_pdf)
 
 
 def plot_block_sizes(
@@ -126,10 +131,13 @@ def plot_block_sizes(
 
             i += 1
         fig.tight_layout()
-        file_name = (
-            key.replace("(", "").replace(")", "").lower().replace(" ", "_") + ".pdf"
+        file_name_base = (
+            key.replace("(", "").replace(")", "").lower().replace(" ", "_")
         )  # Change the key to a more file-friendly format
-        fig.savefig(result_directory + file_name)
+        file_name_base_svg = file_name_base + ".svg"
+        file_name_base_pdf = file_name_base + ".pdf"
+        fig.savefig(result_directory + file_name_base_svg)
+        fig.savefig(result_directory + file_name_base_pdf)
 
 
 def plot_edges_per_layer(
@@ -147,8 +155,10 @@ def plot_edges_per_layer(
     ax.plot(values, color="#3300cc")
     ax.set_xticks(levels)
     ax.set_title("Data edges per level")
-    file_name = "data_edge_counts.pdf"
-    fig.savefig(result_directory + file_name)
+    file_name_svg = "data_edge_counts.svg"
+    file_name_pdf = "data_edge_counts.pdf"
+    fig.savefig(result_directory + file_name_svg)
+    fig.savefig(result_directory + file_name_pdf)
     return
 
 
@@ -164,8 +174,10 @@ def plot_split_block_count(
     fig, ax = plt.subplots()
     ax.plot(x, y, color="#3300cc")
     ax.set_title("Number of split blocks per level")
-    file_name = "split_block_counts.pdf"
-    fig.savefig(result_directory + file_name)
+    file_name_svg = "split_block_counts.svg"
+    file_name_pdf = "split_block_counts.pdf"
+    fig.savefig(result_directory + file_name_svg)
+    fig.savefig(result_directory + file_name_pdf)
 
 
 def plot_split_vertex_count(
@@ -183,8 +195,10 @@ def plot_split_vertex_count(
     fig, ax = plt.subplots()
     ax.plot(x, y, color="#3300cc")
     ax.set_title("Number of vertices in split blocks per level")
-    file_name = "split_vertex_counts.pdf"
-    fig.savefig(result_directory + file_name)
+    file_name_svg = "split_vertex_counts.svg"
+    file_name_pdf = "split_vertex_counts.pdf"
+    fig.savefig(result_directory + file_name_svg)
+    fig.savefig(result_directory + file_name_pdf)
 
 
 def plot_split_blocks_and_vertices_and_singletons(
@@ -317,8 +331,10 @@ def plot_split_blocks_and_vertices_and_singletons(
         ax.set_ylim(
             ymin, ymax * PADDING_FACTOR
         )  # Padding to accomodate for the legend and padding to increas visibilty of small values
-    file_name = "per_level_statistics.pdf"
-    fig.savefig(result_directory + file_name)
+    file_name_svg = "per_level_statistics.svg"
+    file_name_pdf = "per_level_statistics.pdf"
+    fig.savefig(result_directory + file_name_svg)
+    fig.savefig(result_directory + file_name_pdf)
 
 
 if __name__ == "__main__":
@@ -413,7 +429,7 @@ if __name__ == "__main__":
         "log_heatmap": True,
         "clip": 0.00,
         "clip_removes": False,
-        "plot_name": "block_sizes_integral_kde.svg",
+        "plot_name": "block_sizes_integral_kde",
     }
     base_scale = 0.5
     base_epsilon = 0.5
