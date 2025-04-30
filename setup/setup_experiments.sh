@@ -278,6 +278,7 @@ partition=defq
 output=slurm_preprocessor.out
 nodelist=
 skipRDFlists=false
+skip_literals=false
 laundromat=false
 types_to_predicates=true
 use_lz4=false
@@ -366,6 +367,13 @@ case \$skipRDFlists in
   *) echo "skipRDFlists has been set to \\"\$skipRDFlists\\" in preprocessor.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
 esac
 
+# Set a boolean based on the value of skip_literals
+case \$skip_literals in
+  'true') skip_literals_flag=' --skip_literals' ;;
+  'false') skip_literals_flag='' ;;
+  *) echo "skip_literals has been set to \\"\$skip_literals\\" in preprocessor.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
+esac
+
 # Set a boolean based on the value of laundromat
 case \$laundromat in
   'true') laundromat_flag=' --laundromat' ;;
@@ -397,6 +405,7 @@ echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
 echo skipRDFlists=\$skipRDFlists
+echo skip_literals=\$skip_literals
 echo laundromat=\$laundromat
 echo types_to_predicates=\$types_to_predicates
 echo use_lz4=\$use_lz4
@@ -434,12 +443,12 @@ if [ \$use_lz4 == "true" ]; then
   preprocessor_command=\$(cat << EOM
 mkfifo ttl_buffer
 /usr/bin/time -v \$lz4_command -d -c \$dataset_path -d -c > ttl_buffer &
-../code/bin/preprocessor ./ttl_buffer ./\$skiplists\$types_to_predicates_flag\$laundromat_flag
+../code/bin/preprocessor ./ttl_buffer ./\$skiplists\$skip_literals_flag\$types_to_predicates_flag\$laundromat_flag
 rm ./ttl_buffer
 EOM
   )
 else
-  preprocessor_command="/usr/bin/time -v ../code/bin/preprocessor \$dataset_path ./\$skiplists\$types_to_predicates_flag"
+  preprocessor_command="/usr/bin/time -v ../code/bin/preprocessor \$dataset_path ./\$skiplists\$skip_literals_flag\$types_to_predicates_flag"
 fi
 
 # Create a log file for the experiments
@@ -458,6 +467,7 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> 
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: skipRDFlists=\$skipRDFlists" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: skip_literals=\$skip_literals" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: laundromat=\$laundromat" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: types_to_predicates=\$types_to_predicates" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: use_lz4=\$use_lz4" >> \$log_file
@@ -1076,7 +1086,6 @@ echo ntasks_per_node=\$ntasks_per_node
 echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
-echo k=\$k
 echo bar_chart_mode=\$bar_chart_mode
 
 if ! \$skip_user_read; then
@@ -1112,7 +1121,6 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_p
 echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: k=\$k" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: bar_chart_mode=\$bar_chart_mode" >> \$log_file
 
 # Create the slurm script
@@ -1292,7 +1300,6 @@ echo ntasks_per_node=\$ntasks_per_node
 echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
-echo k=\$k
 echo bar_chart_mode=\$bar_chart_mode
 
 if ! \$skip_user_read; then
