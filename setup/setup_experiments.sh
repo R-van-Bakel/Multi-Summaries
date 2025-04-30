@@ -72,9 +72,10 @@ if [ ! -d "$boost_path" ]; then
   mkdir -p $boost_path
   (
     cd $boost_path;
-    wget https://boostorg.jfrog.io/artifactory/main/release/1.84.0/source/boost_1_84_0.tar.bz2;
-    tar -v --strip-components=1 --bzip2 -xf ./boost_1_84_0.tar.bz2;
-    rm ./boost_1_84_0.tar.bz2
+    pwd;
+    wget https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz;
+    tar -v --strip-components=1 -xf ./boost_1_88_0.tar.gz;
+    # rm ./boost_1_84_0.tar.bz2
   )
 fi
 
