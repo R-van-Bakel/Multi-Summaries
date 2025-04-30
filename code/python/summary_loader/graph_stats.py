@@ -398,7 +398,9 @@ if __name__ == "__main__":
     # Add the singletons to the data points
     statistics = get_statistics(experiment_directory, fixed_point)
     for level, per_level_statistics in enumerate(statistics):
-        data_points.append((level, 1, per_level_statistics["Singleton count"]))
+        singleton_count = per_level_statistics["Singleton count"]
+        if singleton_count > 0:  # We don't have to explicitly encode blocks with a count of 0
+            data_points.append((level, 1, per_level_statistics["Singleton count"]))
 
     # Turn the data points into a nmupy array
     data_points = np.stack(data_points)  # shape = number_of_data_points x 3

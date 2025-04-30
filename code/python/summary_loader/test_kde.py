@@ -4,6 +4,7 @@ import numpy as np
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, Colormap, LogNorm, SymLogNorm
+from matplotlib.ticker import LogFormatterSciNotation
 from typing import Any, Type, Protocol
 from summary_loader.loader_functions import (
     get_fixed_point,
@@ -757,9 +758,11 @@ def generic_universal_kde_via_integral_plot(
 
     maximum_size = int(data_points[:, 1].max())
     if weight_type == "vertex_based":
-        heatmap_weight = (data_points[:, 1]*data_points[:, 2]).max()
+        weights = data_points[:, 1]*data_points[:, 2]
     elif weight_type == "block_based":
-        heatmap_weight = int(data_points[:, 2].max())
+        weights = data_points[:, 2]
+    heatmap_weight = int(weights.max())
+    smallest_non_zero = np.min(weights[np.nonzero(weights)])  # In principle, there should not be zero-weights, but just in case we filter out the potential zeros
     
     # Process the data (e.g. normalize the means)
     means, kernel_weights = means_weights_from_data(data_points)
@@ -801,6 +804,9 @@ def generic_universal_kde_via_integral_plot(
     kde = kde_via_integration(
         kernel_CDFs, data_points, kernel_weights, coordinates, resolution, weight_type
     )
+
+    print("Max kde 2:", np.max(kde))
+    print("Min kde 2:", np.min(kde))
 
     # if log_heatmap:
     #     LOG_OFFSET = 0.1
@@ -892,17 +898,38 @@ def generic_universal_kde_via_integral_plot(
     # Set the norm for the colorbar later
     norm = None
     if log_heatmap:
-        linear_threshold = np.min(kde[np.nonzero(kde)])
-        norm = SymLogNorm(linthresh=linear_threshold)
+        LINEAR_THRESHOLD = 1
+        norm = SymLogNorm(linthresh=LINEAR_THRESHOLD)
 
     # Plot our data as a heatmap
     print("Max kde 4:", np.max(kde))
     print("Min kde 4:", np.min(kde))
     kde += 0.0
     heatmap = ax.imshow(kde, origin="lower", cmap=PARADISO, interpolation="nearest", norm=norm)
-    print("Linear threshold:", linear_threshold)
+    print("DEBUG: Smallest non zero2 :", smallest_non_zero)
     cbar = fig.colorbar(heatmap)
-    cbar.set_ticks(ticks=[0,linear_threshold,10**4], labels=[0,linear_threshold,10**4])
+    if log_heatmap:
+        # t = cbar.get_ticks()
+        # t=np.append(t,)
+        # tl=t.tolist()
+        # # tl[-1]=""
+        # # my_formatter = LogFormatterSciNotation()
+        # cbar.set_ticks(t)
+        cbar.ax.yaxis.set_major_formatter(LogFormatterSciNotation())
+        smallest_non_zero_label = "      Smallest"
+        ticks = cbar.get_ticks()
+        ticks = np.append(ticks, smallest_non_zero)  # Append the special tick for the smallest non-zero value
+        cbar.set_ticks(ticks)
+        cbar.ax.set_yticklabels([*map(cbar.ax.yaxis.get_major_formatter().__call__, ticks[:-1]), smallest_non_zero_label])  # Keep original formatting for existing ticks, with a special label for the new one
+        
+        # Make the tick label gray
+        smallest_non_zero_index = len(ticks)-1
+        # cbar.ax.tick_params(axis='y', colors='red')
+        cbar.ax.get_yticklabels()[smallest_non_zero_index].set_color("gray")
+
+        # Make the tick mark gray
+        ticks_obj = cbar.ax.yaxis.get_major_ticks()
+        ticks_obj[smallest_non_zero_index]._apply_params(color="gray")
     fig.savefig(result_directory + plot_name, dpi=resolution)
 
 
@@ -1168,7 +1195,9 @@ if __name__ == "__main__":
     # Add the singletons to the data points
     statistics = get_statistics(experiment_directory, fixed_point)
     for level, per_level_statistics in enumerate(statistics):
-        data_points.append((level, 1, per_level_statistics["Singleton count"]))
+        singleton_count = per_level_statistics["Singleton count"]
+        if singleton_count > 0:  # We don't have to explicitly encode blocks with a count of 0
+            data_points.append((level, 1, per_level_statistics["Singleton count"]))
 
     # Turn the data points into a nmupy array
     data_points = np.stack(data_points)  # shape = number_of_data_points x 3
