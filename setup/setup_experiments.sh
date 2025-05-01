@@ -1004,7 +1004,6 @@ ntasks_per_node=1
 partition=defq
 output=slurm_results_plotter.out
 nodelist=
-bar_chart_mode=standard
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -1086,7 +1085,6 @@ echo ntasks_per_node=\$ntasks_per_node
 echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
-echo bar_chart_mode=\$bar_chart_mode
 
 if ! \$skip_user_read; then
   # Ask the user to run the experiment with the aforementioned settings
@@ -1121,7 +1119,6 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_p
 echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: bar_chart_mode=\$bar_chart_mode" >> \$log_file
 
 # Create the slurm script
 echo Creating slurm script
@@ -1138,14 +1135,13 @@ cat >\$results_plotter_job << EOF2
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
 working_directory=\\\$(pwd)
-bar_chart_mode=\$bar_chart_mode
 source activate base
 source \\\$HOME/.bashrc
 cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory$conda_command
 
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "multi_summary_complete" ]]; then
-  /usr/bin/time -v python \\\$working_directory/../code/python/summary_loader/graph_stats.py ./ \\\$bar_chart_mode -v
+  /usr/bin/time -v python \\\$working_directory/../code/python/summary_loader/graph_stats.py ./ -v
   if [ \\\$? -eq 0 ]; then
     sed -i '/^plotted =/c\plotted = true' state.toml
   else
@@ -1300,7 +1296,6 @@ echo ntasks_per_node=\$ntasks_per_node
 echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
-echo bar_chart_mode=\$bar_chart_mode
 
 if ! \$skip_user_read; then
   # Ask the user to run the experiment with the aforementioned settings

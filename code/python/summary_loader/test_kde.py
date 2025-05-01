@@ -1224,6 +1224,7 @@ if __name__ == "__main__":
         "log_size": True,
         "log_base": 10,
         "log_heatmap": True,
+        "mark_smallest":True,
         "clip": 0.00,
         "clip_removes": False,
         "plot_name": "block_sizes_integral_kde",

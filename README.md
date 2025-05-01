@@ -39,10 +39,11 @@ The Python library is located in `<hash>/code/python/`. The source code for this
 - `graph_stats.py`: This program plots several statistics about the bisimulation process and its output (i.e. the partitions and the edges between them).
     - Parameters
       - The first positional parameter specifies an experiment directory. This should be the same directory as the output of the `bisimulator`.
-      - The second positional parameter sets the way in which bar charts are plotted. Valid options are: `standard`, `large_transparant` and `large_opaque`. The first option works well for shallower refinements (i.e. with a deph of less than a few hundred), while latter two options tend to work well for very deep refinements.
+      <!-- - The second positional parameter sets the way in which bar charts are plotted. Valid options are: `standard`, `large_transparant` and `large_opaque`. The first option works well for shallower refinements (i.e. with a deph of less than a few hundred), while latter two options tend to work well for very deep refinements. -->
     - Flags
       - `-v` This flag indicates that the process should be more verbose. This could lead to very large dictionaries being printed.
 - `serialize_to_ntriples.py`: This Python file serializes the multi summary graph into RDF ntriples format.
+  - Parameters
       - The first positional parameter specifies an experiment directory. This should be the same directory as the output of the `bisimulator`.
       - The second parameters specifies how IRIs for summary block nodes are created. It should be one of `id_set`, `iri_set`, or `hash`. The `hash` setting is recommended as it prevents extremely large IRIs from being produced.
 - `summary_interface.py`: This Python script defines an interface that can be used to work with the experiments. It can be used to run or queue experiments and check on the status of an experiment (e.g. whether the multi summary is finished).
@@ -90,7 +91,7 @@ Safe for the `run_all.sh` script, all scripts have settings for setting up a slu
     - Flags
       - `-y` Setting this flag automatically answers all requested user input with `y`.
     - Settings
-      - `bar_chart_mode` (default: `standard`) This setting sets the way in which bar charts are plotted. Valid options are: `standard`, `large_transparant` and `large_opaque`. The first option works well for shallower refinements (i.e. with a deph of less than a few hundred), while latter two options tend to work well for very deep refinements.
+      <!-- - `bar_chart_mode` (default: `standard`) This setting sets the way in which bar charts are plotted. Valid options are: `standard`, `large_transparant` and `large_opaque`. The first option works well for shallower refinements (i.e. with a deph of less than a few hundred), while latter two options tend to work well for very deep refinements. -->
 - `serializer.sh`: This script takes in an experiment directory and sets up a slurm-compatible shell script that runs the `serialize_to_ntriples.py` program (directly or via slurm) in the specified directory.
     - Parameters
       - The first parameter specifies a directory to read the multi summary from. It will also use this directory to write its output to.
