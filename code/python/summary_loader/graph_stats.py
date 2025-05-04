@@ -67,6 +67,10 @@ def plot_statistics(statistics: dict[str, int], result_directory: str) -> None:
         )  # Change the key to a more file-friendly format
         file_name_base_svg = file_name_base + ".svg"
         file_name_base_pdf = file_name_base + ".pdf"
+    
+        # Make (the outside of) the figure transparant
+        fig.patch.set_visible(False)
+
         fig.savefig(result_directory + file_name_base_svg)
         fig.savefig(result_directory + file_name_base_pdf)
 
@@ -85,6 +89,10 @@ def plot_data_edge_statistics(
         )  # Change the key to a more file-friendly format
         file_name_base_svg = file_name_base + ".svg"
         file_name_base_pdf = file_name_base + ".pdf"
+
+        # Make (the outside of) the figure transparant
+        fig.patch.set_visible(False)
+
         fig.savefig(result_directory + file_name_base_svg)
         fig.savefig(result_directory + file_name_base_pdf)
 
@@ -112,7 +120,7 @@ def plot_block_sizes(
         ax_objs = []
         for level, size_counter in enumerate(values):
             data = list(size_counter.elements())
-            if sinlgetons is not None:  # If singletons are specif
+            if sinlgetons is not None:  # If singletons are specified
                 data += [1 for singleton in sinlgetons]
             ax_objs.append(fig.add_subplot(gs[i : i + 1, 0:]))
             _, _, bars = ax_objs[-1].hist(
@@ -136,6 +144,10 @@ def plot_block_sizes(
         )  # Change the key to a more file-friendly format
         file_name_base_svg = file_name_base + ".svg"
         file_name_base_pdf = file_name_base + ".pdf"
+
+        # Make the outside of the figure transparant
+        fig.patch.set_visible(False)
+
         fig.savefig(result_directory + file_name_base_svg)
         fig.savefig(result_directory + file_name_base_pdf)
 
@@ -157,9 +169,12 @@ def plot_edges_per_layer(
     ax.set_title("Data edges per level")
     file_name_svg = "data_edge_counts.svg"
     file_name_pdf = "data_edge_counts.pdf"
+
+    # Make (the outside of) the figure transparant
+    fig.patch.set_visible(False)
+
     fig.savefig(result_directory + file_name_svg)
     fig.savefig(result_directory + file_name_pdf)
-    return
 
 
 def plot_split_block_count(
@@ -176,6 +191,10 @@ def plot_split_block_count(
     ax.set_title("Number of split blocks per level")
     file_name_svg = "split_block_counts.svg"
     file_name_pdf = "split_block_counts.pdf"
+
+    # Make (the outside of) the figure transparant
+    fig.patch.set_visible(False)
+
     fig.savefig(result_directory + file_name_svg)
     fig.savefig(result_directory + file_name_pdf)
 
@@ -197,6 +216,10 @@ def plot_split_vertex_count(
     ax.set_title("Number of vertices in split blocks per level")
     file_name_svg = "split_vertex_counts.svg"
     file_name_pdf = "split_vertex_counts.pdf"
+
+    # Make (the outside of) the figure transparant
+    fig.patch.set_visible(False)
+
     fig.savefig(result_directory + file_name_svg)
     fig.savefig(result_directory + file_name_pdf)
 
@@ -359,6 +382,10 @@ def plot_split_blocks_and_vertices_and_singletons(
         )  # Padding to accomodate for the legend and padding to increas visibilty of small values
     file_name_svg = "per_level_statistics.svg"
     file_name_pdf = "per_level_statistics.pdf"
+
+    # Make (the outside of) the figure transparant
+    fig.patch.set_visible(False)
+
     fig.savefig(result_directory + file_name_svg)
     fig.savefig(result_directory + file_name_pdf)
 

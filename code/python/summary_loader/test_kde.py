@@ -911,6 +911,11 @@ def generic_universal_kde_via_integral_plot(
         # Make the tick mark gray
         ticks_obj = cbar.ax.yaxis.get_major_ticks()
         ticks_obj[smallest_non_zero_index]._apply_params(color="gray")
+    
+    # Make (the outside of) the figure transparant
+    fig.patch.set_visible(False)
+    ax.patch.set_visible(False)
+
     fig.savefig(result_directory + plot_name + ".svg", dpi=resolution)
     fig.savefig(result_directory + plot_name + ".pdf", dpi=resolution)
 
