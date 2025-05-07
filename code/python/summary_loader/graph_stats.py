@@ -71,8 +71,8 @@ def plot_statistics(statistics: dict[str, int], result_directory: str) -> None:
         # Make (the outside of) the figure transparant
         fig.patch.set_visible(False)
 
-        fig.savefig(result_directory + file_name_base_svg)
-        fig.savefig(result_directory + file_name_base_pdf)
+        fig.savefig(result_directory + file_name_base_svg, bbox_inches="tight", pad_inches=0.01)
+        fig.savefig(result_directory + file_name_base_pdf, bbox_inches="tight", pad_inches=0.01)
 
 
 def plot_data_edge_statistics(
@@ -93,8 +93,8 @@ def plot_data_edge_statistics(
         # Make (the outside of) the figure transparant
         fig.patch.set_visible(False)
 
-        fig.savefig(result_directory + file_name_base_svg)
-        fig.savefig(result_directory + file_name_base_pdf)
+        fig.savefig(result_directory + file_name_base_svg, bbox_inches="tight", pad_inches=0.01)
+        fig.savefig(result_directory + file_name_base_pdf, bbox_inches="tight", pad_inches=0.01)
 
 
 def plot_block_sizes(
@@ -148,8 +148,8 @@ def plot_block_sizes(
         # Make the outside of the figure transparant
         fig.patch.set_visible(False)
 
-        fig.savefig(result_directory + file_name_base_svg)
-        fig.savefig(result_directory + file_name_base_pdf)
+        fig.savefig(result_directory + file_name_base_svg, bbox_inches="tight", pad_inches=0.01)
+        fig.savefig(result_directory + file_name_base_pdf, bbox_inches="tight", pad_inches=0.01)
 
 
 def plot_edges_per_layer(
@@ -173,8 +173,8 @@ def plot_edges_per_layer(
     # Make (the outside of) the figure transparant
     fig.patch.set_visible(False)
 
-    fig.savefig(result_directory + file_name_svg)
-    fig.savefig(result_directory + file_name_pdf)
+    fig.savefig(result_directory + file_name_svg, bbox_inches="tight", pad_inches=0.01)
+    fig.savefig(result_directory + file_name_pdf, bbox_inches="tight", pad_inches=0.01)
 
 
 def plot_split_block_count(
@@ -195,8 +195,8 @@ def plot_split_block_count(
     # Make (the outside of) the figure transparant
     fig.patch.set_visible(False)
 
-    fig.savefig(result_directory + file_name_svg)
-    fig.savefig(result_directory + file_name_pdf)
+    fig.savefig(result_directory + file_name_svg, bbox_inches="tight", pad_inches=0.01)
+    fig.savefig(result_directory + file_name_pdf, bbox_inches="tight", pad_inches=0.01)
 
 
 def plot_split_vertex_count(
@@ -220,8 +220,8 @@ def plot_split_vertex_count(
     # Make (the outside of) the figure transparant
     fig.patch.set_visible(False)
 
-    fig.savefig(result_directory + file_name_svg)
-    fig.savefig(result_directory + file_name_pdf)
+    fig.savefig(result_directory + file_name_svg, bbox_inches="tight", pad_inches=0.01)
+    fig.savefig(result_directory + file_name_pdf, bbox_inches="tight", pad_inches=0.01)
 
 
 def plot_split_blocks_and_vertices_and_singletons(
@@ -386,8 +386,8 @@ def plot_split_blocks_and_vertices_and_singletons(
     # Make (the outside of) the figure transparant
     fig.patch.set_visible(False)
 
-    fig.savefig(result_directory + file_name_svg)
-    fig.savefig(result_directory + file_name_pdf)
+    fig.savefig(result_directory + file_name_svg, bbox_inches="tight", pad_inches=0.01)
+    fig.savefig(result_directory + file_name_pdf, bbox_inches="tight", pad_inches=0.01)
 
 
 if __name__ == "__main__":

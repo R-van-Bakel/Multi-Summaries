@@ -916,8 +916,8 @@ def generic_universal_kde_via_integral_plot(
     fig.patch.set_visible(False)
     ax.patch.set_visible(False)
 
-    fig.savefig(result_directory + plot_name + ".svg", dpi=resolution)
-    fig.savefig(result_directory + plot_name + ".pdf", dpi=resolution)
+    fig.savefig(result_directory + plot_name + ".svg", dpi=resolution, bbox_inches="tight", pad_inches=0.01)
+    fig.savefig(result_directory + plot_name + ".pdf", dpi=resolution, bbox_inches="tight", pad_inches=0.01)
 
 
 # def generic_universal_kde_plot(
