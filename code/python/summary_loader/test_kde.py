@@ -1225,7 +1225,7 @@ if __name__ == "__main__":
     # Create a 2D (Gaussian or Epanechnikov or custom)-universal kde plot that uses integration instead of sampling to get the heatmap values, shown in lin-log scale
     via_integration_kwargs = {
         "resolution": 512,
-        "weight_type": "vertex_based",
+        "weight_type": "block_based",
         "log_size": True,
         "log_base": 10,
         "log_heatmap": True,

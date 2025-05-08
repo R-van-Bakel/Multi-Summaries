@@ -248,88 +248,6 @@ def plot_split_blocks_and_vertices_and_singletons(
         y_split_vertices.append(vertex_count)
 
     fig, ax = plt.subplots()
-    # if mode == "standard":
-    #     WIDTH = 0.8
-    #     ax.bar(
-    #         x[:-1],
-    #         y_split_blocks,
-    #         color="#00cc33",
-    #         width=WIDTH,
-    #         alpha=1,
-    #         label="Splitting Blocks",
-    #     )
-    #     ax.bar(
-    #         x,
-    #         y_singletons,
-    #         color="#3300cc",
-    #         width=0.4 * WIDTH,
-    #         alpha=1,
-    #         label="Singletons",
-    #     )
-    #     ax.bar(
-    #         x[:-1],
-    #         y_split_vertices,
-    #         color="#cc3300",
-    #         width=0.15 * WIDTH,
-    #         alpha=1,
-    #         label="Vertices in Splitting Blocks",
-    #     )
-    # elif mode == "large_transparant":
-    #     WIDTH = 0.8
-    #     ax.bar(
-    #         x[:-1],
-    #         y_split_blocks,
-    #         color="#00cc33",
-    #         width=WIDTH,
-    #         alpha=0.8,
-    #         label="Splitting Blocks",
-    #     )
-    #     ax.bar(
-    #         x,
-    #         y_singletons,
-    #         color="#3300cc",
-    #         width=0.4 * WIDTH,
-    #         alpha=0.3,
-    #         label="Singletons",
-    #     )
-    #     ax.bar(
-    #         x[:-1],
-    #         y_split_vertices,
-    #         color="#cc3300",
-    #         width=0.15 * WIDTH,
-    #         alpha=0.3,
-    #         label="Vertices in Splitting Blocks",
-    #     )
-    # elif mode == "large_opaque":
-    #     WIDTH = 0.8
-    #     ax.bar(
-    #         x,
-    #         y_singletons,
-    #         color="#3300cc",
-    #         width=0.4 * WIDTH,
-    #         alpha=1,
-    #         label="Singletons",
-    #     )
-    #     ax.bar(
-    #         x[:-1],
-    #         y_split_vertices,
-    #         color="#cc3300",
-    #         width=0.15 * WIDTH,
-    #         alpha=1,
-    #         label="Vertices in Splitting Blocks",
-    #     )
-    #     ax.bar(
-    #         x[:-1],
-    #         y_split_blocks,
-    #         color="#00cc33",
-    #         width=WIDTH,
-    #         alpha=1,
-    #         label="Splitting Blocks",
-    #     )
-    # else:
-    #     raise ValueError(
-    #         '`mode` should be set to one of: "standard", "large_transparant", or "large_opaque"'
-    #     )
 
     WIDTH = 0.3
     ax.bar(
@@ -457,8 +375,10 @@ if __name__ == "__main__":
         statistics, split_blocks, result_directory, True#, bar_chart_mode
     )
 
-    # Plot the block sizes heatmap
-    print("Plotting heatmap of block sizes per layer")
+    # >>> Plot the block sizes heatmap >>>
+    print("Plotting heatmaps")
+
+    # Load in the block sizes at different levels along with their count
     data_points = []
     for level, data in enumerate(block_sizes):
         for size, count in data["Block sizes"].items():
@@ -476,14 +396,14 @@ if __name__ == "__main__":
 
     via_integration_kwargs = {
         "resolution": 512,
-        "weight_type": "vertex_based",
+        "weight_type": "block_based",
         "log_size": True,
         "log_base": 10,
         "log_heatmap": True,
         "mark_smallest":True,
         "clip": 0.00,
         "clip_removes": False,
-        "plot_name": "block_sizes_integral_kde",
+        "plot_name": "block_sizes_integral_kde_block_based",
     }
     base_scale = 0.5
     base_epsilon = 0.5
@@ -497,6 +417,8 @@ if __name__ == "__main__":
         "epsilon": epsilon,
     }
 
+    # Block-based plot
+    print("Plotting block-based heatmap")
     generic_universal_kde_via_integral_plot(
         data_points,
         result_directory,
@@ -506,3 +428,18 @@ if __name__ == "__main__":
         fixed_point,
         **via_integration_kwargs,
     )
+
+    # Vertex-based plot
+    via_integration_kwargs["weight_type"] = "vertex_based"
+    via_integration_kwargs["plot_name"] = "block_sizes_integral_kde_vertex_based"
+    print("Plotting vertex-based heatmap")
+    generic_universal_kde_via_integral_plot(
+        data_points,
+        result_directory,
+        UniformCDF,
+        epanechnikov_args,
+        epanechnikov_kwargs,
+        fixed_point,
+        **via_integration_kwargs,
+    )
+    # <<< Plot the block sizes heatmap <<<
