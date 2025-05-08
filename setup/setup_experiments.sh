@@ -779,13 +779,12 @@ summary_graphs_creator_config=../$git_hash/scripts/summary_graphs_creator.config
 touch $summary_graphs_creator_config
 cat >$summary_graphs_creator_config << EOF
 job_name=summary_graphs_creation
-time=01:00:00
+time=48:00:00
 N=1
 ntasks_per_node=1
 partition=defq
 output=slurm_summary_graphs_creator.out
 nodelist=
-multi_summary=true
 EOF
 
 # Make sure the file will have Unix style line endings
@@ -858,13 +857,6 @@ done
 # Load in the settings
 . ./summary_graphs_creator.config
 
-# Set a path based on the value of multi_summary
-case \$multi_summary in
-  'true') summary_graph_creator_executable='create_condensed_summary_graph_from_partitions' ;;
-  'false') summary_graph_creator_executable='create_quotient_graphs_from_partitions' ;;
-  *) echo "multi_summary has been set to \\"\$multi_summary\\" in summary_graphs_creator.config. Please change it to \\"true\\" or \\"false\\" instead"; exit 1 ;;
-esac
-
 # Print the settings
 echo Using the following settings:
 echo job_name=\$job_name
@@ -874,7 +866,6 @@ echo ntasks_per_node=\$ntasks_per_node
 echo partition=\$partition
 echo output=\$output
 echo nodelist=\$nodelist
-echo multi_summary=\$multi_summary
 
 if ! \$skip_user_read; then
 # Ask the user to run the experiment with the aforementioned settings
@@ -909,7 +900,6 @@ echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_p
 echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
 echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
-echo \$(date) \$(hostname) "\${logging_process}.Info: multi_summary=\$multi_summary" >> \$log_file
 
 # Create the slurm script
 echo Creating slurm script
@@ -927,7 +917,7 @@ cat >\$summary_graphs_creator_job << EOF2
 #SBATCH --nodelist=\$nodelist
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "bisimulation_complete" ]]; then
-  /usr/bin/time -v ../code/bin/\$summary_graph_creator_executable ./
+  /usr/bin/time -v ../code/bin/create_condensed_summary_graph_from_partitions ./
   if [ \\\$? -eq 0 ]; then
     sed -i '/^summary_status =/c\summary_status = "multi_summary_complete"' state.toml
   else

@@ -83,8 +83,6 @@ Safe for the `run_all.sh` script, all scripts have settings for setting up a slu
       - The first parameter specifies a directory to read the bisimulation output (refined partition) from. It will also use this directory to write its output to.
     - Flags
       - `-y` Setting this flag automatically answers all requested user input with `y`.
-    - Settings
-      - `multi_summary` (default: `true`) This is an older setting and should be kept as `true`.
 - `results_plotter.sh`: This script takes in an experiment directory and sets up a slurm-compatible shell script that runs the `graph_stats.py` program (directly or via slurm) in the specified directory.
     - Parameters
       - The first parameter specifies a directory to read the multi summary from. It will also use this directory to write its output to.
