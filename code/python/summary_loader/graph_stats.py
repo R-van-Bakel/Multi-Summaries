@@ -442,4 +442,5 @@ if __name__ == "__main__":
         fixed_point,
         **via_integration_kwargs,
     )
+    plt.show()
     # <<< Plot the block sizes heatmap <<<

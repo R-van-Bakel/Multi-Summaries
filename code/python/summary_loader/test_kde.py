@@ -646,11 +646,12 @@ def kde_via_integration(
             raise ValueError(
                 '`weight_type` should be set to one of: "block_based" or "vertex_based"'
             )
-        new_weight = weight + current_weight
-        running_mean = running_mean * (weight / new_weight) + image * (
-            current_weight / new_weight
-        )
-        weight = new_weight
+        # new_weight = weight + current_weight
+        # running_mean = running_mean * (weight / new_weight) + image * (
+        #     current_weight / new_weight
+        # )
+        # weight = new_weight
+        running_mean += current_weight*image
     return running_mean
 
 
@@ -804,15 +805,16 @@ def generic_universal_kde_via_integral_plot(
         kernel_CDFs, data_points, kernel_weights, coordinates, resolution, weight_type
     )
 
-    kde /= np.max(kde)  # Normalize
+    # kde /= np.max(kde)  # Normalize
 
     if clip > 0.0:
-        kde[kde > 1 - clip] = 0 if clip_removes else 1 - clip  # Clip "large" values
-        kde /= np.max(
-            kde
-        )  # Renomalize (note that if clip_removes == True, then np.max(kde) == 1-clip)
+        clip_threshold = np.max(kde)*(1-clip)
+        kde[kde > clip_threshold] = 0 if clip_removes else clip_threshold  # Clip "large" values
+    #     kde /= np.max(
+    #         kde
+    #     )  # Renomalize (note that if clip_removes == True, then np.max(kde) == 1-clip)
     
-    kde *= heatmap_weight  # Scale to the original counts
+    # kde *= heatmap_weight  # Scale to the original counts
 
     fig, ax = plt.subplots()
 
@@ -1168,8 +1170,6 @@ def generic_universal_kde_via_integral_plot(
 
 if __name__ == "__main__":
     experiment_directory = sys.argv[1]
-
-    # TODO add a color legend
 
     # Load in the data
     fixed_point = get_fixed_point(experiment_directory)
