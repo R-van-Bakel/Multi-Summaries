@@ -170,7 +170,7 @@ void write_uint_K_TYPE_little_endian(std::ostream &outputstream, k_type value)
     }
 }
 
-void write_uint_BLOCK_little_endian(std::ostream &outputstream, int64_t value)
+void write_uint_BLOCK_little_endian(std::ostream &outputstream, block_index value)
 {
     char data[BYTES_PER_BLOCK];
     for (unsigned int i = 0; i < BYTES_PER_BLOCK; i++)

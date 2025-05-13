@@ -235,6 +235,14 @@ echo Compiling create_condensed_summary_graph_from_partitions.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling create_condensed_summary_graph_from_partitions.cpp" >> $log_file
 ./compile.sh ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/bin/create_condensed_summary_graph_from_partitions
 
+# Compile the quotient graph creator program
+echo Copying create_quotient_graph_from_condensed_summary.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Copying create_quotient_graph_from_condensed_summary.cpp" >> $log_file
+cp ../code/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp
+echo Compiling create_quotient_graph_from_condensed_summary.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Compiling create_quotient_graph_from_condensed_summary.cpp" >> $log_file
+./compile.sh ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/bin/create_quotient_graph_from_condensed_summary
+
 # Echo that the compilation was successful
 echo C++ cpoying and compiling successful
 echo $(date) $(hostname) "${logging_process}.Info: C++ cpoying and compiling successful" >> $log_file
@@ -280,7 +288,7 @@ nodelist=
 skipRDFlists=false
 skip_literals=false
 laundromat=false
-types_to_predicates=true
+types_to_predicates=false
 use_lz4=false
 lz4_command=/usr/local/lz4
 EOF
@@ -974,6 +982,216 @@ sed -i 's/\r//g' $summary_graphs_creator
 
 # Make sure the summary graphs creator can be executed
 chmod +x $summary_graphs_creator
+
+# Create the config for the summary graphs experiment
+echo Creating quotient_graphs_materializer.config
+echo $(date) $(hostname) "${logging_process}.Info: Creating quotient_graphs_materializer.config" >> $log_file
+quotient_graphs_materializer_config=../$git_hash/scripts/quotient_graphs_materializer.config
+touch $quotient_graphs_materializer_config
+cat >$quotient_graphs_materializer_config << EOF
+job_name=quotient_graphs_materialization
+time=48:00:00
+N=1
+ntasks_per_node=1
+partition=defq
+output=quotient_graphs_materializer.out
+nodelist=
+level=1
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $quotient_graphs_materializer_config
+
+# Create the shell file for the quotient graphs experiment
+echo Creating quotient_graphs_materializer.sh
+echo $(date) $(hostname) "${logging_process}.Info: Creating quotient_graphs_materializer.sh" >> $log_file
+quotient_graphs_materializer=../$git_hash/scripts/quotient_graphs_materializer.sh
+touch $quotient_graphs_materializer
+cat >$quotient_graphs_materializer << EOF
+#!/bin/bash
+
+# Using error handling code from https://linuxsimply.com/bash-scripting-tutorial/error-handling-and-debugging/error-handling/trap-err/
+##################################################
+
+# Define error handler function
+function handle_error() {
+  # Get information about the error
+  local error_code=\$?
+  local error_line=\$BASH_LINENO
+  local error_command=\$BASH_COMMAND
+
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
+
+  # Log the error details
+  echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
+  echo "Exiting with code: 1"
+
+  # Check if log_file has been set
+  if [[ ! -z "\$log_file" ]]; then
+    # Check log_file refers to an actual log file
+    if [[ -f "\$log_file" ]] && [[ \$log_file == *.log ]]; then
+      # If no process name has been set, then use "default"
+      if [[ -z "\$logging_process" ]]; then
+        logging_process=default
+      fi
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Error occurred on line \$error_line: \$error_command (exit code: \$error_code)" >> \$log_file
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+    fi
+  fi
+
+  # Optionally exit the script gracefully
+  exit 1
+}
+
+# Set the trap for any error (non-zero exit code)
+trap handle_error ERR
+
+##################################################
+
+# Check if a path to a dataset has been provided
+if [ \$# -eq 0 ]; then
+  echo 'Please provide a path to a dataset directory. This directory should have been created by preprocessor.sh'
+  exit 1
+fi
+
+skip_user_read=false
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
+# Load in the settings
+. ./quotient_graphs_materializer.config
+
+# Print the settings
+echo Using the following settings:
+echo job_name=\$job_name
+echo time=\$time
+echo N=\$N
+echo ntasks_per_node=\$ntasks_per_node
+echo partition=\$partition
+echo output=\$output
+echo nodelist=\$nodelist
+echo level=\$level
+
+if ! \$skip_user_read; then
+# Ask the user to run the experiment with the aforementioned settings
+  while true; do
+    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Please change the settings in quotient_graphs_materializer.config\nAborting'
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
+
+# Select a directory for the experiments
+output_dir="\${1}"
+output_dir_absolute=\$(realpath \$output_dir)/
+
+# The log file for the experiments
+log_file=\${output_dir}experiments.log
+logging_process="Quotient_Graphs_Materializer"
+
+# Log the settings
+echo \$(date) \$(hostname) "\${logging_process}.Info: Materializing quotient graph in: \${output_dir_absolute}" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: Using the following settings:" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: job_name=\$job_name" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: time=\$time" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: N=\$N" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_per_node" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: level=\$level" >> \$log_file
+
+# Extract the output file name
+base="\${output%.*}"
+
+# Extract the output file extension
+extension="\${output##*.}"
+
+# Append the level to the output name
+new_output="slurm_\${base}_level_\${level}.\${extension}"
+
+# Create the slurm script
+echo Creating slurm script
+echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
+quotient_graphs_materializer_job=\${output_dir}slurm_quotient_graphs_materializer_level_\$level.sh
+touch \$quotient_graphs_materializer_job
+cat >\$quotient_graphs_materializer_job << EOF2
+#!/bin/bash
+#SBATCH --job-name=\$job_name
+#SBATCH --time=\$time
+#SBATCH -N \$N
+#SBATCH --ntasks-per-node=\$ntasks_per_node
+#SBATCH --partition=\$partition
+#SBATCH --output=\$new_output
+#SBATCH --nodelist=\$nodelist
+status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
+if [[ "\\\$status" == "multi_summary_complete" ]]; then
+  /usr/bin/time -v ../code/bin/create_quotient_graph_from_condensed_summary ./ -- \$level
+else
+  warning_message="Did not create the quotient graph, because the experiment is not in the right state. Expected state: \\\"multi_summary_complete\\\". Actual state: \\\"\\\$status\\\"."
+  echo \\\$warning_message
+  echo \\\$(date) \\\$(hostname) "\${logging_process}.Warning: \\\$warning_message" >> \$log_file
+fi
+EOF2
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' \$quotient_graphs_materializer_job
+
+# Make sure the quotient graphs materializer job script can be executed (in case of local execution)
+chmod +x \$quotient_graphs_materializer_job
+
+# Queueing slurm script or ask to execute directly
+sbatch_command=\$(command -v sbatch)
+if [ ! \$sbatch_command == '' ]; then
+  echo Queueing slurm script
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
+  (cd \$output_dir; sbatch \$quotient_graphs_materialize_job)
+  echo Quotient graphs materializer queued successfully, see \$new_output for the results
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Quotient graphs materializer  queued successfully, see \$new_output for the results" >> \$log_file
+else
+  echo sbatch command not found
+  echo \$(date) \$(hostname) "\${logging_process}.Warning: sbatch command not found" >> \$log_file
+  if ! \$skip_user_read; then
+    while true; do
+      read -p \$'Would you like to directly run the quotient graphs materializer locally instead? [y/n]\n'
+      if [ \${REPLY,,} == "y" ]; then
+          break
+      elif [ \${REPLY,,} == "n" ]; then
+          echo $'Direct execution declined\nAborting'
+          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  echo Running slurm script directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+  (cd \$output_dir; \$quotient_graphs_materializer_job > \$new_output)
+fi
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $quotient_graphs_materializer
+
+# Make sure the quotient graphs materializer can be executed
+chmod +x $quotient_graphs_materializer
 
 # Set up a command for running with or without conda
 conda_command=$''

@@ -67,7 +67,7 @@ Safe for the `run_all.sh` script, all scripts have settings for setting up a slu
       - `skipRDFlists` (default: `false`) This setting specifies whether the flag should be set to ignore RDF-lists.
       - `skip_literals`: This setting specifies whether the flag should be set to ignore literals.
       - `laundromat` (default: `false`) This setting sets the flag required for the LODlaundromat dataset.
-      - `types_to_predicates` (default: `true`) This setting sets the flag for encoding RDF-type objects as predicates.
+      - `types_to_predicates` (default: `false`) This setting sets the flag for encoding RDF-type objects as predicates.
       - `use_lz4` (default: `false`) This setting should be set to `true` when dealing with a compressed `.nt.lz4` file.
       - `lz4_command` (default: `/usr/local/lz4`) This should specify a path to the `lz4` command, if it is required.
 - `bisimulator.sh`: This script takes in an experiment directory and sets up a slurm-compatible shell script that runs the `bisimulator` program (directly or via slurm) in the specified directory.
