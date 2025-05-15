@@ -467,7 +467,7 @@ int main(int ac, char *av[])
     skipRDFlists = vm.count("skipRDFlists");
 
     // Set the `skip_literals` global variable
-    skip_literals = vm.count("types_to_predicates");
+    skip_literals = vm.count("skip_literals");
 
     // Set the `trigfile` global variable
     trigfile = vm.count("laundromat");
