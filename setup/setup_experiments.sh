@@ -243,6 +243,14 @@ echo Compiling create_quotient_graph_from_condensed_summary.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling create_quotient_graph_from_condensed_summary.cpp" >> $log_file
 ./compile.sh ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/bin/create_quotient_graph_from_condensed_summary
 
+# Compile the counter program
+echo Copying count_uncondensed_and_condensed.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Copying count_uncondensed_and_condensed.cpp" >> $log_file
+cp ../code/count_uncondensed_and_condensed.cpp ../$git_hash/code/src/count_uncondensed_and_condensed.cpp
+echo Compiling count_uncondensed_and_condensed.cpp
+echo $(date) $(hostname) "${logging_process}.Info: Compiling count_uncondensed_and_condensed.cpp" >> $log_file
+./compile.sh ../$git_hash/code/src/count_uncondensed_and_condensed.cpp ../$git_hash/code/bin/count_vertices_and_edges
+
 # Echo that the compilation was successful
 echo C++ cpoying and compiling successful
 echo $(date) $(hostname) "${logging_process}.Info: C++ cpoying and compiling successful" >> $log_file
@@ -1159,7 +1167,7 @@ sbatch_command=\$(command -v sbatch)
 if [ ! \$sbatch_command == '' ]; then
   echo Queueing slurm script
   echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
-  (cd \$output_dir; sbatch \$quotient_graphs_materialize_job)
+  (cd \$output_dir; sbatch \$quotient_graphs_materializer_job)
   echo Quotient graphs materializer queued successfully, see \$new_output for the results
   echo \$(date) \$(hostname) "\${logging_process}.Info: Quotient graphs materializer  queued successfully, see \$new_output for the results" >> \$log_file
 else
@@ -1192,6 +1200,212 @@ sed -i 's/\r//g' $quotient_graphs_materializer
 
 # Make sure the quotient graphs materializer can be executed
 chmod +x $quotient_graphs_materializer
+
+
+
+##### DEBUG
+
+# Create the config for the summary graphs experiment
+echo Creating vertex_and_edge_counter.config
+echo $(date) $(hostname) "${logging_process}.Info: Creating vertex_and_edge_counter.config" >> $log_file
+vertex_and_edge_counter_config=../$git_hash/scripts/vertex_and_edge_counter.config
+touch $vertex_and_edge_counter_config
+cat >$vertex_and_edge_counter_config << EOF
+job_name=vertex_and_edge_counting
+time=48:00:00
+N=1
+ntasks_per_node=1
+partition=defq
+output=vertex_and_edge_counter.out
+nodelist=
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $vertex_and_edge_counter_config
+
+# Create the shell file for the vertex and edge counter experiment
+echo Creating vertex_and_edge_counter.sh
+echo $(date) $(hostname) "${logging_process}.Info: Creating vertex_and_edge_counter.sh" >> $log_file
+vertex_and_edge_counter=../$git_hash/scripts/vertex_and_edge_counter.sh
+touch $vertex_and_edge_counter
+cat >$vertex_and_edge_counter << EOF
+#!/bin/bash
+
+# Using error handling code from https://linuxsimply.com/bash-scripting-tutorial/error-handling-and-debugging/error-handling/trap-err/
+##################################################
+
+# Define error handler function
+function handle_error() {
+  # Get information about the error
+  local error_code=\$?
+  local error_line=\$BASH_LINENO
+  local error_command=\$BASH_COMMAND
+
+  if [ "\$error_command" == "sbatch_command=\\\$(command -v sbatch)" ]; then
+    echo "Ignored error on line \$error_line: \$error_command"
+    echo "This command is expected to fail if \`sbatch\` is not available"
+    return 0
+  fi
+
+  # Log the error details
+  echo "Error occurred on line \$error_line: \$error_command (exit code: \$error_code)"
+  echo "Exiting with code: 1"
+
+  # Check if log_file has been set
+  if [[ ! -z "\$log_file" ]]; then
+    # Check log_file refers to an actual log file
+    if [[ -f "\$log_file" ]] && [[ \$log_file == *.log ]]; then
+      # If no process name has been set, then use "default"
+      if [[ -z "\$logging_process" ]]; then
+        logging_process=default
+      fi
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Error occurred on line \$error_line: \$error_command (exit code: \$error_code)" >> \$log_file
+      echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+    fi
+  fi
+
+  # Optionally exit the script gracefully
+  exit 1
+}
+
+# Set the trap for any error (non-zero exit code)
+trap handle_error ERR
+
+##################################################
+
+# Check if a path to a dataset has been provided
+if [ \$# -eq 0 ]; then
+  echo 'Please provide a path to a dataset directory. This directory should have been created by preprocessor.sh'
+  exit 1
+fi
+
+skip_user_read=false
+for var in "\$@"
+do
+  if [ "\$var" = "-y" ]; then
+    skip_user_read=true
+  fi
+done
+
+# Load in the settings
+. ./vertex_and_edge_counter.config
+
+# Print the settings
+echo Using the following settings:
+echo job_name=\$job_name
+echo time=\$time
+echo N=\$N
+echo ntasks_per_node=\$ntasks_per_node
+echo partition=\$partition
+echo output=\$output
+echo nodelist=\$nodelist
+
+if ! \$skip_user_read; then
+# Ask the user to run the experiment with the aforementioned settings
+  while true; do
+    read -p $'Would you like to run the experiment with the aforementioned settings? [y/n]\n'
+    if [ \${REPLY,,} == "y" ]; then
+        break
+    elif [ \${REPLY,,} == "n" ]; then
+        echo $'Please change the settings in vertex_and_edge_counter.config\nAborting'
+        exit 1
+    else
+        echo 'Unrecognized response'
+    fi
+  done
+fi
+
+# Select a directory for the experiments
+output_dir="\${1}"
+output_dir_absolute=\$(realpath \$output_dir)/
+
+# The log file for the experiments
+log_file=\${output_dir}experiments.log
+logging_process="Vertex_And_Edge_Counter"
+
+# Log the settings
+echo \$(date) \$(hostname) "\${logging_process}.Info: Counting vertices and edges in: \${output_dir_absolute}" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: Using the following settings:" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: job_name=\$job_name" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: time=\$time" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: N=\$N" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: ntasks_per_node=\$ntasks_per_node" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: partition=\$partition" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: output=\$output" >> \$log_file
+echo \$(date) \$(hostname) "\${logging_process}.Info: nodelist=\$nodelist" >> \$log_file
+
+# Create the slurm script
+echo Creating slurm script
+echo \$(date) \$(hostname) "\${logging_process}.Info: Creating slurm script" >> \$log_file
+vertex_and_edge_counter_job=\${output_dir}slurm_vertex_and_edge_counter.sh
+touch \$vertex_and_edge_counter_job
+cat >\$vertex_and_edge_counter_job << EOF2
+#!/bin/bash
+#SBATCH --job-name=\$job_name
+#SBATCH --time=\$time
+#SBATCH -N \$N
+#SBATCH --ntasks-per-node=\$ntasks_per_node
+#SBATCH --partition=\$partition
+#SBATCH --output=\$output
+#SBATCH --nodelist=\$nodelist
+status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
+if [[ "\\\$status" == "multi_summary_complete" ]]; then
+  /usr/bin/time -v ../code/bin/count_vertices_and_edges ./
+else
+  warning_message="Did not count the vertices and edges, because the experiment is not in the right state. Expected state: \\\"multi_summary_complete\\\". Actual state: \\\"\\\$status\\\"."
+  echo \\\$warning_message
+  echo \\\$(date) \\\$(hostname) "\${logging_process}.Warning: \\\$warning_message" >> \$log_file
+fi
+EOF2
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' \$vertex_and_edge_counter_job
+
+# Make sure the vertex and edge counter job script can be executed (in case of local execution)
+chmod +x \$vertex_and_edge_counter_job
+
+# Queueing slurm script or ask to execute directly
+sbatch_command=\$(command -v sbatch)
+if [ ! \$sbatch_command == '' ]; then
+  echo Queueing slurm script
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Queueing slurm script" >> \$log_file
+  (cd \$output_dir; sbatch \$vertex_and_edge_counter_job)
+  echo Vertex and edge counter queued successfully, see \$new_output for the results
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Vertex and edge counter queued successfully, see \$new_output for the results" >> \$log_file
+else
+  echo sbatch command not found
+  echo \$(date) \$(hostname) "\${logging_process}.Warning: sbatch command not found" >> \$log_file
+  if ! \$skip_user_read; then
+    while true; do
+      read -p \$'Would you like to directly run the vertex and edge counter locally instead? [y/n]\n'
+      if [ \${REPLY,,} == "y" ]; then
+          break
+      elif [ \${REPLY,,} == "n" ]; then
+          echo $'Direct execution declined\nAborting'
+          echo \$(date) \$(hostname) "\${logging_process}.Info: User declined direct execution" >> \$log_file
+          echo \$(date) \$(hostname) "\${logging_process}.Info: Exiting with code: 1" >> \$log_file
+          exit 1
+      else
+          echo 'Unrecognized response'
+      fi
+    done
+  fi
+  echo Running slurm script directly
+  echo \$(date) \$(hostname) "\${logging_process}.Info: User accepted direct execution" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Running slurm script directly" >> \$log_file
+  (cd \$output_dir; \$vertex_and_edge_counter_job > \$output)
+fi
+EOF
+
+# Make sure the file will have Unix style line endings
+sed -i 's/\r//g' $vertex_and_edge_counter
+
+# Make sure the vertex and edge counter can be executed
+chmod +x $vertex_and_edge_counter
+
+##### DEBUG
+
+
 
 # Set up a command for running with or without conda
 conda_command=$''

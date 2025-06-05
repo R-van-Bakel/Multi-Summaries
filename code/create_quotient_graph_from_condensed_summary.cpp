@@ -554,6 +554,116 @@ int main(int ac, char *av[])
         level = input_level;
     }
 
+    std::ostringstream level_stringstream;
+    level_stringstream << std::setw(4) << std::setfill('0') << level;
+    std::string level_string(level_stringstream.str());
+
+    std::string quotient_graphs_directory = experiment_directory + "quotient_graphs/";
+    if (!std::filesystem::exists(quotient_graphs_directory))
+    {
+        std::filesystem::create_directory(quotient_graphs_directory);
+    }
+
+    if (level == final_depth)  // This is the fixed point, so we don't have explicit refines edges
+    {
+        // Read the node_intervals
+        std::cout << "Reading data edges" << std::endl;
+        std::string intervals_file = experiment_directory + "bisimulation/condensed_multi_summary_intervals.bin";
+        std::ifstream intervals_file_stream(intervals_file, std::ifstream::in);
+
+        block_set living_blocks;
+
+        while (true)
+        {
+            block_or_singleton_index global_block_id = read_int_BLOCK_OR_SINGLETON_little_endian(intervals_file_stream);
+            if (intervals_file_stream.eof())
+            {
+                break;
+            }
+            intervals_file_stream.seekg(BYTES_PER_K_TYPE, std::ios_base::cur);  // No need to read the start time in this case
+            block_or_singleton_index end_time = read_uint_K_TYPE_little_endian(intervals_file_stream);
+            
+            if (end_time == level)
+            {
+                living_blocks.emplace(global_block_id);
+            }
+        }
+
+        // Read the data edges
+        std::cout << "Reading data edges" << std::endl;
+        std::string data_edges_file = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
+        std::ifstream data_edges_file_stream(data_edges_file, std::ifstream::in);
+
+        triple_set data_edges;
+
+        auto living_blocks_end_it = living_blocks.cend();
+
+        while (true)
+        {
+            block_or_singleton_index subject = read_int_BLOCK_OR_SINGLETON_little_endian(data_edges_file_stream);
+            if (data_edges_file_stream.eof())
+            {
+                break;
+            }
+            auto living_subject_it = living_blocks.find(subject);
+            if (living_subject_it == living_blocks_end_it)
+            {
+                intervals_file_stream.seekg(BYTES_PER_PREDICATE+BYTES_PER_BLOCK_OR_SINGLETON, std::ios_base::cur);  // No need to read the predicate and object in this case
+                continue;
+            }
+
+            edge_type predicate = read_uint_PREDICATE_little_endian(data_edges_file_stream);
+
+            block_or_singleton_index object = read_int_BLOCK_OR_SINGLETON_little_endian(data_edges_file_stream);
+            auto living_object_it = living_blocks.find(object);
+            if (living_object_it == living_blocks_end_it)
+            {
+                continue;
+            }
+
+            std::tuple triple = std::make_tuple(subject,predicate,object);
+            data_edges.emplace(triple);
+        }
+
+        // Write the quotient graph stats
+        std::cout << "Writing the quotient graph stats" << std::endl;
+        std::string outcome_stats_file = quotient_graphs_directory + "quotient_graph_stats-" + level_string + ".json";
+        std::ofstream outcome_stats_file_stream(outcome_stats_file, std::ios::trunc);
+
+        outcome_stats_file_stream << "{" << std::endl;
+        outcome_stats_file_stream << "    " << "\"Vertex count\": " << living_blocks.size() << "," << std::endl;
+        outcome_stats_file_stream << "    " << "\"Edge count\": " << data_edges.size() << std::endl;
+        outcome_stats_file_stream << "}";
+
+        outcome_stats_file_stream.flush();
+        outcome_stats_file_stream.close();
+        
+        //TODO this currently ONLY saves the final quotient graph, NOT the associated entities
+        
+        // Write the quotient graph edges and types
+        std::cout << "Writing the quotient graph edges and types" << std::endl;
+        std::string outcome_edges_file = quotient_graphs_directory + "quotient_graph_edges-" + level_string + ".txt";
+        std::ofstream outcome_edges_file_stream(outcome_edges_file, std::ios::trunc);
+
+        std::string outcome_types_file = quotient_graphs_directory + "quotient_graph_types-" + level_string + ".txt";
+        std::ofstream outcome_types_file_stream(outcome_types_file, std::ios::trunc);
+
+        for (auto triple: data_edges)
+        {
+            block_or_singleton_index subject = std::get<0>(triple);
+            block_or_singleton_index predicate = std::get<1>(triple);
+            block_or_singleton_index object = std::get<2>(triple);
+
+            outcome_edges_file_stream << subject << " " << object << "\n";
+            outcome_types_file_stream << predicate << "\n";
+        }
+        outcome_edges_file_stream.close();
+        outcome_types_file_stream.close();
+
+
+        exit(0);  // Close the program
+    }
+
     std::string outcome_zero_file = experiment_directory + "bisimulation/outcome_condensed-0000.bin";
     std::ifstream outcome_zero_file_stream(outcome_zero_file, std::ifstream::in);
 
@@ -573,7 +683,6 @@ int main(int ac, char *av[])
 
         living_blocks[block] = std::make_pair(0, GLOBAL_ID_PLACEHOLDER);
         node_index block_size = read_uint_ENTITY_little_endian(outcome_zero_file_stream);
-        // std::cout << "DEBUG initial block count: " << block_size << std::endl;
         outcome_zero_file_stream.seekg(block_size*BYTES_PER_ENTITY, std::ios_base::cur);
     }
     outcome_zero_file_stream.close();
@@ -598,21 +707,10 @@ int main(int ac, char *av[])
     // Find the living blocks at the specified level
     std::cout << "Finding the living blocks" << std::endl;
 
-    std::ostringstream level_stringstream;
-    level_stringstream << std::setw(4) << std::setfill('0') << level;
-    std::string level_string(level_stringstream.str());
-
-    std::string quotient_graphs_directory = experiment_directory + "quotient_graphs/";
-    if (!std::filesystem::exists(quotient_graphs_directory))
-    {
-        std::filesystem::create_directory(quotient_graphs_directory);
-    }
-
     std::string outcome_contains_file = quotient_graphs_directory + "quotient_graph_contains-" + level_string +".txt";
     std::ofstream outcome_contains_file_stream(outcome_contains_file, std::ios::trunc);
 
     bool singletons_found;
-    // node_index singleton_counts = 0;
     block_set replaced_blocks;
 
     for (k_type i = 0; i < level; i++)
@@ -679,16 +777,12 @@ int main(int ac, char *av[])
                     living_blocks[singleton] = std::make_pair(i+1, singleton);  // Singletons have a unique local block ID be design, so it is reused for the global id
                     node_index singleton_entity = static_cast<node_index>(-(singleton+1));
                     outcome_contains_file_stream << singleton << " " << entity_names[singleton_entity] << "\n";
-                    // singleton_counts += 1;
                 }
             }
             singleton_mapping_file_stream.close();
         }
     }
     outcome_contains_file_stream.flush();  // Flush the intermediate results to the file
-
-    // std::cout << "DEBUG singleton count: " << singleton_counts << std::endl;
-    // std::cout << "DEBUG living block count: " << living_blocks.size() << std::endl; 
 
     // Read and store the global ids for the summary nodes
     std::cout << "Reading the global ids" << std::endl;
@@ -736,59 +830,6 @@ int main(int ac, char *av[])
     next_level_stringstream << std::setw(4) << std::setfill('0') << level+1;
     std::string next_level_string(next_level_stringstream.str());
 
-
-
-    // >>> DEBUG >>>
-    for(auto thingy: living_blocks)
-    {
-        if (thingy.second.second == 0)
-        {
-            std::cout << "DEBUG non-updated block: (" << thingy.first << "," << thingy.second.first << ") --> 0" << std::endl;
-        }
-    }
-
-    std::string next_level_mapping_file = experiment_directory + "bisimulation/mapping-" + level_string + "to" + next_level_string + ".bin";
-    std::ifstream next_level_mapping_file_stream(next_level_mapping_file, std::ifstream::in);
-    block_set alt_next;
-
-    while (true)
-    {
-        read_uint_BLOCK_little_endian(next_level_mapping_file_stream);
-        if (next_level_mapping_file_stream.eof())
-        {
-            break;
-        }
-        block_index split_block_count = read_uint_BLOCK_little_endian(next_level_mapping_file_stream);
-        for (block_index i = 0; i < split_block_count; i++)
-        {
-            block_or_singleton_index split_block = static_cast<block_or_singleton_index>(read_uint_BLOCK_little_endian(next_level_mapping_file_stream));
-            if (split_block == 0)
-            {
-                continue;
-            }
-            alt_next.emplace(split_block);
-        }
-    }
-    next_level_mapping_file_stream.close();
-
-    for (block_or_singleton_index alt: alt_next)
-    {
-        if (next_blocks.find(alt) == next_blocks.cend())
-        {
-            std::cout << "DEBUG alt next missing in next: " << alt << std::endl;
-        }
-    }
-    for (auto block: next_blocks)
-    {
-        if (alt_next.find(block.first) == alt_next.cend())
-        {
-            std::cout << "DEBUG next missing in alt next: " << block.first << std::endl;
-        }
-    }
-    // <<< DEBUG <<<
-
-
-
     std::string next_level_singleton_mapping_file = experiment_directory + "bisimulation/singleton_mapping-" + level_string + "to" + next_level_string + ".bin";
 
     if (std::filesystem::exists(next_level_singleton_mapping_file))
@@ -812,18 +853,9 @@ int main(int ac, char *av[])
         next_level_singleton_mapping_file_stream.close();
     }
 
-    // for (auto lb_pair: living_blocks)
-    // {
-    //     std::cout << "DEBUG living block: " << lb_pair.first << " (" << lb_pair.second.first << ", " <<  lb_pair.second.second << ")" << std::endl;
-    // }
-
-    // Read and store the entities contained in the living blocks
-    // TODO ALSO READ SINGLETONS
     std::cout << "Reading and storing the contained entities" << std::endl;
-    // node_index DEBUG_block_sizes = 0;
     for (k_type i = 0; i <= level; i++)
     {
-        // std::cout << "DEBUG level: " << i << std::endl;
         std::ostringstream current_level_stringstream;
         current_level_stringstream << std::setw(4) << std::setfill('0') << i;
         std::string current_level_string(current_level_stringstream.str());
@@ -840,7 +872,6 @@ int main(int ac, char *av[])
             }
 
             node_index block_size = read_uint_ENTITY_little_endian(outcome_file_stream);
-            // std::cout << "DEBUG block-size: " << block << " --- " << block_size << std::endl;
 
             auto block_it = living_blocks.find(block);
             if (block_it == living_blocks_end_it)
@@ -854,7 +885,6 @@ int main(int ac, char *av[])
                 outcome_file_stream.seekg(block_size*BYTES_PER_ENTITY, std::ios_base::cur);
                 continue;
             }
-            // DEBUG_block_sizes += 1;
             block_or_singleton_index global_block = (block_it->second).second;
             
             for (node_index j = 0; j < block_size; j++)
@@ -867,13 +897,6 @@ int main(int ac, char *av[])
         }
     }
     outcome_contains_file_stream.close();  // This should flush
-    // std::cout << "DEBUG block sizes: " << DEBUG_block_sizes << std::endl;
-
-    if (level == final_depth)  // This is the fixed point, so we don't have explicit refines edges
-    {
-        // TODO do stuff
-        exit(0);  // Close the program
-    }
 
     std::cout << "Reading " << level_string << "-->" << next_level_string << " mapping" << std::endl;
     std::string mapping_file = experiment_directory + "bisimulation/mapping-" + level_string + "to" + next_level_string + ".bin";
@@ -890,10 +913,7 @@ int main(int ac, char *av[])
             break;
         }
         block_or_singleton_index global_merged_block = living_blocks[merged_block].second;
-        // if (global_merged_block == 1021)
-        // {
-        //     std::cout << "DEBUG merged block: 1021" << std::endl;
-        // }
+        
         block_index split_block_count = read_uint_BLOCK_little_endian(mapping_file_stream);
         for (block_index i = 0; i < split_block_count; i++)
         {
@@ -928,7 +948,6 @@ int main(int ac, char *av[])
             for (block_or_singleton_index i = 0; i < singleton_count; i++)
             {
                 block_or_singleton_index singleton = read_int_BLOCK_OR_SINGLETON_little_endian(singleton_mapping_file_stream);
-                // std::cout << "DEBUG singleton refines edge: " << singleton << std::endl;
                 refines_edges[singleton] = global_merged_block;
             }
         }
@@ -938,11 +957,6 @@ int main(int ac, char *av[])
     {
         std::cout << "No singletons found" << std::endl;
     }
-
-    // for (auto s_o: refines_edges)
-    // {
-    //     std::cout << "DEBUG s-o: " << s_o.first << "," << s_o.second << std::endl;
-    // }
 
     // Create the global_living_blocks and global_next_blocks sets
     std::cout << "Creating global living blocks and global next blocks sets" << std::endl;
@@ -960,18 +974,6 @@ int main(int ac, char *av[])
         global_next_blocks.emplace(global_block);
     }
 
-    // for (auto s_o: refines_edges)
-    // {
-    //     // if (global_living_blocks.find(s_o.first) == global_living_blocks.cend())
-    //     // {
-    //     //     std::cout << "DEBUG: wrong refines subject: " << s_o.first << std::endl;
-    //     // }
-    //     if (global_living_blocks.find(s_o.second) == global_living_blocks.cend())
-    //     {
-    //         std::cout << "DEBUG: wrong refines object: " << s_o.second << std::endl;
-    //     }
-    // }
-
     // Read the data edges    
     std::cout << "Reading data edges" << std::endl;
     std::string data_edges_file = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
@@ -980,49 +982,6 @@ int main(int ac, char *av[])
     auto global_next_blocks_end_it = global_next_blocks.cend();
     auto global_living_blocks_end_it = global_living_blocks.cend();
     triple_set data_edges;
-    // bool DEBUG_subject_found;
-
-
-
-    // >>> DEBUG >>>
-    std::string intervals_file = experiment_directory + "bisimulation/condensed_multi_summary_intervals.bin";
-    std::ifstream intervals_file_stream(intervals_file, std::ifstream::in);
-
-    block_set interval_blocks;
-
-    while (true)
-    {
-        block_or_singleton_index block = read_int_BLOCK_OR_SINGLETON_little_endian(intervals_file_stream);
-        if (intervals_file_stream.eof())
-        {
-            break;
-        }
-        block_or_singleton_index start_time = read_uint_K_TYPE_little_endian(intervals_file_stream);
-        block_or_singleton_index end_time = read_uint_K_TYPE_little_endian(intervals_file_stream);
-        if (start_time <= level and end_time >= start_time)
-        {
-            interval_blocks.emplace(block);
-        }
-    }
-
-    for (block_or_singleton_index glob: global_living_blocks)
-    {
-        if (global_living_blocks.find(glob) == global_living_blocks.cend())
-        {
-            std::cout << "DEBUG alt missing glob in inter: " << glob << std::endl;
-        }
-    }
-    for (block_or_singleton_index inter: interval_blocks)
-    {
-        if (interval_blocks.find(inter) == interval_blocks.cend())
-        {
-            std::cout << "DEBUG next missing inter in glob: " << inter << std::endl;
-        }
-    }
-    // <<< DEBUG <<<
-
-
-
 
     while (true)
     {
@@ -1031,22 +990,14 @@ int main(int ac, char *av[])
         {
             break;
         }
-        // DEBUG_subject_found = false;
-        // if(subject == 1021)
-        // {
-        //     DEBUG_subject_found = true;
-        // }
+
         auto subject_global_next_block_it = global_next_blocks.find(subject);
-        // We next blocks only contains the newly created blocks, but these are not the only relevant ones
+        // We know next blocks only contains the newly created blocks, but these are not the only relevant ones
         if (subject_global_next_block_it == global_next_blocks_end_it)
         {
             auto subject_global_living_it = global_living_blocks.find(subject);
             if (subject_global_living_it == global_living_blocks_end_it)
             {
-                // if (DEBUG_subject_found)
-                // {
-                //     std::cout << "DEBUG: not next, not living" << std::endl;
-                // }
                 data_edges_file_stream.seekg(BYTES_PER_PREDICATE+BYTES_PER_BLOCK_OR_SINGLETON, std::ios_base::cur);  // No need to read the predicate and object in this case
                 continue;
             }
@@ -1063,10 +1014,6 @@ int main(int ac, char *av[])
         }
         // In this case we have a data edge from level+1 to level and we should map the subject over the refines edge (to get an edge from level to level)
         block_or_singleton_index mapped_subject = refines_edges[subject];  // Map the subject over the refines edge
-        // if (mapped_subject == 1021)
-        // {
-        //     std::cout << "DEBUG sub-->mapped_sub: " << subject << "," << mapped_subject << std::endl;
-        // }
         edge_type predicate = read_uint_PREDICATE_little_endian(data_edges_file_stream);
         block_or_singleton_index object = read_int_BLOCK_OR_SINGLETON_little_endian(data_edges_file_stream);
         auto object_global_living_it = global_living_blocks.find(object);
@@ -1077,6 +1024,19 @@ int main(int ac, char *av[])
         std::tuple triple = std::make_tuple(mapped_subject,predicate,object);
         data_edges.emplace(triple);
     }
+
+    // Write the quotient graph stats
+    std::cout << "Writing the quotient graph stats" << std::endl;
+    std::string outcome_stats_file = quotient_graphs_directory + "quotient_graph_stats-" + level_string + ".json";
+    std::ofstream outcome_stats_file_stream(outcome_stats_file, std::ios::trunc);
+
+    outcome_stats_file_stream << "{" << std::endl;
+    outcome_stats_file_stream << "    " << "\"Vertex count\": " << living_blocks.size() << "," << std::endl;
+    outcome_stats_file_stream << "    " << "\"Edge count\": " << data_edges.size() << std::endl;
+    outcome_stats_file_stream << "}";
+
+    outcome_stats_file_stream.flush();
+    outcome_stats_file_stream.close();
 
     // Write the quotient graph edges and types
     std::cout << "Writing the quotient graph edges and types" << std::endl;
@@ -1097,145 +1057,4 @@ int main(int ac, char *av[])
     }
     outcome_edges_file_stream.close();
     outcome_types_file_stream.close();
-
-    // block_set data_edge_subjects;
-    // block_set data_edge_objects;
-
-    // for (auto triple: data_edges)
-    // {
-    //     block_or_singleton_index subject = std::get<0>(triple);
-    //     block_or_singleton_index object = std::get<2>(triple);
-    //     data_edge_subjects.emplace(subject);
-    //     data_edge_objects.emplace(object);
-    // }
-
-    // auto data_edge_subjects_end_it = data_edge_subjects.cend();
-    // auto data_edge_objects_end_it = data_edge_objects.cend();
-
-    // for (auto global_living_block: global_living_blocks)
-    // {
-    //     auto check_subject_it = data_edge_subjects.find(global_living_block);
-    //     auto check_object_it = data_edge_objects.find(global_living_block);
-    //     if (check_subject_it == data_edge_subjects_end_it and check_object_it == data_edge_objects_end_it)
-    //     {
-    //         std::cout << "DEBUG missing living block: " << global_living_block << std::endl;
-    //     }
-    // }
-
-    // ##############################################################################################################
-
-    // std::ostringstream level_stringstream;
-    // level_stringstream << std::setw(4) << std::setfill('0') << level;
-    // std::string level_string(level_stringstream.str());
-
-    // std::ostringstream next_level_stringstream;
-    // next_level_stringstream << std::setw(4) << std::setfill('0') << level+1;
-    // std::string next_level_string(next_level_stringstream.str());
-
-    // std::string data_edges_file = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
-    // std::string output_file = experiment_directory + "bisimulation/quotient_graph_level-" + level_string + ".bin";
-
-    // std::string interval_file = experiment_directory + "bisimulation/condensed_multi_summary_intervals.bin";
-    // std::ifstream interval_file_stream(interval_file, std::ifstream::in);
-    // block_or_singleton_index interval_count = static_cast<size_t>(interval_file_stream.tellg()/SUMMARY_NODE_INTERVAL_PAIR_SIZE);
-
-    // interval_map_type interval_map;
-    // interval_map.reserve(interval_count);  // We can reserve space to avoid frequent rehashing
-
-    // read_intervals_timed(interval_file, interval_map, level);
-    
-    // if (level == final_depth)
-    // {
-    //     triple_set quotient_graph_triples;
-    //     read_data_edges_timed_early(data_edges_file, quotient_graph_triples, interval_map, level);
-
-        
-    //     std::cout << "DEBUG intervals size: " << interval_map.size() << std::endl;
-    //     std::cout << "DEBUG quotient size: " << quotient_graph_triples.size() << std::endl;
-    //     for (auto node_interval: interval_map)
-    //     {
-    //         std::cout << "DEBUG: " << node_interval.first << ": [" << node_interval.second.first << "," << node_interval.second.second << "]" << std::endl;
-    //     }
-
-    //     for (auto trip: quotient_graph_triples)
-    //     {
-    //         std::cout << "DEBUG: " << std::get<0>(trip) << "," << std::get<1>(trip) << "," << std::get<2>(trip) << std::endl;
-    //     }
-    //     exit(0);  // Close the program
-    // }
-
-    // std::string mapping_file = experiment_directory + "bisimulation/mapping-" + level_string + "to" + next_level_string + ".bin";
-    // std::string singleton_mapping_file = experiment_directory + "bisimulation/singleton_mapping-" + level_string + "to" + next_level_string + ".bin";
-
-    // local_refines_type local_refines_edges;
-    // read_mapping_timed(mapping_file, local_refines_edges);
-
-    // // for (auto refi: local_refines_edges)
-    // // {
-    // //     std::cout << refi.first << "," << refi.second << std::endl;
-    // // }
-
-    // read_singleton_mapping_timed(singleton_mapping_file, local_refines_edges);
-
-    // // for (auto refi: local_refines_edges)
-    // // {
-    // //     std::cout << refi.first << "," << refi.second << std::endl;
-    // // }
-
-    // std::string local_to_global_file = experiment_directory + "bisimulation/condensed_multi_summary_local_global_map.bin";
-
-    // local_to_global_map_type local_to_global_map;
-    // read_local_global_map_timed(local_to_global_file, local_to_global_map, level);
-
-    // // for (auto loc_glob: local_to_global_map)
-    // // {
-    // //     std::cout << loc_glob.first.first << "," << loc_glob.first.second <<  ":" << loc_glob.second << std::endl;
-    // // }
-
-    // // std::cout << "DEBUG: size=" << local_refines_edges.size() << std::endl;
-
-    // global_refines_type global_refines_edges;
-    // block_index refines_count = static_cast<size_t>(local_refines_edges.size());
-    // size_t it_count = 0;
-    // for (block_index i = 0; i < refines_count; i++)
-    // {
-    //     it_count++;
-    //     std::pair<block_or_singleton_index,block_or_singleton_index> local_refines_edge = std::move(local_refines_edges.back());
-    //     local_refines_edges.pop_back();
-    //     block_or_singleton_index global_split_block;
-    //     assert(local_refines_edge.second > 0);  // It should not be possible of the zero block or negative blocks to split
-    //     if (local_refines_edge.first < 0)  // Literals don't have an explicit map, since they are global by design
-    //     {
-    //         // std::cout << "DEBUG singleton" << std::endl;
-    //         global_split_block = local_refines_edge.first;
-    //     }
-    //     else
-    //     {
-    //         global_split_block = local_to_global_map[std::make_pair(level+1,local_refines_edge.first)];
-    //     }
-    //     block_or_singleton_index global_merged_block = local_to_global_map[std::make_pair(level,local_refines_edge.second)];
-    //     global_refines_edges[global_merged_block] = global_split_block;
-    // }
-
-    // // std::cout << "DEBUG: size=" << local_refines_edges.size() << std::endl;
-    // // std::cout << "DEBUG it count:" << it_count << std::endl;
-
-    // // for (auto global_refines_edge: global_refines_edges)
-    // // {
-    // //     std::cout << global_refines_edge.first << ", " << global_refines_edge.second << std::endl;
-    // // }
-
-    // triple_set quotient_graph_triples;
-    // read_data_edges_timed(data_edges_file, quotient_graph_triples, global_refines_edges, interval_map, level);
-
-    // for (auto trip: quotient_graph_triples)
-    // {
-    //     std::cout << std::get<0>(trip) << "," << std::get<1>(trip) << "," << std::get<2>(trip) << std::endl;
-    // }
-
-    // // Write the data edges
-    // // std::ofstream outfile(outfilename, std::ios::trunc | std::ofstream::out);
-    // // write_int_BLOCK_OR_SINGLETON_little_endian(outputstream, subject);
-    // // write_uint_PREDICATE_little_endian(outputstream, predicate);
-    // // write_int_BLOCK_OR_SINGLETON_little_endian(outputstream, object);
 }
