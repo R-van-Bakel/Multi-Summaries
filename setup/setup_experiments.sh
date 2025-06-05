@@ -1201,10 +1201,6 @@ sed -i 's/\r//g' $quotient_graphs_materializer
 # Make sure the quotient graphs materializer can be executed
 chmod +x $quotient_graphs_materializer
 
-
-
-##### DEBUG
-
 # Create the config for the summary graphs experiment
 echo Creating vertex_and_edge_counter.config
 echo $(date) $(hostname) "${logging_process}.Info: Creating vertex_and_edge_counter.config" >> $log_file
@@ -1216,7 +1212,7 @@ time=48:00:00
 N=1
 ntasks_per_node=1
 partition=defq
-output=vertex_and_edge_counter.out
+output=slurm_vertex_and_edge_counter.out
 nodelist=
 EOF
 
@@ -1402,10 +1398,6 @@ sed -i 's/\r//g' $vertex_and_edge_counter
 
 # Make sure the vertex and edge counter can be executed
 chmod +x $vertex_and_edge_counter
-
-##### DEBUG
-
-
 
 # Set up a command for running with or without conda
 conda_command=$''
