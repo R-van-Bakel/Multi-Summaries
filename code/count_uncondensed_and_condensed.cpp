@@ -3,6 +3,7 @@
 #include <iostream>
 #include <boost/algorithm/string.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/program_options.hpp>
 
 using edge_type = uint32_t;
@@ -10,6 +11,7 @@ using block_or_singleton_index = int64_t;
 using k_type = uint16_t;
 using triple_index = int64_t;
 using interval_map_type = boost::unordered_flat_map<block_or_singleton_index,std::pair<k_type,k_type>>;
+using block_set = boost::unordered_flat_set<block_or_singleton_index>;
 const int BYTES_PER_PREDICATE = 4;
 const int BYTES_PER_BLOCK_OR_SINGLETON = 5;
 const int BYTES_PER_K_TYPE = 2;
@@ -131,14 +133,60 @@ int main(int ac, char *av[])
 
     std::string experiment_directory = vm["experiment_directory"].as<std::string>();
 
+    // Get the fixed point (if present)
+    std::string graph_stats_file = experiment_directory + "ad_hoc_results/graph_stats.json";
+    std::ifstream graph_stats_file_stream(graph_stats_file);
+
+    std::string graph_stats_line;
+    std::string final_depth_string = "\"Final depth\"";
+    std::string fixed_point_string = "\"Fixed point\"";
+    
+    k_type final_depth;
+    bool fixed_point_reached;
+    
+    bool k_found = false;
+    bool fixed_point_found = false;
+
+    while (std::getline(graph_stats_file_stream, graph_stats_line))
+    {
+        boost::trim(graph_stats_line);
+        boost::erase_all(graph_stats_line, ",");
+        std::vector<std::string> result;
+        boost::split(result, graph_stats_line, boost::is_any_of(":"));
+        if (result[0] == final_depth_string)
+        {
+            std::stringstream sstream(result[1]);
+            sstream >> final_depth;
+            k_found = true;
+        }
+        else if (result[0] == fixed_point_string)
+        {
+            std::stringstream sstream(result[1]);
+            std::string fixed_point_string = sstream.str();
+            boost::trim(fixed_point_string);
+            if (fixed_point_string == "true")
+            {
+                fixed_point_reached = true;
+            }
+            else if (fixed_point_string != "false")
+            {
+                throw MyException("The \"Fixed point\" value in the graph_stats.json file has not been set to one of \"true\"/\"false\"");
+            }
+            fixed_point_found = true;
+        }
+        if (k_found && fixed_point_found)
+        {
+            break;
+        }
+    }
+    graph_stats_file_stream.close();
+
     // Read the intervals
     std::cout << "Reading intervals" << std::endl;
     std::string intervals_file = experiment_directory + "bisimulation/condensed_multi_summary_intervals.bin";
     std::ifstream intervals_file_stream(intervals_file, std::ifstream::in);
 
     interval_map_type interval_map;
-    triple_index condensed_vertex_count = 0;
-    triple_index uncondensed_vertex_count = 0;
 
     // Read a mapping file
     while (true)
@@ -151,13 +199,8 @@ int main(int ac, char *av[])
         k_type start_time = read_uint_K_TYPE_little_endian(intervals_file_stream);
         k_type end_time = read_uint_K_TYPE_little_endian(intervals_file_stream);
         // Assuming start_time <= end_time, we are not only left with summary nodes that are alive during lower_level and/or upper_level
-        condensed_vertex_count += 1;
-        uncondensed_vertex_count += end_time-start_time+1;
         interval_map[global_block] = {start_time,end_time};
     }
-
-    triple_index condensed_refines_edge_count = condensed_vertex_count-1;
-    triple_index uncondensed_refines_edge_count = uncondensed_vertex_count-1;
 
     // Read the data edges
     std::string data_edges_file = experiment_directory + "bisimulation/condensed_multi_summary_graph.bin";
@@ -165,6 +208,10 @@ int main(int ac, char *av[])
 
     triple_index condensed_data_edge_count = 0;
     triple_index uncondensed_data_edge_count = 0;
+
+    block_set blocks;
+
+    triple_index final_data_edge_count = 0;
 
     while (true)
     {
@@ -175,6 +222,16 @@ int main(int ac, char *av[])
         }
         read_uint_PREDICATE_little_endian(data_edges_file_stream);
         block_or_singleton_index object = read_int_BLOCK_OR_SINGLETON_little_endian(data_edges_file_stream);
+
+        blocks.emplace(subject);
+        blocks.emplace(object);
+        if (fixed_point_reached)
+        {
+            if (interval_map[subject].second == final_depth and interval_map[object].second == final_depth)
+            {
+                final_data_edge_count += 1;
+            }
+        }
 
         k_type subject_start = interval_map[subject].first;
         k_type subject_end = interval_map[subject].second;
@@ -190,6 +247,30 @@ int main(int ac, char *av[])
         condensed_data_edge_count += 1;
         uncondensed_data_edge_count += edge_end-edge_start;
     }
+
+
+
+    // Count the (connected) vertices and edges
+    triple_index condensed_vertex_count = 0;
+    triple_index uncondensed_vertex_count = 0;
+    triple_index final_vertex_count = 0;
+
+    for (block_or_singleton_index block: blocks)
+    {
+        condensed_vertex_count += 1;
+        k_type start_time = interval_map[block].first;
+        k_type end_time = interval_map[block].second;
+        uncondensed_vertex_count += end_time - start_time + 1;
+        if(end_time == final_depth)
+        {
+            final_vertex_count++;
+        }
+    }
+
+    triple_index condensed_refines_edge_count = condensed_vertex_count-1;  // TODO technically should add final_vertex_count since all final blocks refine themeselves
+    triple_index uncondensed_refines_edge_count = uncondensed_vertex_count-1;  // TODO technically should add final_vertex_count since all final blocks refine themeselves
+
+
 
     // Update the graph stats file
     std::cout << "Updating graph stats" << std::endl;
@@ -228,10 +309,21 @@ int main(int ac, char *av[])
         }
         summay_graph_stats_file_ostream << std::endl;
     }
-    summay_graph_stats_file_ostream << indentation << "\"Vertex count (condensed)\": " << condensed_vertex_count << "," << std::endl;
-    summay_graph_stats_file_ostream << indentation << "\"Vertex count (uncondensed)\": " << uncondensed_vertex_count << "," << std::endl;
-    summay_graph_stats_file_ostream << indentation << "\"Edge count (condensed)\": " << condensed_refines_edge_count+condensed_data_edge_count << "," << std::endl;
-    summay_graph_stats_file_ostream << indentation << "\"Edge count (uncondensed)\": " << uncondensed_refines_edge_count+uncondensed_data_edge_count << std::endl;
-    summay_graph_stats_file_ostream << end_line << std::endl;
+    summay_graph_stats_file_ostream << indentation << "\"Vertex count (condensed)\": " << condensed_vertex_count << ",\n";
+    summay_graph_stats_file_ostream << indentation << "\"Vertex count (uncondensed)\": " << uncondensed_vertex_count << ",\n";
+    summay_graph_stats_file_ostream << indentation << "\"Edge count (condensed)\": " << condensed_refines_edge_count+condensed_data_edge_count << ",\n";
+    summay_graph_stats_file_ostream << indentation << "\"Edge count (uncondensed)\": " << uncondensed_refines_edge_count+uncondensed_data_edge_count << ",\n";
+    summay_graph_stats_file_ostream << indentation << "\"Edge count (data) (condensed)\": " << condensed_data_edge_count << ",\n";
+    summay_graph_stats_file_ostream << indentation << "\"Edge count (data) (uncondensed)\": " << uncondensed_data_edge_count << ",\n";
+    summay_graph_stats_file_ostream << indentation << "\"Edge count (refines) (condensed)\": " << condensed_refines_edge_count << ",\n";
+    summay_graph_stats_file_ostream << indentation << "\"Edge count (refines) (uncondensed)\": " << uncondensed_refines_edge_count;
+    if (fixed_point_reached)
+    {
+        summay_graph_stats_file_ostream << ",\n";
+        summay_graph_stats_file_ostream << indentation << "\"Final vertex count\": " << final_vertex_count << ",\n";
+        summay_graph_stats_file_ostream << indentation << "\"Final (data) edge count\": " << final_data_edge_count;
+    }
+    summay_graph_stats_file_ostream << "\n";
+    summay_graph_stats_file_ostream << end_line << "\n";
     summay_graph_stats_file_ostream.close();
 }

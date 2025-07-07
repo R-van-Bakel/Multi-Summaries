@@ -1004,7 +1004,7 @@ ntasks_per_node=1
 partition=defq
 output=quotient_graphs_materializer.out
 nodelist=
-level=1
+level=-1
 EOF
 
 # Make sure the file will have Unix style line endings
