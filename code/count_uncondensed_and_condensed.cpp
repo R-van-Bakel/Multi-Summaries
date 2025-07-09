@@ -242,10 +242,14 @@ int main(int ac, char *av[])
         k_type offset_object_end = object_end+1;
 
         k_type edge_start = std::max(offset_subject_start,object_start);
-        k_type edge_end = std::max(subject_end,offset_object_end);
+        k_type edge_end = std::min(subject_end,offset_object_end);
 
         condensed_data_edge_count += 1;
         uncondensed_data_edge_count += edge_end-edge_start;
+        if (uncondensed_data_edge_count < 0)
+        {
+            std::cout << "DEBUG: WARNING uncondensed_data_edge_count is negative: " << uncondensed_data_edge_count << std::endl;
+        }
     }
 
 
