@@ -50,8 +50,10 @@ done
 # Load in the settings
 . ./settings.config
 
-# Turn relative paths absolute
-boost_path=$(realpath $boost_path)/
+# Turn relative paths absolute, if possible
+if output=$($(realpath $boost_path)/ 2>/dev/null); then
+    boost_path="$output"
+fi
 
 # Handle the case if the directory does not exist
 if [ ! -d "$boost_path" ]; then
