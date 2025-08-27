@@ -50,11 +50,6 @@ done
 # Load in the settings
 . ./settings.config
 
-# Turn relative paths absolute, if possible
-if output=$($(realpath $boost_path)/ 2>/dev/null); then
-    boost_path="$output"
-fi
-
 # Handle the case if the directory does not exist
 if [ ! -d "$boost_path" ]; then
   echo "${boost_path} does not exist"
@@ -72,13 +67,15 @@ if [ ! -d "$boost_path" ]; then
     done
   fi
   mkdir -p $boost_path
+  boost_path=$(realpath $boost_path)/
   (
     cd $boost_path;
     pwd;
     wget https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz;
     tar -v --strip-components=1 -xf ./boost_1_88_0.tar.gz;
-    # rm ./boost_1_84_0.tar.bz2
   )
+else
+  boost_path=$(realpath $boost_path)/
 fi
 
 # # Code for the DAS6 HPC system. Get the gcc version and if too old (older than 11.0) try to activate a module with version 12
@@ -130,7 +127,7 @@ if [ ! -d "${boost_path}bin.v2/" ] || [ ! -d "${boost_path}include/" ] || [ ! -d
   (
     cd $boost_path;
     ./bootstrap.sh --prefix=./;
-    ./b2 install
+    ./b2 install --without-python
   )
 fi
 
@@ -179,7 +176,7 @@ if [ -d ../$git_hash/ ]; then
     fi
   fi
   # Clear up the associated conda environment if needed
-  if [ -d ../$git_hash/code/python/.conda/ ] && [ $using_conda ]; then
+  if [ -d ../$git_hash/code/python/.conda/ ] && [ "$using_conda" == "true"]; then
     conda_env=$(cd ../$git_hash/code/python/.conda/; pwd)
     if conda activate $conda_env; then
       conda activate base
@@ -262,7 +259,7 @@ echo Copying python codebase
 echo $(date) $(hostname) "${logging_process}.Info: Copying python codebase" >> $log_file
 cp -r ../code/python/ ../$git_hash/code/python/
 
-if [ using_conda ]; then
+if [ "$using_conda" == "true" ]; then
     echo Setting up Anaconda enviroment
     echo $(date) $(hostname) "${logging_process}.Info: Setting up Anaconda enviroment" >> $log_file
     (cd ../$git_hash/code/python/;
