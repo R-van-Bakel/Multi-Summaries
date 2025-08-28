@@ -1400,7 +1400,7 @@ chmod +x $vertex_and_edge_counter
 
 # Set up a command for running with or without conda
 conda_command=$''
-if [ $using_conda ]; then
+if [ "$using_conda" == "true" ]; then
   conda_command=$'\nconda activate\nconda activate \\$working_directory/../code/python/.conda/'
 fi
 

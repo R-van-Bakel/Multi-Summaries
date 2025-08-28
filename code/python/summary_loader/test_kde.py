@@ -742,8 +742,9 @@ def generic_universal_kde_via_integral_plot(
         )
 
     if weight_type not in ACCEPTABLE_WEIGHT_TYPES:
+        acceptable_weight_types_string = ", ".join(map(lambda x: f'"{x}"', ACCEPTABLE_WEIGHT_TYPES))
         raise ValueError(
-            f'The weight_type parameter (set to {weight_type}) should be set to one of: {", ".join(map(lambda x: f'"{x}"', ACCEPTABLE_WEIGHT_TYPES))}'
+            f"The weight_type parameter (set to {weight_type}) should be set to one of: {acceptable_weight_types_string}"
         )
 
     if log_base <= 1:
