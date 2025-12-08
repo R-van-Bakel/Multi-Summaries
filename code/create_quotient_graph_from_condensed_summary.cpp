@@ -270,14 +270,11 @@ void read_intervals_from_stream_timed(std::istream &inputstream, interval_map_ty
         if (start_time > upper_level)
         {
             inputstream.seekg(BYTES_PER_K_TYPE, std::ios_base::cur);  // No need to read the end time in this case
-            // k_type end_time = read_uint_K_TYPE_little_endian(inputstream);
-            // std::cout << "DEBUG skipped because start: " << global_block << ": [" << start_time << "," << end_time << "]" << std::endl;
             continue;
         }
         k_type end_time = read_uint_K_TYPE_little_endian(inputstream);
         if (end_time < lower_level)
         {
-            // std::cout << "DEBUG skipped because end: " << global_block << ": [" << start_time << "," << end_time << "]" << std::endl;
             continue;
         }
         // Assuming start_time <= end_time, we are not only left with summary nodes that are alive during lower_level and/or upper_level
@@ -327,20 +324,16 @@ void read_singleton_mapping_from_stream_timed(std::istream &inputstream, local_r
     while (true)
     {
         block_index possible_old_block = read_uint_BLOCK_little_endian(inputstream);
-        // std::cout << "DEBUG sing refines: " << possible_old_block << std::endl;
         if (inputstream.eof())
         {
-            // std::cout << "DEBUG IT BROKE" << std::endl;
             break;
         }
         block_or_singleton_index old_block = static_cast<block_or_singleton_index>(possible_old_block);
-        // std::cout << "DEBUG sing refines: " << possible_old_block << std::endl;
 
         block_or_singleton_index new_block_count = read_int_BLOCK_OR_SINGLETON_little_endian(inputstream);
         for (block_or_singleton_index j = 0; j < new_block_count; j++)
         {
             block_or_singleton_index new_block = read_int_BLOCK_OR_SINGLETON_little_endian(inputstream);
-            // std::cout << "DEBUG sing refines: " << new_block << "," << old_block << std::endl;
             refines_map.push_back(std::make_pair(new_block,old_block));
         }
     }
@@ -454,7 +447,6 @@ void read_data_edges_from_stream_timed_early(std::istream &inputstream, triple_s
         auto subject_interval_it = interval_map.find(subject);
         if (subject_interval_it == interval_end_it)
         {
-            // std::cout << "DEBUG: could not find subj: " << subject << std::endl;
             inputstream.seekg(BYTES_PER_PREDICATE+BYTES_PER_BLOCK_OR_SINGLETON, std::ios_base::cur);  // No need to read the predicate and object in this case
             continue;
         }
@@ -465,13 +457,11 @@ void read_data_edges_from_stream_timed_early(std::istream &inputstream, triple_s
         auto object_interval_it = interval_map.find(object);
         if (object_interval_it == interval_end_it)
         {
-            // std::cout << "DEBUG: could not find obj: " << object << std::endl;
             continue;
         }
         k_type object_end_time = (object_interval_it->second).second;
         if (object_end_time!=level)
         {
-            // std::cout << "DEBUG: wrong level obj: " << object << ": [" << (object_interval_it->second).first << "," << (object_interval_it->second).second << "]" <<  std::endl;
             continue;
         }
 
@@ -510,7 +500,6 @@ int main(int ac, char *av[])
     int32_t input_level = vm["level"].as<int32_t>();
     std::string output_format = vm["output_format"].as<std::string>();
     bool make_ids_positive = vm["make_ids_positive"].as<bool>();
-    std::cout << "DEBUG: make_ids_positive = " << make_ids_positive << std::endl;
 
     std::string graph_stats_file = experiment_directory + "ad_hoc_results/graph_stats.json";
     std::ifstream graph_stats_file_stream(graph_stats_file);
@@ -692,12 +681,6 @@ int main(int ac, char *av[])
                     outcome_file_stream.seekg(block_size*BYTES_PER_ENTITY, std::ios_base::cur);
                     continue;
                 }
-                // k_type stored_local_level = block_it->first;
-                // if (stored_local_level != current_level)
-                // {
-                //     outcome_file_stream.seekg(block_size*BYTES_PER_ENTITY, std::ios_base::cur);
-                //     continue;
-                // }
                 block_or_singleton_index global_block = block_it->second;
                 
                 for (node_index i = 0; i < block_size; i++)

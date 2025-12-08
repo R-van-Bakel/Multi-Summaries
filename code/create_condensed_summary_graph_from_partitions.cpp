@@ -650,12 +650,10 @@ public:
         {
             auto block_map_iterator = this->get_map().find({k,local_block});
             assert(block_map_iterator != this->get_map().cend());
-            // std::cout << "DEBUG mapped to global block B: " << block_map_iterator->second << std::endl;
             return block_map_iterator->second;
         }
         else
         {
-            // std::cout << "DEBUG mapped to global block S: " << local_block << std::endl;
             return local_block;
         }
         return this->get_map()[{k,local_block}];
@@ -664,8 +662,6 @@ public:
     {
         block_or_singleton_index global_block = next_block;
         this->get_map()[{k,local_block}] = global_block;
-        // auto block_map_iterator = this->get_map().find({k,local_block});
-        // std::cout << "DEBUG added and found block: <<" << (*block_map_iterator).first.first << "," << (*block_map_iterator).first.second << ">," << (*block_map_iterator).second << ">" << std::endl;
         next_block++;
         return global_block;
     }
@@ -1009,7 +1005,6 @@ public:
                 write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, subject);
                 write_uint_PREDICATE_little_endian(graphoutputstream, predicate);
                 write_int_BLOCK_OR_SINGLETON_little_endian(graphoutputstream, object);
-                // std::cout << "DEBUG wrote SPO: " << subject << " " << predicate << " " << object << std::endl;
             }
         }
         graphoutputstream.flush();
@@ -1104,7 +1099,6 @@ void read_graph_into_summary_from_stream_timed(std::istream &inputstream, node_t
         }
 
         block_or_singleton_index object_block_previous_level = split_to_merged_map.map_block(block_map.map_block(current_level,node_to_block_map[object_index]));  // Data edges from last level to second-to-last level
-        // std::cout << "DEBUG adding edge: " << subject_block << "," << edge_label << "," << object_block_previous_level << std::endl;
         gs.add_edge_to_node(subject_block, edge_label, object_block_previous_level);
 
         if (line_counter % 1000000 == 0)
@@ -1375,10 +1369,6 @@ int main(int ac, char *av[])
         while (true)
         {
             block_index block = read_uint_BLOCK_little_endian(current_outcome_file);
-            // if (i == 1 and block == 1)
-            // {
-            //     std::cout << "DEBUG: found (1,1)" << std::endl;
-            // }
             if (current_outcome_file.eof())
             {
                 break;
@@ -1426,11 +1416,6 @@ int main(int ac, char *av[])
     << " ms, memory = " << step_info.memory_in_kb << " kB)" << std::endl;
     // <<< LOAD THE FINAL SUMMARY GRAPH <<<
 
-    // for (auto node_block_pair: node_to_block_map)
-    // {
-    //     std::cout << "DEBUG node:block :: " << node_block_pair.first << ":" << node_block_pair.second << std::endl;
-    // }
-
     // We have read the last outcome, now we will create a summary graph accordingly
     LocalBlockToGlobalBlockMap block_map = LocalBlockToGlobalBlockMap();  // First, because different blocks can have the same name at different layers, we need to map the current block ids to globally unique ones
     boost::unordered_flat_map<block_or_singleton_index,LocalBlock> old_living_blocks;  // The blocks that currently exist (at the subject level)
@@ -1459,22 +1444,12 @@ int main(int ac, char *av[])
     for (auto iter = blocks.cbegin(); iter != blocks.cend(); iter++)
     {
         block_index block_id = iter->first;
-        // if (current_level == 1)
-        // {
-        //     std::cout << "DEBUG: map found level 1 #1" << std::endl;
-        // }
-        // if (current_level == 1 and block_id == 1)
-        // {
-        //     std::cout << "DEBUG: map found (1,1) #1";
-        // }
         size_t block_size = iter->second.size();
         if (block_size == 0)  // Empty blocks do not yield summary nodes
         {
             continue;
         }
-        // std::cout << "DEBUG 1 block in:  <" << current_level << "," << block_id << ">" << std::endl;
         block_or_singleton_index global_block = block_map.add_block(current_level, block_id);
-        // std::cout << "DEBUG 1 block out: <" << block_id << ">\n" << std::endl;
         old_living_blocks[global_block] = {(block_or_singleton_index) block_id, (k_type) current_level};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
     }
 
@@ -1537,9 +1512,7 @@ int main(int ac, char *av[])
         else  // Otherwise we create a separate universal block to be the parent of all blocks in level k=1
         {
             block_or_singleton_index universal_block = 0;
-            // std::cout << "DEBUG 2 block in:  <" << zero_level << "," << universal_block << ">" << std::endl;
             block_or_singleton_index global_universal_block = block_map.add_block(zero_level, universal_block);
-            // std::cout << "DEBUG 2 block out: <" << global_universal_block << ">\n" << std::endl;   
             gs.add_block_node(global_universal_block);
             block_to_interval_map[global_universal_block] = {zero_level, zero_level};
             for (auto node_block_pair: node_to_block_map)
@@ -1648,7 +1621,6 @@ int main(int ac, char *av[])
             write_int_BLOCK_OR_SINGLETON_little_endian(output_interval_file_binary, block_interval_pair.first);
             write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.first);
             write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.second);
-            // std::cout << "DEBUG wrote block-interval: " << block_interval_pair.first << ":[" << block_interval_pair.second.first << "," << block_interval_pair.second.second << "]" << std::endl;
         }
         output_interval_file_binary.flush();
 
@@ -1728,22 +1700,12 @@ int main(int ac, char *av[])
         while (true)
         {
             block_index merged_block = read_uint_BLOCK_little_endian(current_mapping_file);
-            // if (current_level == 1)
-            // {
-            //     std::cout << "DEBUG: map found level 1 #2" << std::endl;
-            // }
-            // if (current_level-1 == 1 and merged_block == 1)
-            // {
-            //     std::cout << "DEBUG: map found (1,1) #2";
-            // }
             if (current_mapping_file.eof())
             {
                 break;
             }
             
-            // std::cout << "DEBUG 3 block in:  <" << current_level-1 << "," << merged_block << ">" << std::endl;
             block_or_singleton_index global_block = block_map.add_block(current_level-1, merged_block);
-            // std::cout << "DEBUG 3 block out: <" << global_block << ">\n" << std::endl; 
             spawning_blocks[global_block] = {(block_or_singleton_index) merged_block, (k_type) (current_level-1)};  // Earlier (when loading the outcomes) we had already checked that this cast is possible
 
             gs.add_block_node(global_block);
@@ -1869,21 +1831,11 @@ int main(int ac, char *av[])
         while (true)
         {
             block_index merged_block = read_uint_BLOCK_little_endian(current_mapping_file);
-            // if (current_level-1 == 1)
-            // {
-            //     std::cout << "DEBUG: map found level 1 #3" << std::endl;
-            // }
-            // if (current_level-1 == 1 and merged_block == 1)
-            // {
-            //     std::cout << "DEBUG: map found (1,1) #3";
-            // }
             if (current_mapping_file.eof())
             {
                 break;
             }
-            // std::cout << "DEBUG 4 block in:  <" << current_level-1 << "," << merged_block << ">" << std::endl;
             block_or_singleton_index global_block = block_map.add_block(current_level-1, merged_block);
-            // std::cout << "DEBUG 4 block out: <" << global_block << ">\n" << std::endl; 
             gs.add_block_node(global_block);
             block_to_interval_map[global_block] = {first_level, current_level-1};
 
@@ -1922,43 +1874,6 @@ int main(int ac, char *av[])
             }
         }
 
-        // for (auto living_block_key_val: old_living_blocks)
-        // {
-        //     block_or_singleton_index subject = living_block_key_val.first;
-        //     for (auto predicate_object_pair: gs.get_nodes()[subject].get_pairs())
-        //     {
-        //         block_or_singleton_index object = predicate_object_pair.second;
-
-        //         if (new_living_blocks.find(object) == new_living_blocks.cend())  // These are blocks that have died
-        //         {
-        //             continue;
-        //         }
-
-        //         block_or_singleton_index object_image = current_split_to_merged_map.map_block(object);
-        //         block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
-        //         // If neither the subject nor object changed, then the edge already exists and there is no need to try to add it to the graph again
-        //         if (subject_image == subject && object_image == object)
-        //         {
-        //             continue;
-        //         }
-
-        //         edge_type predicate = predicate_object_pair.first;
-
-        //         std::cout << "DEBUG original SPO: " << subject_image << "," << predicate << "," << object_image << std::endl;
-        //         gs.add_edge_to_node(subject_image, predicate, object_image);
-        //     }
-        // }
-        // std::cout << std::endl;
-        // std::cout << "DEBUG current level: " << current_level << std::endl;
-        // Add the incomming edges for the blocks that died in the current level
-        // auto t_debug_2{boost::chrono::system_clock::now()};
-        // auto time_t_debug_2{boost::chrono::system_clock::to_time_t(t_debug_2)};
-        // std::tm *ptm_debug_2{std::localtime(&time_t_debug_2)};
-        // std::cout << "\n" << std::put_time(ptm_debug_2, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before add current incomming" << std::endl;
-        // u_int64_t outer_loop_count = 0;
-        // u_int64_t inner_loop_a_count = 0;
-        // u_int64_t inner_loop_b_count = 0;
-        // u_int64_t inner_loop_c_count = 0;
         for (block_or_singleton_index dying_block: dying_blocks)
         {
             // outer_loop_count++;
@@ -1975,58 +1890,18 @@ int main(int ac, char *av[])
                 // inner_loop_b_count++;
                 block_or_singleton_index subject_image = old_split_to_merged_map.map_block(subject);
 
-                // if (subject_image == 195){
-                //     std::cout << "DEBUG 195 mapped from sub: " << subject << std::endl;
-                // }
-
-                // if (object_image == 195){
-                //     std::cout << "DEBUG 195 mapped from obj: " << dying_block << std::endl;
-                // }
-
-                // if (subject == -2059) {
-                //     edge_type predicate = predicate_object_pair.first;
-                //     std::cout << "DEBUG -2059 edge (before): " << subject << "," << predicate << "," << dying_block << std::endl;
-                //     std::cout << "DEBUG -2059 edge (after): " << subject_image << "," << predicate << "," << object_image << std::endl;
-                // }
-                
-                // if (dying_block == 111)
-                // {
-                //     edge_type predicate = predicate_object_pair.first;
-                //     if (predicate == 78)
-                //     {
-                //         std::cout << "DEBUG 111 edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
-                //     }
-                // }
-                // std::cout << "DEBUG dying block: " << dying_block << std::endl;
-
                 if (subject_image == subject && object_image == dying_block)
                 {
-                    // edge_type predicate = predicate_object_pair.first;
-                    // std::cout << "DEBUG skipped edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
                     continue;
                 }
                 // inner_loop_c_count++;
                 
                 edge_type predicate = predicate_subject_pair.first;
 
-                // std::cout << "DEBUG new dying SPO: " << subject_image << "," << predicate << "," << object_image << std::endl;
                 gs.add_edge_to_node(subject_image, predicate, object_image);
             }
         }
-        // auto t_debug_loop1{boost::chrono::system_clock::now()};
-        // auto time_t_debug_loop1{boost::chrono::system_clock::to_time_t(t_debug_loop1)};
-        // std::tm *ptm_debug_loop1{std::localtime(&time_t_debug_loop1)};
-        // std::cout << std::put_time(ptm_debug_loop1, "%Y/%m/%d %H:%M:%S") << " DEBUG: out:" << outer_loop_count << " in1:" << inner_loop_a_count << " in2:" << inner_loop_b_count << " in3:" << inner_loop_c_count << std::endl;
 
-        // Add the outgoing edges for the blocks that died in the previous level
-        // auto t_debug_1{boost::chrono::system_clock::now()};
-        // auto time_t_debug_1{boost::chrono::system_clock::to_time_t(t_debug_1)};
-        // std::tm *ptm_debug_1{std::localtime(&time_t_debug_1)};
-        // std::cout << std::put_time(ptm_debug_1, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before add previous outgoing" << std::endl;
-        // outer_loop_count = 0;
-        // inner_loop_a_count = 0;
-        // inner_loop_b_count = 0;
-        // inner_loop_c_count = 0;
         for (block_or_singleton_index old_dying_block: old_dying_blocks)
         {
             // outer_loop_count++;
@@ -2046,8 +1921,6 @@ int main(int ac, char *av[])
 
                 if (subject_image == old_dying_block && object_image == object)
                 {
-                    // edge_type predicate = predicate_object_pair.first;
-                    // std::cout << "DEBUG skipped edge: " << subject_image << ", " << predicate << ", " << object_image << std::endl;
                     continue;
                 }
                 // inner_loop_c_count++;
@@ -2056,92 +1929,29 @@ int main(int ac, char *av[])
                 gs.add_edge_to_node(subject_image, predicate, object_image);
             }
         }
-        // auto t_debug_loop2{boost::chrono::system_clock::now()};
-        // auto time_t_debug_loop2{boost::chrono::system_clock::to_time_t(t_debug_loop2)};
-        // std::tm *ptm_debug_loop2{std::localtime(&time_t_debug_loop2)};
-        // std::cout << std::put_time(ptm_debug_loop2, "%Y/%m/%d %H:%M:%S") << " DEBUG: out:" << outer_loop_count << " in1:" << inner_loop_a_count << " in2:" << inner_loop_b_count << " in3:" << inner_loop_c_count << std::endl;
-
-
-        // std::cout << std::endl;
-        // for (block_or_singleton_index old_dying_block: old_dying_blocks)
-        // {
-        //     block_or_singleton_index subject_image = current_split_to_merged_map.map_block(old_dying_block);
-        //     for (auto predicate_object_pair: gs.get_nodes()[old_dying_block].get_pairs())
-        //     {
-        //         edge_type predicate = predicate_object_pair.first;
-        //         block_or_singleton_index object = predicate_object_pair.second;
-
-        //         block_or_singleton_index object_image = old_split_to_merged_map.map_block(object);
-
-        //         std::cout << "DEBUG old dying SPO: " << subject_image << "," << predicate << "," << object_image << std::endl;
-        //     }
-        // }
-        // std::cout << std::endl;
-
-        // Copy the new living blocks into the old living blocks
-        // auto t_debug1{boost::chrono::system_clock::now()};
-        // auto time_t_debug1{boost::chrono::system_clock::to_time_t(t_debug1)};
-        // std::tm *ptm_debug1{std::localtime(&time_t_debug1)};
-        // std::cout << std::put_time(ptm_debug1, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before clear old living blocks" << std::endl;
         old_living_blocks.clear();
-        // auto t_debug2{boost::chrono::system_clock::now()};
-        // auto time_t_debug2{boost::chrono::system_clock::to_time_t(t_debug2)};
-        // std::tm *ptm_debug2{std::localtime(&time_t_debug2)};
-        // std::cout << std::put_time(ptm_debug2, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before update old living blocks" << std::endl;
         for (auto living_block_key_val: new_living_blocks)
         {
             old_living_blocks[living_block_key_val.first] = living_block_key_val.second;
         }
 
         // Update living_blocks by removing the dying blocks and adding the spawning blocks
-        // auto t_debug3{boost::chrono::system_clock::now()};
-        // auto time_t_debug3{boost::chrono::system_clock::to_time_t(t_debug3)};
-        // std::tm *ptm_debug3{std::localtime(&time_t_debug3)};
-        // std::cout << std::put_time(ptm_debug3, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before erase new living blocks" << std::endl;
         for (block_or_singleton_index dying_block: dying_blocks)
         {
             new_living_blocks.erase(dying_block);
         }
-        // auto t_debug4{boost::chrono::system_clock::now()};
-        // auto time_t_debug4{boost::chrono::system_clock::to_time_t(t_debug4)};
-        // std::tm *ptm_debug4{std::localtime(&time_t_debug4)};
-        // std::cout << std::put_time(ptm_debug4, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before merge new living blocks" << std::endl;
         new_living_blocks.merge(spawning_blocks);
-        // auto t_debug5{boost::chrono::system_clock::now()};
-        // auto time_t_debug5{boost::chrono::system_clock::to_time_t(t_debug5)};
-        // std::tm *ptm_debug5{std::localtime(&time_t_debug5)};
-        // std::cout << std::put_time(ptm_debug5, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before move into old dying blocks" << std::endl;
         old_dying_blocks = std::move(dying_blocks);
-        // auto t_debug6{boost::chrono::system_clock::now()};
-        // auto time_t_debug6{boost::chrono::system_clock::to_time_t(t_debug6)};
-        // std::tm *ptm_debug6{std::localtime(&time_t_debug6)};
-        // std::cout << std::put_time(ptm_debug6, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before clear dyings blocks" << std::endl;
         dying_blocks.clear();
-        // auto t_debug7{boost::chrono::system_clock::now()};
-        // auto time_t_debug7{boost::chrono::system_clock::to_time_t(t_debug7)};
-        // std::tm *ptm_debug7{std::localtime(&time_t_debug7)};
-        // std::cout << std::put_time(ptm_debug7, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before clear spawing blocks" << std::endl;
         spawning_blocks.clear();
 
         // Update the new local to global living block mapping
-        // auto t_debug8{boost::chrono::system_clock::now()};
-        // auto time_t_debug8{boost::chrono::system_clock::to_time_t(t_debug8)};
-        // std::tm *ptm_debug8{std::localtime(&time_t_debug8)};
-        // std::cout << std::put_time(ptm_debug8, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before clear new local to global living blocks" << std::endl;
         new_local_to_global_living_blocks.clear();
-        // auto t_debug9{boost::chrono::system_clock::now()};
-        // auto time_t_debug9{boost::chrono::system_clock::to_time_t(t_debug9)};
-        // std::tm *ptm_debug9{std::localtime(&time_t_debug9)};
-        // std::cout << std::put_time(ptm_debug9, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before update new local to global living blocks" << std::endl;
         for (auto living_block_key_val: new_living_blocks)
         {
             new_local_to_global_living_blocks[living_block_key_val.second.local_index] = living_block_key_val.first;
         }
 
-        // auto t_debug10{boost::chrono::system_clock::now()};
-        // auto time_t_debug10{boost::chrono::system_clock::to_time_t(t_debug10)};
-        // std::tm *ptm_debug10{std::localtime(&time_t_debug10)};
-        // std::cout << std::put_time(ptm_debug10, "%Y/%m/%d %H:%M:%S") << " DEBUG: Before move into old split to merged map" << std::endl;
         old_split_to_merged_map = std::move(current_split_to_merged_map);
         w.stop_step();
 
@@ -2167,9 +1977,7 @@ int main(int ac, char *av[])
         // Add the edges between the level 1 and level 0
         k_type zero_level = 0;
         block_or_singleton_index universal_block = 0;
-        // std::cout << "DEBUG 5 block in:  <" << zero_level << "," << universal_block << ">" << std::endl;
-        block_or_singleton_index global_universal_block = block_map.add_block(zero_level, universal_block); 
-        // std::cout << "DEBUG 5 block out: <" << global_universal_block << ">\n" << std::endl;    
+        block_or_singleton_index global_universal_block = block_map.add_block(zero_level, universal_block);
         gs.add_block_node(global_universal_block);
         k_type universal_block_time = 0;
         block_to_interval_map[global_universal_block] = {universal_block_time, universal_block_time};
