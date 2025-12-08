@@ -20,7 +20,7 @@ using global_refines_type = boost::unordered_flat_map<block_or_singleton_index,b
 using local_to_global_map_type = boost::unordered_flat_map<std::pair<k_type,block_or_singleton_index>,block_or_singleton_index>;
 using triple_set = boost::unordered_flat_set<std::tuple<block_or_singleton_index,edge_type,block_or_singleton_index>>;
 using block_map = boost::unordered_flat_map<block_or_singleton_index,std::pair<k_type,block_or_singleton_index>>;
-using level_to_local_to_global_map = boost::unordered_flat_map<k_type,boost::unordered_flat_map<block_index,block_or_singleton_index>>;
+using level_to_local_to_global_map = boost::unordered_flat_map<k_type,boost::unordered_flat_map<block_or_singleton_index,block_or_singleton_index>>;
 using block_set = boost::unordered_flat_set<block_or_singleton_index>;
 using id_entity_map = boost::unordered_flat_map<node_index,std::string>;
 // using level_to_blocks_map = boost::unordered_flat_map<k_type,boost::unordered::unordered_flat_set<block_or_singleton_index>>;
@@ -206,6 +206,26 @@ void write_int_BLOCK_OR_SINGLETON_little_endian(std::ostream &outputstream, bloc
     if (outputstream.fail())
     {
         std::cout << "Write block failed with code: " << outputstream.rdstate() << std::endl;
+        std::cout << "Goodbit: " << outputstream.good() << std::endl;
+        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
+        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
+        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
+        exit(outputstream.rdstate());
+    }
+}
+
+void write_uint_ENTITY_little_endian(std::ostream &outputstream, u_int64_t value)
+{
+    char data[BYTES_PER_ENTITY];
+    for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
+    {
+        data[i] = char(value & 0x00000000000000FFull);
+        value = value >> 8;
+    }
+    outputstream.write(data, BYTES_PER_ENTITY);
+    if (outputstream.fail())
+    {
+        std::cout << "Write entity failed with code: " << outputstream.rdstate() << std::endl;
         std::cout << "Goodbit: " << outputstream.good() << std::endl;
         std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
         std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
@@ -473,9 +493,11 @@ int main(int ac, char *av[])
     po::options_description global("Global options");
     global.add_options()("experiment_directory", po::value<std::string>(), "The directory for the experiment of interest");
     global.add_options()("level", po::value<int32_t>(), "Which level the generate the quotient graph for. Use -1 as an alias for the fixed point.");
+    global.add_options()("output_format", po::value<std::string>()->default_value("binary"), "Which output format to use. Options are: \"plaintext\", \"binary\", \"both\". Default is \"plaintext\".");
+    global.add_options()("make_ids_positive", po::value<bool>()->default_value(false), "Whether to make all node ids positive in the output quotient graph. Default is false.");
 
     po::positional_options_description pos;
-    pos.add("experiment_directory", 1).add("level", 2);
+    pos.add("experiment_directory", 1).add("level", 2).add("output_format", 3).add("make_ids_positive", 4);
 
     po::variables_map vm;
 
@@ -486,6 +508,9 @@ int main(int ac, char *av[])
 
     std::string experiment_directory = vm["experiment_directory"].as<std::string>();
     int32_t input_level = vm["level"].as<int32_t>();
+    std::string output_format = vm["output_format"].as<std::string>();
+    bool make_ids_positive = vm["make_ids_positive"].as<bool>();
+    std::cout << "DEBUG: make_ids_positive = " << make_ids_positive << std::endl;
 
     std::string graph_stats_file = experiment_directory + "ad_hoc_results/graph_stats.json";
     std::ifstream graph_stats_file_stream(graph_stats_file);
@@ -619,6 +644,7 @@ int main(int ac, char *av[])
         std::ifstream local_to_global_file_stream(local_to_global_file, std::ifstream::in);
 
         level_to_local_to_global_map local_to_global_map;
+        // block_map current_block_map;
 
         auto living_blocks_end_it = living_blocks.cend();
 
@@ -634,6 +660,7 @@ int main(int ac, char *av[])
             if (living_blocks.find(global_block) != living_blocks_end_it)
             {
                 local_to_global_map[local_level].emplace(local_block,global_block);
+                // current_block_map[local_block] = std::make_pair(local_level, global_block);
             }
         }
 
@@ -733,27 +760,100 @@ int main(int ac, char *av[])
         outcome_stats_file_stream.close();
         
         //TODO this currently ONLY saves the final quotient graph, NOT the associated entities
+
+        boost::unordered::unordered_flat_map<block_or_singleton_index, node_index> id_mapping;
+        if (make_ids_positive)
+        {
+            // Extract the subject and object ids and put them in a set
+            boost::unordered::unordered_flat_set<block_or_singleton_index> unique_ids;
+            for (auto triple: data_edges)
+            {
+                unique_ids.insert(std::get<0>(triple));
+                unique_ids.insert(std::get<2>(triple));
+            }
+
+            // Sort the unique ids
+            node_index current_id = 0;
+            while (!unique_ids.empty())
+            {
+                auto it = unique_ids.begin();
+                id_mapping[*it] = current_id;
+                unique_ids.erase(it);
+                current_id++;
+            }
+        }
         
         // Write the quotient graph edges and types
         std::cout << "Writing the quotient graph edges and types" << std::endl;
-        std::string outcome_edges_file = quotient_graphs_directory + "quotient_graph_edges-" + level_string + ".txt";
-        std::ofstream outcome_edges_file_stream(outcome_edges_file, std::ios::trunc);
-
-        std::string outcome_types_file = quotient_graphs_directory + "quotient_graph_types-" + level_string + ".txt";
-        std::ofstream outcome_types_file_stream(outcome_types_file, std::ios::trunc);
-
-        for (auto triple: data_edges)
+        if (output_format == "plaintext" or output_format == "both")
         {
-            block_or_singleton_index subject = std::get<0>(triple);
-            block_or_singleton_index predicate = std::get<1>(triple);
-            block_or_singleton_index object = std::get<2>(triple);
+            std::string outcome_edges_file = quotient_graphs_directory + "quotient_graph_edges-" + level_string + ".txt";
+            std::ofstream outcome_edges_file_stream(outcome_edges_file, std::ios::trunc);
 
-            outcome_edges_file_stream << subject << " " << object << "\n";
-            outcome_types_file_stream << predicate << "\n";
+            std::string outcome_types_file = quotient_graphs_directory + "quotient_graph_types-" + level_string + ".txt";
+            std::ofstream outcome_types_file_stream(outcome_types_file, std::ios::trunc);
+
+            if (not make_ids_positive)
+            {
+                for (auto triple: data_edges)
+                {
+                    block_or_singleton_index subject = std::get<0>(triple);
+                    edge_type predicate = std::get<1>(triple);
+                    block_or_singleton_index object = std::get<2>(triple);
+
+                    outcome_edges_file_stream << subject << " " << object << "\n";
+                    outcome_types_file_stream << predicate << "\n";
+                }
+            }
+            else
+            {
+                for (auto triple: data_edges)
+                {
+                    node_index subject = id_mapping[std::get<0>(triple)];
+                    edge_type predicate = std::get<1>(triple);
+                    node_index object = id_mapping[std::get<2>(triple)];
+
+                    outcome_edges_file_stream << subject << " " << object << "\n";
+                    outcome_types_file_stream << predicate << "\n";
+                }
+            }
+
+            outcome_edges_file_stream.close();
+            outcome_types_file_stream.close();
         }
-        outcome_edges_file_stream.close();
-        outcome_types_file_stream.close();
+        if (output_format == "binary" or output_format == "both")
+        {
+            std::string outcome_binary_triples_file = quotient_graphs_directory + "quotient_graph_triples-" + level_string + ".bin";
+            std::ofstream outcome_binary_triples_file_stream(outcome_binary_triples_file, std::ios::binary | std::ios::trunc);
 
+            if (not make_ids_positive)
+            {
+                for (auto triple: data_edges)
+                {
+                    block_or_singleton_index subject = std::get<0>(triple);
+                    edge_type predicate = std::get<1>(triple);
+                    block_or_singleton_index object = std::get<2>(triple);
+
+                    write_int_BLOCK_OR_SINGLETON_little_endian(outcome_binary_triples_file_stream, subject);
+                    write_uint_PREDICATE_little_endian(outcome_binary_triples_file_stream, predicate);
+                    write_int_BLOCK_OR_SINGLETON_little_endian(outcome_binary_triples_file_stream, object);
+                }
+            }
+            else
+            {
+                for (auto triple: data_edges)
+                {
+                    node_index subject = id_mapping[std::get<0>(triple)];
+                    edge_type predicate = std::get<1>(triple);
+                    node_index object = id_mapping[std::get<2>(triple)];
+
+                    write_uint_ENTITY_little_endian(outcome_binary_triples_file_stream, subject);
+                    write_uint_PREDICATE_little_endian(outcome_binary_triples_file_stream, predicate);
+                    write_uint_ENTITY_little_endian(outcome_binary_triples_file_stream, object);
+                }
+            }
+            outcome_binary_triples_file_stream.close();
+        }
 
         exit(0);  // Close the program
     }
@@ -1118,23 +1218,97 @@ int main(int ac, char *av[])
 
     outcome_stats_file_stream.close();
 
+    boost::unordered::unordered_flat_map<block_or_singleton_index, node_index> id_mapping;
+    if (make_ids_positive)
+    {
+        // Extract the subject and object ids and put them in a set
+        boost::unordered::unordered_flat_set<block_or_singleton_index> unique_ids;
+        for (auto triple: data_edges)
+        {
+            unique_ids.insert(std::get<0>(triple));
+            unique_ids.insert(std::get<2>(triple));
+        }
+
+        // Sort the unique ids
+        node_index current_id = 0;
+        while (!unique_ids.empty())
+        {
+            auto it = unique_ids.begin();
+            id_mapping[*it] = current_id;
+            unique_ids.erase(it);
+            current_id++;
+        }
+    }
+
     // Write the quotient graph edges and types
     std::cout << "Writing the quotient graph edges and types" << std::endl;
-    std::string outcome_edges_file = quotient_graphs_directory + "quotient_graph_edges-" + level_string + ".txt";
-    std::ofstream outcome_edges_file_stream(outcome_edges_file, std::ios::trunc);
-
-    std::string outcome_types_file = quotient_graphs_directory + "quotient_graph_types-" + level_string + ".txt";
-    std::ofstream outcome_types_file_stream(outcome_types_file, std::ios::trunc);
-
-    for (auto triple: data_edges)
+    if (output_format == "plaintext" or output_format == "both")
     {
-        block_or_singleton_index subject = std::get<0>(triple);
-        block_or_singleton_index predicate = std::get<1>(triple);
-        block_or_singleton_index object = std::get<2>(triple);
+        std::string outcome_edges_file = quotient_graphs_directory + "quotient_graph_edges-" + level_string + ".txt";
+        std::ofstream outcome_edges_file_stream(outcome_edges_file, std::ios::trunc);
 
-        outcome_edges_file_stream << subject << " " << object << "\n";
-        outcome_types_file_stream << predicate << "\n";
+        std::string outcome_types_file = quotient_graphs_directory + "quotient_graph_types-" + level_string + ".txt";
+        std::ofstream outcome_types_file_stream(outcome_types_file, std::ios::trunc);
+
+        if (not make_ids_positive)
+        {
+            for (auto triple: data_edges)
+            {
+                block_or_singleton_index subject = std::get<0>(triple);
+                edge_type predicate = std::get<1>(triple);
+                block_or_singleton_index object = std::get<2>(triple);
+
+                outcome_edges_file_stream << subject << " " << object << "\n";
+                outcome_types_file_stream << predicate << "\n";
+            }
+        }
+        else
+        {
+            for (auto triple: data_edges)
+            {
+                node_index subject = (node_index) living_blocks[std::get<0>(triple)].second;
+                edge_type predicate = std::get<1>(triple);
+                node_index object = (node_index) next_blocks[std::get<2>(triple)].second;
+
+                outcome_edges_file_stream << subject << " " << object << "\n";
+                outcome_types_file_stream << predicate << "\n";
+            }
+        }
+
+        outcome_edges_file_stream.close();
+        outcome_types_file_stream.close();
     }
-    outcome_edges_file_stream.close();
-    outcome_types_file_stream.close();
+    if (output_format == "binary" or output_format == "both")
+    {
+        std::string outcome_binary_triples_file = quotient_graphs_directory + "quotient_graph_triples-" + level_string + ".bin";
+        std::ofstream outcome_binary_triples_file_stream(outcome_binary_triples_file, std::ios::binary | std::ios::trunc);
+
+        if (not make_ids_positive)
+        {
+            for (auto triple: data_edges)
+            {
+                block_or_singleton_index subject = std::get<0>(triple);
+                edge_type predicate = std::get<1>(triple);
+                block_or_singleton_index object = std::get<2>(triple);
+
+                write_int_BLOCK_OR_SINGLETON_little_endian(outcome_binary_triples_file_stream, subject);
+                write_uint_PREDICATE_little_endian(outcome_binary_triples_file_stream, predicate);
+                write_int_BLOCK_OR_SINGLETON_little_endian(outcome_binary_triples_file_stream, object);
+            }
+        }
+        else
+        {
+            for (auto triple: data_edges)
+            {
+                node_index subject = id_mapping[std::get<0>(triple)];
+                edge_type predicate = std::get<1>(triple);
+                node_index object = id_mapping[std::get<2>(triple)];
+
+                write_uint_ENTITY_little_endian(outcome_binary_triples_file_stream, subject);
+                write_uint_PREDICATE_little_endian(outcome_binary_triples_file_stream, predicate);
+                write_uint_ENTITY_little_endian(outcome_binary_triples_file_stream, object);
+            }
+        }
+        outcome_binary_triples_file_stream.close();
+    }
 }
