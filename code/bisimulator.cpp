@@ -21,6 +21,9 @@
 #include <thread>
 #include <boost/program_options.hpp>
 #include <boost/algorithm/string/find.hpp>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 using edge_type = uint32_t;
 using node_index = uint64_t;
@@ -33,6 +36,7 @@ const int BYTES_PER_PREDICATE = 4;
 const int BYTES_PER_BLOCK = 4;
 
 const int64_t MAX_SIGNED_BLOCK_SIZE = INT64_MAX;
+const edge_type MAX_EDGE_ID = UINT32_MAX;
 
 
 #define CREATE_REVERSE_INDEX
@@ -820,7 +824,7 @@ KBisumulationOutcome get_0_bisimulation(Graph &g)
 }
 static BlockPtr global_empty_block = std::make_shared<Block>();
 
-KBisumulationOutcome get_typed_0_bisimulation(Graph &g)
+KBisumulationOutcome get_typed_0_bisimulation(Graph &g, edge_type rdf_type_id=MAX_EDGE_ID)
 {
     // collect the signatures for nodes in the block
     boost::unordered_flat_map<set_of_types, BlockPtr> partition_map;
@@ -830,7 +834,9 @@ KBisumulationOutcome get_typed_0_bisimulation(Graph &g)
         set_of_types set_of_types_of_node;
         Node & node = nodes[i];
         for (auto edge : node.get_outgoing_edges()){
-            if (edge.label == 0){ // assumes rdf:type is mapped on 0!!!
+            // N.B. the code assumes MAX_EDGE_ID corresponds to no rdf_type_id having been found.
+            // The following will happily run if edge.label ever reaches MAX_EDGE_ID, which could in very rare cases cause incorrect outputs, without crashing.
+            if (edge.label == rdf_type_id){
                 set_of_types_of_node.emplace(edge.target);
             }
         }
@@ -1151,7 +1157,7 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
     Graph g;
     w.start_step("Read graph", true);  // Set newline to true
-    uint64_t edge_count = read_graph_timed(input_path, g);
+    uint64_t edge_count = read_graph_timed(input_path + "binary_encoding.bin", g);
     w.stop_step();
 
     auto t_start_bisim{boost::chrono::system_clock::now()};
@@ -1176,7 +1182,13 @@ void run_k_bisimulation_store_partition_condensed_timed(const std::string &input
     }
     else
     {
-        res_ptr = std::make_unique<KBisumulationOutcome>(get_typed_0_bisimulation(g));
+        // Read the id for rdf:type, if it exists, otherwise assign MAX_EDGE_ID
+        std::ifstream rel2id_metadata_file(input_path + "rel2ID.meta.json");
+        json rel2id_metadata;
+        rel2id_metadata_file >> rel2id_metadata;
+        edge_type rdf_type_id = rel2id_metadata["special_relations"].value("http://www.w3.org/1999/02/22-rdf-syntax-ns#type", MAX_EDGE_ID);
+
+        res_ptr = std::make_unique<KBisumulationOutcome>(get_typed_0_bisimulation(g, rdf_type_id));
     }
     KBisumulationOutcome res = *res_ptr;
 
@@ -1381,12 +1393,12 @@ int main(int ac, char *av[])
     namespace po = boost::program_options;
 
     po::options_description global("Global options");
-    global.add_options()("input_file", po::value<std::string>(), "Input file");
+    global.add_options()("input_path", po::value<std::string>(), "Input path");
     global.add_options()("command", po::value<std::string>(), "command to execute");
     global.add_options()("commandargs", po::value<std::vector<std::string>>(), "Arguments for command");
     global.add_options()("strings", po::value<std::string>()->default_value("map_to_one_node"), "What to do with string values? Currently only map_to_one_node (which maps all strings to one node before applying the bisimulation).");
     po::positional_options_description pos;
-    pos.add("command", 1).add("input_file", 2).add("commandargs", -1);
+    pos.add("command", 1).add("input_path", 2).add("commandargs", -1);
 
     po::variables_map vm;
 
@@ -1396,7 +1408,7 @@ int main(int ac, char *av[])
     po::notify(vm);
 
     std::string cmd = vm["command"].as<std::string>();
-    std::string input_file = vm["input_file"].as<std::string>();
+    std::string input_path = vm["input_path"].as<std::string>();
     std::string string_treatment = vm["strings"].as<std::string>();
 
     if (string_treatment != "map_to_one_node")
@@ -1431,7 +1443,7 @@ int main(int ac, char *av[])
         std::filesystem::create_directory(output_path + "bisimulation/");
         std::filesystem::create_directory(output_path + "ad_hoc_results/");
 
-        run_k_bisimulation_store_partition_condensed_timed(input_file, support, output_path, typed_start);
+        run_k_bisimulation_store_partition_condensed_timed(input_path, support, output_path, typed_start);
 
         return 0;
     }

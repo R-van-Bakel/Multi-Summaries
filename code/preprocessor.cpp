@@ -275,9 +275,7 @@ void convert_graph(std::istream &inputstream,
     std::string literal_node_string = "_:literalNode";
     std::string rdf_type_node_string = "_:rdfTypeNode";
 
-    // We make sure that the rdf:type is first in the edge IDs. ie. maps to zero
     std::string rdf_type_string = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-    edge_type rdf_type_id = edge_ID_Mapper.getID(rdf_type_string);
 
     const int BufferSize = 8 * 16184;
 
@@ -428,12 +426,19 @@ void convert_graph(std::istream &inputstream,
         // object
         node_index object_index;
 
-        if (types_to_predicates and (edge_index == rdf_type_id))
+        bool object_index_initialized = false;
+        auto rdf_type_relation_id_iterator = edge_ID_Mapper.tryGetIDIt(rdf_type_string);
+        if (types_to_predicates and (rdf_type_relation_id_iterator != edge_ID_Mapper.getMappingCend()))  // Check if we run in types_to_predicates mode and if we have already found rdf:type
         {
-            edge_index = edge_ID_Mapper.getID(object);  // TODO there is currently no check to see if this cast is possible (in practice it likely will be possible)
-            object_index = node_ID_Mapper.getID(rdf_type_node_string);
+            if (edge_index == rdf_type_relation_id_iterator->second)  // If the current edge_index belongs to rdf:type, then encode the object as an edge
+            {
+                edge_index = edge_ID_Mapper.getID(object);  // TODO there is currently no check to see if this cast is possible (in practice it likely will be possible)
+                object_index = node_ID_Mapper.getID(rdf_type_node_string);
+                object_index_initialized = true;
+            }
         }
-        else
+        
+        if (!object_index_initialized)
         {
             object_index = node_ID_Mapper.getID(object);
         }
@@ -450,9 +455,12 @@ void convert_graph(std::istream &inputstream,
     node_ID_Mapper.dump_to_file(node_ID_file);
     edge_ID_Mapper.dump_to_file(edge_ID_file);
 
-    auto mapping_cend = node_ID_Mapper.getMappingCend();
+    auto entity_map_cend = node_ID_Mapper.getMappingCend();
     auto literal_node_id_iterator = node_ID_Mapper.tryGetIDIt(literal_node_string);
     auto rdf_type_node_id_iterator = node_ID_Mapper.tryGetIDIt(rdf_type_node_string);
+
+    auto relation_map_cend = edge_ID_Mapper.getMappingCend();
+    auto rdf_type_relation_id_iterator = edge_ID_Mapper.tryGetIDIt(rdf_type_string);
 
     std::string node_ID_metadata_file = boost::filesystem::path(node_ID_file).replace_extension(".meta.json").string();
     std::string edge_ID_metadata_file = boost::filesystem::path(edge_ID_file).replace_extension(".meta.json").string();
@@ -461,21 +469,28 @@ void convert_graph(std::istream &inputstream,
     std::ofstream edge_ID_metadata_out(edge_ID_metadata_file, std::ios::trunc);
 
     json node_ID_metadata_json = json::object();
-    json edge_ID_metadata_json = json::object();
     json special_nodes_json = json::object();
 
     node_ID_metadata_json["num_nodes"] = node_ID_Mapper.size();
-    if (literal_node_id_iterator != mapping_cend)
+    if (literal_node_id_iterator != entity_map_cend)
     {
         special_nodes_json[literal_node_string] = literal_node_id_iterator->second;
     }
-    if (rdf_type_node_id_iterator != mapping_cend)
+    if (rdf_type_node_id_iterator != entity_map_cend)
     {
         special_nodes_json[rdf_type_node_string] = rdf_type_node_id_iterator->second;
     }
     node_ID_metadata_json["special_nodes"] = special_nodes_json;
 
+    json edge_ID_metadata_json = json::object();
+    json special_relations_json = json::object();
+
     edge_ID_metadata_json["num_relations"] = edge_ID_Mapper.size();
+    if (rdf_type_relation_id_iterator != relation_map_cend)
+    {
+        special_relations_json[rdf_type_string] = rdf_type_relation_id_iterator->second;
+    }
+    edge_ID_metadata_json["special_relations"] = special_relations_json;
 
     node_ID_metadata_out << node_ID_metadata_json.dump(4);
     edge_ID_metadata_out << edge_ID_metadata_json.dump(4);

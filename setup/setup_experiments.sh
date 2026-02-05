@@ -71,8 +71,8 @@ if [ ! -d "$boost_path" ]; then
   (
     cd $boost_path;
     pwd;
-    wget https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz;
-    tar -v --strip-components=1 -xf ./boost_1_88_0.tar.gz;
+    wget https://archives.boost.io/release/1.90.0/source/boost_1_90_0.tar.gz;
+    tar -v --strip-components=1 -xf ./boost_1_90_0.tar.gz;
   )
 else
   boost_path=$(realpath $boost_path)/
@@ -127,17 +127,14 @@ if [ ! -d "${boost_path}bin.v2/" ] || [ ! -d "${boost_path}include/" ] || [ ! -d
   (
     cd $boost_path;
     ./bootstrap.sh --prefix=./;
-    ./b2 install --without-python
+    ./b2 install --with-filesystem --with-program_options
   )
 fi
 
 # Activate anaconda
-if command -v conda &> /dev/null; then
-    using_conda=true
+if [[ "$python_mode" == "conda" ]]; then
     source activate base
     conda activate base
-else
-    using_conda=false
 fi
 
 # If the expriment directory already exists, ask the user what to do
@@ -176,13 +173,14 @@ if [ -d ../$git_hash/ ]; then
     fi
   fi
   # Clear up the associated conda environment if needed
-  if [ -d ../$git_hash/code/python/.conda/ ] && [ "$using_conda" == "true"]; then
+  if [ -d ../$git_hash/code/python/.conda/ ] && [[ "$python_mode" == "conda" ]]; then
     conda_env=$(cd ../$git_hash/code/python/.conda/; pwd)
     if conda activate $conda_env; then
       conda activate base
       conda env remove -y -p $conda_env
     fi
   fi
+  # Note that there is no clean up code for uv, as uv venv environments are entirely self-contained, effectively meaning that deleting the previous experiment has already fully remove the uv venv environment
   rm -r ../$git_hash/
 fi
 
@@ -259,17 +257,33 @@ echo Copying python codebase
 echo $(date) $(hostname) "${logging_process}.Info: Copying python codebase" >> $log_file
 cp -r ../code/python/ ../$git_hash/code/python/
 
-if [ "$using_conda" == "true" ]; then
+if [[ "$python_mode" == "conda" ]]; then
     echo Setting up Anaconda enviroment
     echo $(date) $(hostname) "${logging_process}.Info: Setting up Anaconda enviroment" >> $log_file
-    (cd ../$git_hash/code/python/;
-    python_version=$(grep -i "requires-python" pyproject.toml | awk -F: '{ st = index($0,"=");print substr($0,st+1)}' | awk '{$1=$1};1' | awk '{print substr($0, 2, length($0) - 2)}');
-    conda create -y --prefix ./.conda/ "python$python_version";
-    conda activate ./.conda/;
-    pip install -e .;
-    conda activate base)
+    (
+        cd ../$git_hash/code/python/;
+        python_version=$(grep -i "requires-python" pyproject.toml | awk -F: '{ st = index($0,"=");print substr($0,st+1)}' | awk '{$1=$1};1' | awk '{print substr($0, 2, length($0) - 2)}');
+        conda create -y --prefix ./.conda/ "python$python_version";
+        conda activate ./.conda/;
+        pip install -e .;
+        conda activate base
+    )
     echo Successfully set up Anaconda enviroment
     echo $(date) $(hostname) "${logging_process}.Info: Successfully set up Anaconda enviroment" >> $log_file
+elif [[ "$python_mode" == "uv" ]]; then
+    echo Setting up UV enviroment
+    echo $(date) $(hostname) "${logging_process}.Info: Setting up Anaconda enviroment" >> $log_file
+    (
+        cd ../$git_hash/code/python/;
+        uv venv;
+        uv pip install -e .
+        source .venv/bin/activate
+    )
+    echo Successfully set up UV virtual enviroment
+    echo $(date) $(hostname) "${logging_process}.Info: Successfully set up UV virtual enviroment" >> $log_file
+elif [[ "$python_mode" == "system" ]]; then
+    cd ../$git_hash/code/python/;
+    pip install -e .
 fi
 
 # Echo that the copying was successful
@@ -729,7 +743,7 @@ cat >\$bisimulator_job << EOF2
 #SBATCH --nodelist=\$nodelist
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "preprocessed" ]]; then
-  /usr/bin/time -v ../code/bin/bisimulator \$bisimulation_mode ./binary_encoding.bin --output=./\$typed_start_flag
+  /usr/bin/time -v ../code/bin/bisimulator \$bisimulation_mode ./ --output=./\$typed_start_flag
   if [ \\\$? -eq 0 ]; then
     sed -i '/^summary_status =/c\summary_status = "bisimulation_complete"' state.toml
   else
@@ -1398,10 +1412,14 @@ sed -i 's/\r//g' $vertex_and_edge_counter
 # Make sure the vertex and edge counter can be executed
 chmod +x $vertex_and_edge_counter
 
-# Set up a command for running with or without conda
-conda_command=$''
-if [ "$using_conda" == "true" ]; then
-  conda_command=$'\nconda activate\nconda activate \\$working_directory/../code/python/.conda/'
+# Set up a command for running with or without conda or uv
+py_env_command=$''
+conda_source_command=$''
+if [[ "$python_mode" == "conda" ]]; then
+  py_env_command=$'\nconda activate\nconda activate \\$working_directory/../code/python/.conda/'
+  conda_source_command=$'\nsource activate base'
+elif [ "$python_mode" == "uv" ]; then
+  py_env_command=$'\nsource \\$working_directory/../code/python/.venv/bin/activate'
 fi
 
 # Create the config for the python plotting scripts
@@ -1547,10 +1565,9 @@ cat >\$results_plotter_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-working_directory=\\\$(pwd)
-source activate base
+working_directory=\\\$(pwd)$conda_source_command
 source \\\$HOME/.bashrc
-cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory$conda_command
+cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory$py_env_command
 
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "multi_summary_complete" ]]; then
@@ -1758,10 +1775,9 @@ cat >\$serializer_job << EOF2
 #SBATCH --partition=\$partition
 #SBATCH --output=\$output
 #SBATCH --nodelist=\$nodelist
-working_directory=\\\$(pwd)
-source activate base
+working_directory=\\\$(pwd)$conda_source_command
 source \\\$HOME/.bashrc
-cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory$conda_command
+cd \\\$working_directory  # We have to move back to the working directory, as .bashrc might contain code to change the directory$py_env_command
 
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "multi_summary_complete" ]]; then
