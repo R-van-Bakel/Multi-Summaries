@@ -187,6 +187,7 @@ fi
 # Create the directory for the compiled files and experiments
 mkdir ../$git_hash/
 mkdir ../$git_hash/code/
+mkdir ../$git_hash/code/include/
 mkdir ../$git_hash/code/src/
 mkdir ../$git_hash/code/bin/
 
@@ -211,7 +212,7 @@ chmod +x ./compile.sh
 compiler_flags="${compiler_flags//,/ }"
 echo Copying preprocessor.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Copying preprocessor.cpp" >> $log_file
-cp ../code/preprocessor.cpp ../$git_hash/code/src/preprocessor.cpp
+cp ../code/src/preprocessor.cpp ../$git_hash/code/src/preprocessor.cpp
 echo Compiling preprocessor.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling preprocessor.cpp" >> $log_file
 ./compile.sh ../$git_hash/code/src/preprocessor.cpp ../$git_hash/code/bin/preprocessor
@@ -219,7 +220,7 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiling preprocessor.cpp" >
 # Compile the bisimulator
 echo Copying bisimulator.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Copying bisimulator.cpp" >> $log_file
-cp ../code/bisimulator.cpp ../$git_hash/code/src/bisimulator.cpp
+cp ../code/src/bisimulator.cpp ../$git_hash/code/src/bisimulator.cpp
 echo Compiling bisimulator.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling bisimulator.cpp" >> $log_file
 ./compile.sh ../$git_hash/code/src/bisimulator.cpp ../$git_hash/code/bin/bisimulator
@@ -227,7 +228,7 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiling bisimulator.cpp" >>
 # Compile the condensed summary graph program
 echo Copying create_condensed_summary_graph_from_partitions.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Copying create_condensed_summary_graph_from_partitions.cpp" >> $log_file
-cp ../code/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp
+cp ../code/src/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp
 echo Compiling create_condensed_summary_graph_from_partitions.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling create_condensed_summary_graph_from_partitions.cpp" >> $log_file
 ./compile.sh ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/bin/create_condensed_summary_graph_from_partitions
@@ -235,7 +236,7 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiling create_condensed_su
 # Compile the quotient graph creator program
 echo Copying create_quotient_graph_from_condensed_summary.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Copying create_quotient_graph_from_condensed_summary.cpp" >> $log_file
-cp ../code/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp
+cp ../code/src/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp
 echo Compiling create_quotient_graph_from_condensed_summary.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling create_quotient_graph_from_condensed_summary.cpp" >> $log_file
 ./compile.sh ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/bin/create_quotient_graph_from_condensed_summary
@@ -243,7 +244,7 @@ echo $(date) $(hostname) "${logging_process}.Info: Compiling create_quotient_gra
 # Compile the counter program
 echo Copying count_uncondensed_and_condensed.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Copying count_uncondensed_and_condensed.cpp" >> $log_file
-cp ../code/count_uncondensed_and_condensed.cpp ../$git_hash/code/src/count_uncondensed_and_condensed.cpp
+cp ../code/src/count_uncondensed_and_condensed.cpp ../$git_hash/code/src/count_uncondensed_and_condensed.cpp
 echo Compiling count_uncondensed_and_condensed.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling count_uncondensed_and_condensed.cpp" >> $log_file
 ./compile.sh ../$git_hash/code/src/count_uncondensed_and_condensed.cpp ../$git_hash/code/bin/count_vertices_and_edges
