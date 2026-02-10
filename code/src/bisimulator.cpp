@@ -23,37 +23,15 @@
 #include <boost/algorithm/string/find.hpp>
 #include <nlohmann/json.hpp>
 
+#include "../include/my_exception.hpp"
+#include "../include/stopwatch.hpp"
+#include "../include/binary_io.hpp"
+
 using json = nlohmann::json;
 
-using edge_type = uint32_t;
-using node_index = uint64_t;
-using block_index = node_index;
-using block_or_singleton_index = int64_t;
 using set_of_types = boost::unordered_flat_set<edge_type>;
 
-const int BYTES_PER_ENTITY = 5;
-const int BYTES_PER_PREDICATE = 4;
-const int BYTES_PER_BLOCK = 4;
-
-const int64_t MAX_SIGNED_BLOCK_SIZE = INT64_MAX;
-const edge_type MAX_EDGE_ID = UINT32_MAX;
-
-
 #define CREATE_REVERSE_INDEX
-
-class MyException : public std::exception
-{
-private:
-    const std::string message;
-
-public:
-    MyException(const std::string &err) : message(err) {}
-
-    const char *what() const noexcept override
-    {
-        return message.c_str();
-    }
-};
 
 class Node;
 
@@ -153,313 +131,6 @@ public:
 #endif
 };
 
-template <typename T>
-class IDMapper
-{
-    boost::unordered_flat_map<std::string, T> mapping;
-
-public:
-    IDMapper() : mapping(10000000)
-    {
-    }
-
-    T getID(std::string &stringID)
-    {
-        T potentially_new = mapping.size();
-        // std::pair<boost::unordered_flat_map<std::string, T>::const_iterator, bool>
-        auto result = mapping.try_emplace(stringID, potentially_new);
-        T the_id = (*result.first).second;
-        return the_id;
-    }
-
-    // template <class Stream>
-    void dump(std::ostream &out)
-    {
-        for (auto a = this->mapping.cbegin(); a != this->mapping.cend(); a++)
-        {
-            std::string str(a->first);
-            T id = a->second;
-            out << str << " " << id << '\n';
-        }
-        out.flush();
-    }
-
-    void dump_to_file(const std::string &filename)
-    {
-        std::ofstream mapping_out(filename, std::ios::trunc);
-        if (!mapping_out.is_open())
-        {
-            throw MyException("Opening the file to dump to failed");
-        }
-        this->dump(mapping_out);
-        mapping_out.close();
-    }
-};
-
-void write_uint_BLOCK_little_endian(std::ostream &outputstream, int64_t value)
-{
-    char data[BYTES_PER_BLOCK];
-    for (unsigned int i = 0; i < BYTES_PER_BLOCK; i++)
-    {
-        data[i] = char(value & 0x00000000000000FFull);
-        value = value >> 8;
-    }
-    outputstream.write(data, BYTES_PER_BLOCK);
-    if (outputstream.fail())
-    {
-        std::cout << "Write block failed with code: " << outputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << outputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
-        exit(outputstream.rdstate());
-    }
-}
-
-void write_uint_ENTITY_little_endian(std::ostream &outputstream, int64_t value)
-{
-    char data[BYTES_PER_ENTITY];
-    for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
-    {
-        data[i] = char(value & 0x00000000000000FFull);
-        value = value >> 8;
-    }
-    outputstream.write(data, BYTES_PER_ENTITY);
-    if (outputstream.fail())
-    {
-        std::cout << "Write entity failed with code: " << outputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << outputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
-        exit(outputstream.rdstate());
-    }
-}
-
-u_int64_t read_uint_ENTITY_little_endian(std::istream &inputstream)
-{
-    char data[8];
-    inputstream.read(data, BYTES_PER_ENTITY);
-    if (inputstream.eof())
-    {
-        return UINT64_MAX;
-    }
-    if (inputstream.fail())
-    {
-        std::cout << "Read entity failed with code: " << inputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << inputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << inputstream.bad() << std::endl;
-        exit(inputstream.rdstate());
-    }
-    u_int64_t result = uint64_t(0);
-
-    for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
-    {
-        result |= (uint64_t(data[i]) & 255) << (i * 8); // `& 255` makes sure that we only write one byte of data
-    }
-    return result;
-}
-
-u_int32_t read_PREDICATE_little_endian(std::istream &inputstream)
-{
-    char data[4];
-    inputstream.read(data, BYTES_PER_PREDICATE);
-    if (inputstream.eof())
-    {
-        return UINT32_MAX;
-    }
-    if (inputstream.fail())
-    {
-        std::cout << "Read predicate failed with code: " << inputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << inputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << inputstream.bad() << std::endl;
-        exit(inputstream.rdstate());
-    }
-    u_int32_t result = uint32_t(0);
-
-    for (unsigned int i = 0; i < BYTES_PER_PREDICATE; i++)
-    {
-        result |= (uint32_t(data[i]) & 255) << (i * 8); // `& 255` makes sure that we only write one byte of data
-    }
-    return result;
-}
-
-template <typename clock>
-class StopWatch
-{
-    struct Step
-    {
-        const std::string name;
-        const clock::duration duration;
-        const int memory_in_kb;
-        const bool newline;
-        Step(const std::string &name, const clock::duration &duration, const int &memory_in_kb, const bool &newline)
-            : name(name), duration(duration), memory_in_kb(memory_in_kb), newline(newline)
-        {
-        }
-        Step(const Step &step)
-            : name(step.name), duration(step.duration), memory_in_kb(step.memory_in_kb), newline(step.newline)
-        {
-        }
-    };
-
-private:
-    std::vector<StopWatch::Step> steps;
-    bool started;
-    bool paused;
-    clock::time_point last_starting_time;
-    std::string current_step_name;
-    clock::duration stored_at_last_pause;
-    bool newline;
-
-    StopWatch()
-    {
-    }
-
-    static int current_memory_use_in_kb()
-    {
-        std::ifstream procfile("/proc/self/status");
-        std::string line;
-        while (std::getline(procfile, line))
-        {
-            if (line.rfind("VmRSS:", 0) == 0)
-            {
-                // split in 3 pieces
-                std::vector<std::string> parts;
-                boost::split(parts, line, boost::is_any_of("\t "), boost::token_compress_on);
-                // check that we have exactly thee parts
-                if (parts.size() != 3)
-                {
-                    throw MyException("The line with VmRSS: did not split in 3 parts on whitespace");
-                }
-                if (parts[2] != "kB")
-                {
-                    throw MyException("The line with VmRSS: did not end in kB");
-                }
-                int size = std::stoi(parts[1]);
-                procfile.close();
-                return size;
-            }
-        }
-        throw MyException("fail. could not find VmRSS");
-    }
-
-public:
-    static StopWatch create_started()
-    {
-        StopWatch c = create_not_started();
-        c.start_step("start");
-        return c;
-    }
-
-    static StopWatch create_not_started()
-    {
-        StopWatch c;
-        c.started = false;
-        c.paused = false;
-        c.newline = false;
-        return c;
-    }
-
-    void pause()
-    {
-        if (!this->started)
-        {
-            throw MyException("Cannot pause not running StopWatch, start it first");
-        }
-        if (this->paused)
-        {
-            throw MyException("Cannot pause paused StopWatch, resume it first");
-        }
-        this->stored_at_last_pause += clock::now() - last_starting_time;
-        this->paused = true;
-    }
-
-    void resume()
-    {
-        if (!this->started)
-        {
-            throw MyException("Cannot resume not running StopWatch, start it first");
-        }
-        if (!this->paused)
-        {
-            throw MyException("Cannot resume not paused StopWatch, pause it first");
-        }
-        this->last_starting_time = clock::now();
-        this->paused = false;
-    }
-
-    void start_step(std::string name, bool newline = false)
-    {
-        if (this->started)
-        {
-            throw MyException("Cannot start on running StopWatch, stop it first");
-        }
-        if (this->paused)
-        {
-            throw MyException("This must never happen. Invariant is wrong. If stopped, there can be no pause active.");
-        }
-        this->last_starting_time = clock::now();
-        this->current_step_name = name;
-        this->started = true;
-        this->newline = newline;
-    }
-
-    void stop_step()
-    {
-        if (!this->started)
-        {
-            throw MyException("Cannot stop not running StopWatch, start it first");
-        }
-        if (this->paused)
-        {
-            throw MyException("Cannot stop not paused StopWatch, unpause it first");
-        }
-        auto stop_time = clock::now();
-        auto total_duration = (stop_time - this->last_starting_time) + this->stored_at_last_pause;
-        // For measuring memory, we sleep 100ms to give the os time to reclaim memory
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        int memory_use = current_memory_use_in_kb();
-
-        this->steps.emplace_back(this->current_step_name, total_duration, memory_use, this->newline);
-        this->started = false;
-        this->newline = false;
-    }
-
-    std::string to_string()
-    {
-        if (this->started)
-        {
-            throw MyException("Cannot convert a running StopWatch to a string, stop it first");
-        }
-        std::stringstream out;
-        for (auto step : this->get_times())
-        {
-            out << "Step: " << step.name << ", time = " << boost::chrono::ceil<boost::chrono::milliseconds>(step.duration).count() << " ms"
-                << ", memory = " << step.memory_in_kb << " kB"
-                << "\n";
-            if (step.newline)
-            {
-                out << "\n";
-            }
-        }
-        // Create the output string and remove the final superfluous '\n' characters
-        std::string out_str = out.str();
-        boost::trim(out_str);
-        return out_str;
-    }
-
-    std::vector<StopWatch::Step>& get_times()
-    {
-        std::vector<StopWatch::Step> & steps_ref = this->steps;
-        return steps_ref;
-    }
-};
-
 u_int64_t read_graph_from_stream_timed(std::istream &inputstream, Graph &g)
 {
     StopWatch<boost::chrono::process_cpu_clock> w = StopWatch<boost::chrono::process_cpu_clock>::create_not_started();
@@ -486,7 +157,7 @@ u_int64_t read_graph_from_stream_timed(std::istream &inputstream, Graph &g)
 
         // edge
         // edge_type edge_label = edge_ID_Mapper.getID(parts[1]);
-        edge_type edge_label = read_PREDICATE_little_endian(inputstream);
+        edge_type edge_label = read_uint_PREDICATE_little_endian(inputstream);
 
         // object
         // node_index object_index = node_ID_Mapper.getID(parts[2]);
@@ -1075,11 +746,6 @@ KBisumulationOutcome get_k_bisimulation(Graph &g, const KBisumulationOutcome &k_
         // Add 1 to the dirty block index to be consistent with the new_block_indeces
         refines_edges.add_edge(Refines_Edge(dirty_block_index+1, new_block_indices));
     }
-
-    // for (node_index i = 0; i < g.size(); i++)
-    // {
-    //     std::cout << "from " << k_minus_one_outcome.node_to_block->get_block(i) << " to " << k_node_to_block->get_block(i) << std::endl;
-    // }
 
     // we are now done with splitting all blocks. Also the indices are up to date. Time to mark the dirty blocks
     DirtyBlockContainer dirty;

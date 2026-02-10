@@ -19,9 +19,10 @@ inline constexpr block_or_singleton_index MAX_SIGNED_BLOCK_SIZE = std::numeric_l
 inline constexpr edge_type MAX_EDGE_ID = std::numeric_limits<edge_type>::max();
 
 node_index read_uint_ENTITY_little_endian(std::istream &inputstream);
-edge_type read_PREDICATE_little_endian(std::istream &inputstream);
+edge_type read_uint_PREDICATE_little_endian(std::istream &inputstream);
 block_index read_uint_BLOCK_little_endian(std::istream &inputstream);
 block_or_singleton_index read_int_BLOCK_OR_SINGLETON_little_endian(std::istream &inputstream);
+k_type read_uint_K_TYPE_little_endian(std::istream &inputstream);
 
 void write_uint_ENTITY_little_endian(std::ostream &outputstream, node_index value);
 void write_uint_PREDICATE_little_endian(std::ostream &outputstream, edge_type value);

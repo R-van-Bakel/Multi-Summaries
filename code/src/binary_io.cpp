@@ -29,7 +29,7 @@ node_index read_uint_ENTITY_little_endian(std::istream &inputstream)
     return result;
 }
 
-edge_type read_PREDICATE_little_endian(std::istream &inputstream)
+edge_type read_uint_PREDICATE_little_endian(std::istream &inputstream)
 {
     char data[4];
     inputstream.read(data, BYTES_PER_PREDICATE);
@@ -108,6 +108,32 @@ block_or_singleton_index read_int_BLOCK_OR_SINGLETON_little_endian(std::istream 
     if (int8_t(data[BYTES_PER_BLOCK_OR_SINGLETON-1]) < 0)
     {
         result |= 0xFFFFFF0000000000l;  // We need this conversion due to two's complement
+    }
+    return result;
+}
+
+k_type read_uint_K_TYPE_little_endian(std::istream &inputstream)
+{
+    char data[8];
+    inputstream.read(data, BYTES_PER_K_TYPE);
+    if (inputstream.eof())
+    {
+        return INT16_MAX;
+    }
+    if (inputstream.fail())
+    {
+        std::cout << "Read block failed with code: " << inputstream.rdstate() << std::endl;
+        std::cout << "Goodbit: " << inputstream.good() << std::endl;
+        std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
+        std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
+        std::cout << "Badbit:  " << inputstream.bad() << std::endl;
+        exit(inputstream.rdstate());
+    }
+    u_int64_t result = u_int64_t(0);
+
+    for (unsigned int i = 0; i < BYTES_PER_K_TYPE; i++)
+    {
+        result |= (u_int64_t(data[i]) & 0x00000000000000FFull) << (i * 8); // `& 0x00000000000000FFull` makes sure that we only write one byte of data << (i * 8);
     }
     return result;
 }

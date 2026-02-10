@@ -14,13 +14,10 @@
 #include <boost/program_options.hpp>
 #include <nlohmann/json.hpp>
 
+#include "../include/my_exception.hpp"
+#include "../include/binary_io.hpp"
+
 using json = nlohmann::json;
-
-using edge_type = uint32_t;
-using node_index = uint64_t;
-
-const int BYTES_PER_ENTITY = 5;
-const int BYTES_PER_PREDICATE = 4;
 
 // This variable should be set in main. If it is set to true, the code will assume the first line will look like "<.*> {" and the last line looks like "}".
 // If the first line looks like expected and "}" indicates the last line (i.e. there are no later lines), then our code will just ignore these lines.
@@ -36,17 +33,59 @@ bool skip_literals;
 // This variable should be set in main. It indicates whether or not we want to put type information on the predicates instead of the object.
 bool types_to_predicates;
 
-class MyException : public std::exception
+template <typename T>
+class IDMapper
 {
-private:
-    const std::string message;
+    boost::unordered_flat_map<std::string, T> mapping;
 
 public:
-    MyException(const std::string &err) : message(err) {}
-
-    const char *what() const noexcept override
+    IDMapper() : mapping(100000000)
     {
-        return message.c_str();
+    }
+
+    T getID(std::string &stringID)
+    {
+        T potentially_new = mapping.size();
+        auto result = mapping.try_emplace(stringID, potentially_new);
+        T the_id = (*result.first).second;
+        return the_id;
+    }
+
+    auto getMappingCend()
+    {
+        return mapping.cend();
+    }
+
+    auto tryGetIDIt(std::string &stringID)
+    {
+        return mapping.find(stringID);
+    }
+
+    std::size_t size()
+    {
+        return mapping.size();
+    }
+
+    void dump(std::ostream &out)
+    {
+        for (auto a = this->mapping.cbegin(); a != this->mapping.cend(); a++)
+        {
+            std::string str(a->first);
+            T id = a->second;
+            out << str << " " << id << '\n';
+        }
+        out.flush();
+    }
+
+    void dump_to_file(const std::string &filename)
+    {
+        std::ofstream mapping_out(filename, std::ios::trunc);
+        if (!mapping_out.is_open())
+        {
+            throw MyException("Opening the file to dump to failed");
+        }
+        this->dump(mapping_out);
+        mapping_out.close();
     }
 };
 
@@ -141,126 +180,6 @@ std::vector<std::string::iterator> parse_tuple(std::string &line)
         }
     }
     return indices;
-}
-
-template <typename T>
-class IDMapper
-{
-    boost::unordered_flat_map<std::string, T> mapping;
-
-public:
-    IDMapper() : mapping(100000000)
-    {
-    }
-
-    T getID(std::string &stringID)
-    {
-        T potentially_new = mapping.size();
-        // std::pair<boost::unordered_flat_map<std::string, T>::const_iterator, bool>
-        auto result = mapping.try_emplace(stringID, potentially_new);
-        T the_id = (*result.first).second;
-        return the_id;
-    }
-
-    auto getMappingCend()
-    {
-        return mapping.cend();
-    }
-
-    auto tryGetIDIt(std::string &stringID)
-    {
-        return mapping.find(stringID);
-    }
-
-    std::size_t size()
-    {
-        return mapping.size();
-    }
-
-    // template <class Stream>
-    void dump(std::ostream &out)
-    {
-        for (auto a = this->mapping.cbegin(); a != this->mapping.cend(); a++)
-        {
-            std::string str(a->first);
-            T id = a->second;
-            out << str << " " << id << '\n';
-        }
-        out.flush();
-    }
-
-    void dump_to_file(const std::string &filename)
-    {
-        std::ofstream mapping_out(filename, std::ios::trunc);
-        if (!mapping_out.is_open())
-        {
-            throw MyException("Opening the file to dump to failed");
-        }
-        this->dump(mapping_out);
-        mapping_out.close();
-    }
-};
-
-// u_int64_t read_uint64_little_endian(std::istream &inputstream){
-//     char data[8];
-//     inputstream.read(data, 8);
-//     u_int64_t result = uint64_t(0) ;
-
-//     for (unsigned int i = 0; i < 8; i++){
-//         result |= uint64_t(data[i]) << (i*8);
-//     }
-//     return result;
-// }
-
-void write_uint_ENTITY_little_endian(std::ostream &outputstream, u_int64_t value)
-{
-    char data[BYTES_PER_ENTITY];
-    for (unsigned int i = 0; i < BYTES_PER_ENTITY; i++)
-    {
-        data[i] = char(value & 0x00000000000000FFull);
-        value = value >> 8;
-    }
-    outputstream.write(data, BYTES_PER_ENTITY);
-    if (outputstream.fail())
-    {
-        std::cout << "Write entity failed with code: " << outputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << outputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
-        exit(outputstream.rdstate());
-    }
-}
-
-// u_int32_t read_uint32_little_endian(std::istream &inputstream){
-//     char data[4];
-//     inputstream.read(data, 4);
-//     u_int32_t result = uint32_t(0) ;
-
-//     for (unsigned int i = 0; i < 4; i++){
-//         result |= uint32_t(data[i]) << (i*8);
-//     }
-//     return result;
-// }
-
-void write_uint_PREDICATE_little_endian(std::ostream &outputstream, u_int32_t value)
-{
-    char data[BYTES_PER_PREDICATE];
-    for (unsigned int i = 0; i < BYTES_PER_PREDICATE; i++)
-    {
-        data[i] = char(value & 0x00000000000000FFull);
-        value = value >> 8;
-    }
-    outputstream.write(data, BYTES_PER_PREDICATE);
-    if (outputstream.fail())
-    {
-        std::cout << "Write predicate failed with code: " << outputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << outputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << outputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (outputstream.fail() && !outputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << outputstream.bad() << std::endl;
-        exit(outputstream.rdstate());
-    }
 }
 
 void convert_graph(std::istream &inputstream,

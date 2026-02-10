@@ -208,6 +208,11 @@ echo $(date) $(hostname) "${logging_process}.Info: compiler_flags=${compiler_fla
 sed -i 's/\r//g' ./compile.sh
 chmod +x ./compile.sh
 
+# Copy the headers and supporting source files
+cp ../code/include/* ../$git_hash/code/include/
+cp ../code/src/binary_io.cpp ../$git_hash/code/src/
+cp ../code/src/my_exception.cpp ../$git_hash/code/src/
+
 # Compile the preprocessor
 compiler_flags="${compiler_flags//,/ }"
 echo Copying preprocessor.cpp
@@ -215,7 +220,7 @@ echo $(date) $(hostname) "${logging_process}.Info: Copying preprocessor.cpp" >> 
 cp ../code/src/preprocessor.cpp ../$git_hash/code/src/preprocessor.cpp
 echo Compiling preprocessor.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling preprocessor.cpp" >> $log_file
-./compile.sh ../$git_hash/code/src/preprocessor.cpp ../$git_hash/code/bin/preprocessor
+./compile.sh ../$git_hash/code/src/preprocessor.cpp ../$git_hash/code/src/my_exception.cpp ../$git_hash/code/src/binary_io.cpp -o ../$git_hash/code/bin/preprocessor
 
 # Compile the bisimulator
 echo Copying bisimulator.cpp
@@ -223,7 +228,7 @@ echo $(date) $(hostname) "${logging_process}.Info: Copying bisimulator.cpp" >> $
 cp ../code/src/bisimulator.cpp ../$git_hash/code/src/bisimulator.cpp
 echo Compiling bisimulator.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling bisimulator.cpp" >> $log_file
-./compile.sh ../$git_hash/code/src/bisimulator.cpp ../$git_hash/code/bin/bisimulator
+./compile.sh ../$git_hash/code/src/bisimulator.cpp ../$git_hash/code/src/my_exception.cpp ../$git_hash/code/src/binary_io.cpp -o ../$git_hash/code/bin/bisimulator
 
 # Compile the condensed summary graph program
 echo Copying create_condensed_summary_graph_from_partitions.cpp
@@ -231,7 +236,7 @@ echo $(date) $(hostname) "${logging_process}.Info: Copying create_condensed_summ
 cp ../code/src/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp
 echo Compiling create_condensed_summary_graph_from_partitions.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling create_condensed_summary_graph_from_partitions.cpp" >> $log_file
-./compile.sh ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/bin/create_condensed_summary_graph_from_partitions
+./compile.sh ../$git_hash/code/src/create_condensed_summary_graph_from_partitions.cpp ../$git_hash/code/src/my_exception.cpp ../$git_hash/code/src/binary_io.cpp -o ../$git_hash/code/bin/create_condensed_summary_graph_from_partitions
 
 # Compile the quotient graph creator program
 echo Copying create_quotient_graph_from_condensed_summary.cpp
@@ -239,7 +244,7 @@ echo $(date) $(hostname) "${logging_process}.Info: Copying create_quotient_graph
 cp ../code/src/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp
 echo Compiling create_quotient_graph_from_condensed_summary.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling create_quotient_graph_from_condensed_summary.cpp" >> $log_file
-./compile.sh ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/bin/create_quotient_graph_from_condensed_summary
+./compile.sh ../$git_hash/code/src/create_quotient_graph_from_condensed_summary.cpp ../$git_hash/code/src/my_exception.cpp ../$git_hash/code/src/binary_io.cpp -o ../$git_hash/code/bin/create_quotient_graph_from_condensed_summary
 
 # Compile the counter program
 echo Copying count_uncondensed_and_condensed.cpp
@@ -247,11 +252,11 @@ echo $(date) $(hostname) "${logging_process}.Info: Copying count_uncondensed_and
 cp ../code/src/count_uncondensed_and_condensed.cpp ../$git_hash/code/src/count_uncondensed_and_condensed.cpp
 echo Compiling count_uncondensed_and_condensed.cpp
 echo $(date) $(hostname) "${logging_process}.Info: Compiling count_uncondensed_and_condensed.cpp" >> $log_file
-./compile.sh ../$git_hash/code/src/count_uncondensed_and_condensed.cpp ../$git_hash/code/bin/count_vertices_and_edges
+./compile.sh ../$git_hash/code/src/count_uncondensed_and_condensed.cpp ../$git_hash/code/src/my_exception.cpp ../$git_hash/code/src/binary_io.cpp -o ../$git_hash/code/bin/count_vertices_and_edges
 
 # Echo that the compilation was successful
-echo C++ cpoying and compiling successful
-echo $(date) $(hostname) "${logging_process}.Info: C++ cpoying and compiling successful" >> $log_file
+echo C++ copying and compiling successful
+echo $(date) $(hostname) "${logging_process}.Info: C++ copying and compiling successful" >> $log_file
 
 # Copy the python package for loading, testing, displaying and plotting results
 echo Copying python codebase

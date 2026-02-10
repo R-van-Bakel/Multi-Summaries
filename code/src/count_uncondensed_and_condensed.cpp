@@ -6,112 +6,12 @@
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/program_options.hpp>
 
-using edge_type = uint32_t;
-using block_or_singleton_index = int64_t;
-using k_type = uint16_t;
+#include "../include/my_exception.hpp"
+#include "../include/binary_io.hpp"
+
 using triple_index = int64_t;
 using interval_map_type = boost::unordered_flat_map<block_or_singleton_index,std::pair<k_type,k_type>>;
 using block_set = boost::unordered_flat_set<block_or_singleton_index>;
-const int BYTES_PER_PREDICATE = 4;
-const int BYTES_PER_BLOCK_OR_SINGLETON = 5;
-const int BYTES_PER_K_TYPE = 2;
-
-class MyException : public std::exception
-{
-private:
-    const std::string message;
-
-public:
-    MyException(const std::string &err) : message(err) {}
-
-    const char *what() const noexcept override
-    {
-        return message.c_str();
-    }
-};
-
-block_or_singleton_index read_int_BLOCK_OR_SINGLETON_little_endian(std::istream &inputstream)
-{
-    char data[BYTES_PER_BLOCK_OR_SINGLETON];
-    inputstream.read(data, BYTES_PER_BLOCK_OR_SINGLETON);
-    if (inputstream.eof())
-    {
-        return INT64_MAX;
-    }
-    if (inputstream.fail())
-    {
-        std::cout << "Read block failed with code: " << inputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << inputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << inputstream.bad() << std::endl;
-        exit(inputstream.rdstate());
-    }
-    int64_t result = 0;
-
-    for (unsigned int i = 0; i < BYTES_PER_BLOCK_OR_SINGLETON; i++)
-    {
-        result |= (int64_t(data[i]) & 0x00000000000000FFl) << (i * 8);
-    }
-    // If this is true, then we are reading a negative number, meaning the high bit needs to be set to 1
-    if (int8_t(data[BYTES_PER_BLOCK_OR_SINGLETON-1]) < 0)
-    {
-        result |= 0xFFFFFF0000000000l;  // We need this conversion due to two's complement
-    }
-    return result;
-}
-
-k_type read_uint_K_TYPE_little_endian(std::istream &inputstream)
-{
-    char data[8];
-    inputstream.read(data, BYTES_PER_K_TYPE);
-    if (inputstream.eof())
-    {
-        return INT16_MAX;
-    }
-    if (inputstream.fail())
-    {
-        std::cout << "Read block failed with code: " << inputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << inputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << inputstream.bad() << std::endl;
-        exit(inputstream.rdstate());
-    }
-    u_int64_t result = u_int64_t(0);
-
-    for (unsigned int i = 0; i < BYTES_PER_K_TYPE; i++)
-    {
-        result |= (u_int64_t(data[i]) & 0x00000000000000FFull) << (i * 8); // `& 0x00000000000000FFull` makes sure that we only write one byte of data << (i * 8);
-    }
-    return result;
-}
-
-u_int32_t read_uint_PREDICATE_little_endian(std::istream &inputstream)
-{
-    char data[4];
-    inputstream.read(data, BYTES_PER_PREDICATE);
-    if (inputstream.eof())
-    {
-        return UINT32_MAX;
-    }
-    if (inputstream.fail())
-    {
-        std::cout << "Read predicate failed with code: " << inputstream.rdstate() << std::endl;
-        std::cout << "Goodbit: " << inputstream.good() << std::endl;
-        std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
-        std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
-        std::cout << "Badbit:  " << inputstream.bad() << std::endl;
-        exit(inputstream.rdstate());
-    }
-    u_int32_t result = uint32_t(0);
-
-    for (unsigned int i = 0; i < BYTES_PER_PREDICATE; i++)
-    {
-        result |= (uint32_t(data[i]) & 255) << (i * 8); // `& 255` makes sure that we only write one byte of data
-    }
-    return result;
-}
 
 int main(int ac, char *av[])
 {
