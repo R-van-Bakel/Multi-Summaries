@@ -15,10 +15,13 @@
 #include <filesystem>
 #include <boost/algorithm/algorithm.hpp>
 #include <boost/algorithm/string.hpp>
+#include <nlohmann/json.hpp>
 
 #include "../include/my_exception.hpp"
 #include "../include/stopwatch.hpp"
 #include "../include/binary_io.hpp"
+
+using json = nlohmann::json;
 
 using node_to_block_map_type = boost::unordered_flat_map<node_index, block_or_singleton_index>;
 using local_to_global_map = boost::unordered_flat_map<std::pair<k_type,block_or_singleton_index>,block_or_singleton_index>;
@@ -144,6 +147,20 @@ public:
             }
             output_file_binary.flush();
         }
+    }
+
+    uint64_t get_singleton_refines_edge_count()
+    {
+        uint64_t refines_edge_count = 0;
+        for (auto level_blockmap_pair: this->get_maps())
+        {
+            // For all bisimulation levels, we count the created singletons and increase the refines_edge_count accordingly
+            for (auto block_nodeset_pair: level_blockmap_pair.second.get_map())
+            {
+                refines_edge_count += block_nodeset_pair.second.get_nodes().size();
+            }
+        }
+        return refines_edge_count;
     }
 };
 
@@ -643,6 +660,8 @@ int main(int ac, char *av[])
         first_level = 0;  // We need to check an extra outcome if we have the 0 outcome
     }
 
+    uint64_t refines_edge_count = 0;
+
     while (std::getline(graph_stats_file_stream, graph_stats_line))
     {
         boost::trim(graph_stats_line);
@@ -784,6 +803,7 @@ int main(int ac, char *av[])
                 else
                 {
                     new_block_indices.emplace(new_block);
+                    refines_edge_count++;  // We only count refines edge to non-singleton blocks. The singletons are accounted for in the singleton mapper.
                 }
             }
         }
@@ -1452,7 +1472,7 @@ int main(int ac, char *av[])
     std::tm *ptm_write_graph{std::localtime(&time_t_write_graph)};
     std::cout << std::put_time(ptm_write_graph, "%Y/%m/%d %H:%M:%S") << " Writing condensed summary graph to disk" << std::endl;
 
-    uint64_t edge_count = 0;
+    uint64_t data_edge_count = 0;
     boost::unordered_flat_set<block_or_singleton_index> summary_nodes;
     for (auto s_po_pair: gs.get_nodes())
     {
@@ -1460,11 +1480,13 @@ int main(int ac, char *av[])
         summary_nodes.emplace(subject);
         for (auto predicate_object_pair: s_po_pair.second.get_pairs())
         {
-            edge_count++;
+            data_edge_count++;
             block_or_singleton_index object = predicate_object_pair.second;
             summary_nodes.emplace(object);
         }
     }
+
+    refines_edge_count += blocks_to_singletons.get_singleton_refines_edge_count();  // We purposefully ommited counting singleton refines edges earlier, so now we add them
 
     // Write the condensed summary graph (along with the time intervals) to a file
     std::string output_directory = experiment_directory + "bisimulation/";
@@ -1488,7 +1510,6 @@ int main(int ac, char *av[])
         write_int_BLOCK_OR_SINGLETON_little_endian(output_interval_file_binary, block_interval_pair.first);
         write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.first);
         write_uint_K_TYPE_little_endian(output_interval_file_binary, block_interval_pair.second.second);
-        // std::cout << "DEBUG wrote block-interval: " << block_interval_pair.first << ":[" << block_interval_pair.second.first << "," << block_interval_pair.second.second << "]" << std::endl;
     }
     output_interval_file_binary.flush();
 
@@ -1502,11 +1523,35 @@ int main(int ac, char *av[])
     std::ofstream output_map_file_binary(output_map_file_path, std::ios::trunc | std::ofstream::out);
     block_map.write_map_to_file_binary(output_map_file_binary, block_to_interval_map);
 
+    // Report some statistics about the condensed multi-summary graph and time + memory instrumentation
+    std::ostringstream first_level_stringstream;
+    first_level_stringstream << std::setw(4) << std::setfill('0') << first_level;
+    std::string first_level_string(first_level_stringstream.str());
+
+    std::ifstream first_level_statistics_file(experiment_directory + "ad_hoc_results/statistics_condensed-" + first_level_string + ".json");
+    json first_level_statistics;
+    first_level_statistics_file >> first_level_statistics;
+
+    block_index initial_partition_size = first_level_statistics["Block count"];
+
+    std::ostringstream k_stringstream;
+    k_stringstream << std::setw(4) << std::setfill('0') << k;
+    std::string k_string(k_stringstream.str());
+
+    std::ifstream k_statistics_file(experiment_directory + "ad_hoc_results/statistics_condensed-" + k_string + ".json");
+    json k_statistics;
+    k_statistics_file >> k_statistics;
+    
+    block_index singleton_count = k_statistics["Singleton count"];
+
     auto t_counts{boost::chrono::system_clock::now()};
     auto time_t_counts{boost::chrono::system_clock::to_time_t(t_counts)};
     std::tm *ptm_counts{std::localtime(&time_t_counts)};
     std::cout << std::put_time(ptm_counts, "%Y/%m/%d %H:%M:%S") << " vertex count: " << summary_nodes.size() << std::endl;
-    std::cout << std::put_time(ptm_counts, "%Y/%m/%d %H:%M:%S") << " edge count: " << edge_count << std::endl;
+    std::cout << std::put_time(ptm_counts, "%Y/%m/%d %H:%M:%S") << " data edge count: " << data_edge_count << std::endl;
+    std::cout << std::put_time(ptm_counts, "%Y/%m/%d %H:%M:%S") << " refines edge count: " << refines_edge_count << std::endl;
+    std::cout << std::put_time(ptm_counts, "%Y/%m/%d %H:%M:%S") << " singleton count: " << singleton_count << std::endl;
+    std::cout << std::put_time(ptm_counts, "%Y/%m/%d %H:%M:%S") << " initial partition size: " << initial_partition_size << std::endl;
 
     w_total.stop_step();
     auto experiment_info = w.get_times().back();
@@ -1518,7 +1563,10 @@ int main(int ac, char *av[])
     }
     std::ofstream summary_graph_stats_output(experiment_directory + "ad_hoc_results/summary_graph_stats.json", std::ios::trunc);
     summary_graph_stats_output << "{\n    \"Vertex count\": " << summary_nodes.size()
-                               << ",\n    \"Edge count\": " << edge_count
+                               << ",\n    \"Data edge count\": " << data_edge_count
+                               << ",\n    \"Refines edge count\": " << refines_edge_count
+                               << ",\n    \"Singleton count\": " << singleton_count
+                               << ",\n    \"Initial partition size\": " << initial_partition_size
                                << ",\n    \"Total time taken (ms)\": " << experiment_duration
                                << ",\n    \"Maximum memory footprint (kB)\": " << maximum_memory_footprint << "\n}";
     summary_graph_stats_output.flush();

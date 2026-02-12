@@ -954,7 +954,14 @@ status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "bisimulation_complete" ]]; then
   /usr/bin/time -v ../code/bin/create_condensed_summary_graph_from_partitions ./
   if [ \\\$? -eq 0 ]; then
-    sed -i '/^summary_status =/c\summary_status = "multi_summary_complete"' state.toml
+    vertex_count=\\\$(jq '."Vertex count"' ./ad_hoc_results/summary_graph_stats.json)
+    initial_partition_size=\\\$(jq '."Initial partition size"' ./ad_hoc_results/summary_graph_stats.json)
+    refines_edge_count=\\\$(jq '."Refines edge count"' ./ad_hoc_results/summary_graph_stats.json)
+    if (( vertex_count - initial_partition_size == refines_edge_count )); then
+        sed -i '/^summary_status =/c\summary_status = "multi_summary_complete"' state.toml
+    else
+        sed -i '/^summary_status =/c\summary_status = "multi_summary_incorrect"' state.toml
+    fi
   else
     sed -i '/^summary_status =/c\summary_status = "failed_to_create_multi_summary"' state.toml
   fi
@@ -1957,71 +1964,71 @@ esac
 
 echo -e "\n##### SETTING UP PREPROCESSOR EXPERIMENT #####"
 ./preprocessor.sh \$dataset_path \$y_flag
-# status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
-# if [[ "\$status" == "preprocessed" ]]; then
-#   echo Preprocessing successful
-#   echo \$(date) \$(hostname) "\${logging_process}.Info: Preprocessing successful" >> \$log_file
-# else
-#   echo Preprocessing failed
-#   echo \$(date) \$(hostname) "\${logging_process}.Err: Preprocessing failed" >> \$log_file
-#   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
-#   exit 1
-# fi
+status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
+if [[ "\$status" == "preprocessed" ]]; then
+  echo Preprocessing successful
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Preprocessing successful" >> \$log_file
+else
+  echo Preprocessing failed
+  echo \$(date) \$(hostname) "\${logging_process}.Err: Preprocessing failed" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+  exit 1
+fi
 
 echo -e "\n##### SETTING UP BISIMULATOR EXPERIMENT #####"
 ./bisimulator.sh \$output_dir \$y_flag
-# status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
-# if [[ "\$status" == "bisimulation_complete" ]]; then
-#   echo Bisimulation successful
-#   echo \$(date) \$(hostname) "\${logging_process}.Info: Bisimulation successful" >> \$log_file
-# else
-#   echo Bisimulation failed
-#   echo \$(date) \$(hostname) "\${logging_process}.Err: Bisimulation failed" >> \$log_file
-#   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
-#   exit 1
-# fi
+status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
+if [[ "\$status" == "bisimulation_complete" ]]; then
+  echo Bisimulation successful
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Bisimulation successful" >> \$log_file
+else
+  echo Bisimulation failed
+  echo \$(date) \$(hostname) "\${logging_process}.Err: Bisimulation failed" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+  exit 1
+fi
 
 echo -e "\n##### SETTING UP SUMMARY GRAPH CREATOR EXPERIMENT #####"
 ./summary_graphs_creator.sh \$output_dir \$y_flag
-# status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
-# if [[ "\$status" == "multi_summary_complete" ]]; then
-#   echo Summary graph creation successful
-#   echo \$(date) \$(hostname) "\${logging_process}.Info: Summary graph creation successful" >> \$log_file
-# else
-#   echo Summary graph creation failed
-#   echo \$(date) \$(hostname) "\${logging_process}.Err: Summary graph creation failed" >> \$log_file
-#   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
-#   exit 1
-# fi
+status=\$(grep 'summary_status' \$state_file | cut -d'=' -f2 | tr -d ' "')
+if [[ "\$status" == "multi_summary_complete" ]]; then
+  echo Summary graph creation successful
+  echo \$(date) \$(hostname) "\${logging_process}.Info: Summary graph creation successful" >> \$log_file
+else
+  echo Summary graph creation failed
+  echo \$(date) \$(hostname) "\${logging_process}.Err: Summary graph creation failed" >> \$log_file
+  echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+  exit 1
+fi
 
 if \$plot_statistics; then
   echo -e "\n##### SETTING UP RESULT PLOTTER EXPERIMENT #####"
   ./results_plotter.sh \$output_dir \$y_flag
-  # plotted_status=\$(grep 'plotted' \$state_file | cut -d'=' -f2 | tr -d ' "')
-  # if [[ "\$plotted_status" == "true" ]]; then
-  #   echo Plotting successful
-  #   echo \$(date) \$(hostname) "\${logging_process}.Info: Plotting successful" >> \$log_file
-  # else
-  #   echo Plotting failed
-  #   echo \$(date) \$(hostname) "\${logging_process}.Err: Plotting failed" >> \$log_file
-  #   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
-  #   exit 1
-  # fi
+  plotted_status=\$(grep 'plotted' \$state_file | cut -d'=' -f2 | tr -d ' "')
+  if [[ "\$plotted_status" == "true" ]]; then
+    echo Plotting successful
+    echo \$(date) \$(hostname) "\${logging_process}.Info: Plotting successful" >> \$log_file
+  else
+    echo Plotting failed
+    echo \$(date) \$(hostname) "\${logging_process}.Err: Plotting failed" >> \$log_file
+    echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+    exit 1
+  fi
 fi
 
 if \$serialize_to_ntriples; then
   echo -e "\n##### SETTING UP SERIALIZER EXPERIMENT #####"
   ./serializer.sh \$output_dir \$y_flag
-  # serialized_status=\$(grep 'serialized' \$state_file | cut -d'=' -f2 | tr -d ' "')
-  # if [[ "\$serialized_status" == "true" ]]; then
-  #   echo Serializing successful
-  #   echo \$(date) \$(hostname) "\${logging_process}.Info: Serializing successful" >> \$log_file
-  # else
-  #   echo Serializing failed
-  #   echo \$(date) \$(hostname) "\${logging_process}.Err: Serializing failed" >> \$log_file
-  #   echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
-  #   exit 1
-  # fi
+  serialized_status=\$(grep 'serialized' \$state_file | cut -d'=' -f2 | tr -d ' "')
+  if [[ "\$serialized_status" == "true" ]]; then
+    echo Serializing successful
+    echo \$(date) \$(hostname) "\${logging_process}.Info: Serializing successful" >> \$log_file
+  else
+    echo Serializing failed
+    echo \$(date) \$(hostname) "\${logging_process}.Err: Serializing failed" >> \$log_file
+    echo \$(date) \$(hostname) "\${logging_process}.Err: Exiting with code: 1" >> \$log_file
+    exit 1
+  fi
 fi
 EOF
 
