@@ -524,6 +524,7 @@ cat >\$preprocessor_job << EOF2
 #SBATCH --nodelist=\$nodelist
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "ready_to_start" ]]; then
+  export LD_LIBRARY_PATH=${boost_path}lib:\\\$LD_LIBRARY_PATH  # Force the correct boost to be used
   \$preprocessor_command
   if [ \\\$? -eq 0 ]; then
     sed -i '/^summary_status =/c\summary_status = "preprocessed"' state.toml
@@ -749,6 +750,7 @@ cat >\$bisimulator_job << EOF2
 #SBATCH --nodelist=\$nodelist
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "preprocessed" ]]; then
+  export LD_LIBRARY_PATH=${boost_path}lib:\\\$LD_LIBRARY_PATH  # Force the correct boost to be used
   /usr/bin/time -v ../code/bin/bisimulator \$bisimulation_mode ./ --output=./\$typed_start_flag
   if [ \\\$? -eq 0 ]; then
     sed -i '/^summary_status =/c\summary_status = "bisimulation_complete"' state.toml
@@ -952,6 +954,7 @@ cat >\$summary_graphs_creator_job << EOF2
 #SBATCH --nodelist=\$nodelist
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "bisimulation_complete" ]]; then
+  export LD_LIBRARY_PATH=${boost_path}lib:\\\$LD_LIBRARY_PATH  # Force the correct boost to be used
   /usr/bin/time -v ../code/bin/create_condensed_summary_graph_from_partitions ./
   if [ \\\$? -eq 0 ]; then
     vertex_count=\\\$(jq '."Vertex count"' ./ad_hoc_results/summary_graph_stats.json)
@@ -1174,6 +1177,7 @@ cat >\$quotient_graphs_materializer_job << EOF2
 #SBATCH --nodelist=\$nodelist
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "multi_summary_complete" ]]; then
+  export LD_LIBRARY_PATH=${boost_path}lib:\\\$LD_LIBRARY_PATH  # Force the correct boost to be used
   /usr/bin/time -v ../code/bin/create_quotient_graph_from_condensed_summary ./ -- \$level
 else
   warning_message="Did not create the quotient graph, because the experiment is not in the right state. Expected state: \\\"multi_summary_complete\\\". Actual state: \\\"\\\$status\\\"."
@@ -1372,6 +1376,7 @@ cat >\$vertex_and_edge_counter_job << EOF2
 #SBATCH --nodelist=\$nodelist
 status=\\\$(grep 'summary_status' state.toml | cut -d'=' -f2 | tr -d ' "')
 if [[ "\\\$status" == "multi_summary_complete" ]]; then
+  export LD_LIBRARY_PATH=${boost_path}lib:\\\$LD_LIBRARY_PATH  # Force the correct boost to be used
   /usr/bin/time -v ../code/bin/count_vertices_and_edges ./
 else
   warning_message="Did not count the vertices and edges, because the experiment is not in the right state. Expected state: \\\"multi_summary_complete\\\". Actual state: \\\"\\\$status\\\"."

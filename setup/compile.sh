@@ -1,6 +1,8 @@
 # Load in the settings
 . ./settings.config
 
+boost_path=$(realpath "${boost_path}")/
+
 # Remove commas and add spaces
 compiler_flags="${compiler_flags//,/ }"
 
@@ -37,4 +39,14 @@ if [[ ${#sources[@]} -eq 0 ]]; then
 fi
 
 # Compile the given source code file $1 and store it in the given binary file $2
-g++ $compiler_flags -I ${boost_path}include/ -I ${include_path} "${sources[@]}" -L ${boost_path}lib/ $boost_flags -Wl,-rpath,$PWD/${boost_path}/lib -o $output ${boost_path}lib/libboost_program_options.a
+g++ \
+    $compiler_flags \
+    -I "${boost_path}include/" \
+    -I "${include_path}" \
+    "${sources[@]}" \
+    -Wl,-rpath-link,"${boost_path}lib" \
+    -Wl,-rpath,"${boost_path}lib" \
+    -L "${boost_path}lib/" \
+    $boost_flags \
+    -o "$output" \
+    "${boost_path}lib/libboost_program_options.a"
