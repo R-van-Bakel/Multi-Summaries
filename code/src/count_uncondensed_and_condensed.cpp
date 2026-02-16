@@ -113,6 +113,8 @@ int main(int ac, char *av[])
 
     triple_index final_data_edge_count = 0;
 
+    std::vector<uint64_t> data_edge_counters(final_depth+1, 0);
+
     while (true)
     {
         block_or_singleton_index subject = read_int_BLOCK_OR_SINGLETON_little_endian(data_edges_file_stream);
@@ -130,6 +132,7 @@ int main(int ac, char *av[])
             if (interval_map[subject].second == final_depth and interval_map[object].second == final_depth)
             {
                 final_data_edge_count += 1;
+                data_edge_counters[final_depth]++;  // We have this separate case for counting the final edges
             }
         }
 
@@ -152,11 +155,14 @@ int main(int ac, char *av[])
         k_type edge_start = std::max(offset_subject_start,object_start);
         k_type edge_end = std::min(subject_end,offset_object_end);
 
+        // Increment the per-level data edge counters
+        for (k_type i = edge_start; i < edge_end; i++) {
+            data_edge_counters[i]++;
+        }
+
         condensed_data_edge_count += 1;
         uncondensed_data_edge_count += edge_end-edge_start;
     }
-
-
 
     // Count the (connected) vertices and edges
     triple_index condensed_vertex_count = 0;
@@ -203,7 +209,8 @@ int main(int ac, char *av[])
     }
     summay_graph_stats_file_istream.close();
 
-    std::ofstream summay_graph_stats_file_ostream(summay_graph_stats_file, std::ios::trunc);
+    std::string summay_graph_stats_counts_file = experiment_directory + "ad_hoc_results/summary_graph_stats_counts.json";
+    std::ofstream summay_graph_stats_file_ostream(summay_graph_stats_counts_file, std::ios::trunc);
 
     summay_graph_stats_file_ostream << start_line << std::endl;
     while (true) {
@@ -231,7 +238,19 @@ int main(int ac, char *av[])
         summay_graph_stats_file_ostream << indentation << "\"Final vertex count\": " << final_vertex_count << ",\n";
         summay_graph_stats_file_ostream << indentation << "\"Final (data) edge count\": " << final_data_edge_count;
     }
-    summay_graph_stats_file_ostream << "\n";
+    summay_graph_stats_file_ostream << ",\n";
+
+    k_type current_level = 0;
+    for (uint64_t edge_count : data_edge_counters)
+    {
+        summay_graph_stats_file_ostream << indentation << "\"Edge count (k=" << current_level << ")\": " << edge_count;
+        if (current_level != final_depth)
+        {
+            summay_graph_stats_file_ostream << ",";
+        }
+        summay_graph_stats_file_ostream << "\n";
+        current_level++;
+    }
     summay_graph_stats_file_ostream << end_line << "\n";
     summay_graph_stats_file_ostream.close();
 }
