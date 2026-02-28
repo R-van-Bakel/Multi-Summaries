@@ -24,7 +24,7 @@
 using json = nlohmann::json;
 
 using node_to_block_map_type = boost::unordered_flat_map<node_index, block_or_singleton_index>;
-using local_to_global_map = boost::unordered_flat_map<std::pair<k_type,block_or_singleton_index>,block_or_singleton_index>;
+using local_to_global_map_type = boost::unordered_flat_map<std::pair<k_type,block_or_singleton_index>,block_or_singleton_index>;
 using predicate_object_pair_set = boost::unordered_flat_set<std::pair<edge_type,block_or_singleton_index>>;
 using time_interval = std::pair<k_type, k_type>;
 using interval_map = boost::unordered_flat_map<block_or_singleton_index, time_interval>;
@@ -135,13 +135,13 @@ public:
 
             for (auto merged_singletons_pair: block_to_singleton_map.second.get_map())
             {
-                block_index merged_block = (block_index) merged_singletons_pair.first;
-                block_or_singleton_index singleton_count = (block_or_singleton_index) merged_singletons_pair.second.get_nodes().size();
+                block_index merged_block = static_cast<block_index>(merged_singletons_pair.first);
+                block_or_singleton_index singleton_count = static_cast<block_or_singleton_index>(merged_singletons_pair.second.get_nodes().size());
                 write_uint_BLOCK_little_endian(output_file_binary,merged_block);
                 write_int_BLOCK_OR_SINGLETON_little_endian(output_file_binary,singleton_count);
                 for (auto singleton: merged_singletons_pair.second.get_nodes())
                 {
-                    block_or_singleton_index singleton_block = (block_or_singleton_index) -(singleton+1);
+                    block_or_singleton_index singleton_block = -(static_cast<block_or_singleton_index>(singleton)+1);
                     write_int_BLOCK_OR_SINGLETON_little_endian(output_file_binary,singleton_block);
                 }
             }
@@ -167,14 +167,14 @@ public:
 class LocalBlockToGlobalBlockMap
 {
 private:
-    local_to_global_map block_map;
+    local_to_global_map_type block_map;
     block_or_singleton_index next_block = 1;
 
 public:
     LocalBlockToGlobalBlockMap()
     {
     }
-    local_to_global_map& get_map()
+    local_to_global_map_type& get_map()
     {
         return block_map;
     }
