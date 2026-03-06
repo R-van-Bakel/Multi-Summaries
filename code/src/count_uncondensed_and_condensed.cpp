@@ -123,6 +123,7 @@ private:
     {
         while (true)
         {
+            std::cout << "DEBUG read refines block (OLD)" << std::endl;
             block_index block = read_uint_BLOCK_little_endian(refines_map_file);
             if (!refines_map_file)
             {
@@ -130,9 +131,11 @@ private:
                 throw std::ios_base::failure("Input error while reading file");
             }
             block_or_singleton_index global_block = local_to_global_maps.get_current_map().at(static_cast<block_or_singleton_index>(block));
+            std::cout << "DEBUG read refines block (COUNT)" << std::endl;
             block_index new_block_count = read_uint_BLOCK_little_endian(refines_map_file);
             for (block_index i = 0; i < new_block_count; i++)
             {
+                std::cout << "DEBUG read refines block (NEW)" << std::endl;
                 block_index new_block = read_uint_BLOCK_little_endian(refines_map_file);
                 if (new_block == 0)
                 {
@@ -151,6 +154,7 @@ private:
     {
         while (true)
         {
+            std::cout << "DEBUG read singleton refines block (OLD)" << std::endl;
             block_index block = read_uint_BLOCK_little_endian(singleton_refines_map_file);
             if (!singleton_refines_map_file)
             {
@@ -221,6 +225,7 @@ public:
             load_refines_map_(refines_map_file, k-1, local_to_global_maps);
 
             std::ifstream singleton_refines_map_file(path_to_refines_maps + "singleton_mapping-" + k_previous_string + "to" + k_current_string + ".bin");
+            if (!singleton_refines_map_file) continue;  // If the file can't be read, assume it doesn't exist and continue
             load_singleton_refines_map_(singleton_refines_map_file, k-1, local_to_global_maps);
         }
     }
@@ -239,12 +244,20 @@ public:
     {
         triple_set current_data_edges = std::move(data_edges);  // Consume the data edges
         std::vector<block_or_singleton_index> data_edge_counts(final_depth_+1,-1);
-        bool object_already_mapped = false;
+        bool object_already_mapped = true;
         for (block_or_singleton_index k = subjects_level; k >= 0; k--)
         {
             current_data_edges = map_triple_set_(current_data_edges, k, object_already_mapped);
             data_edge_counts[k] = static_cast<block_or_singleton_index>(current_data_edges.size());
-            object_already_mapped = true;
+            object_already_mapped = false;
+            for (Triple data_edge : current_data_edges)
+            {
+                std::cout << "DEBUG data edge at " << k << ": s=" << data_edge.s << ", p=" << data_edge.p << ", o=" << data_edge.o << std::endl;
+            }
+            for (auto kv : refines_maps_[k])
+            {
+                std::cout << "DEBUG refines map at " << k << ": " << kv.first << "-->" << kv.second << std::endl;
+            }
         }
         return data_edge_counts;
     }
@@ -350,17 +363,12 @@ int main(int ac, char *av[])
 
         // Increment the per-level condensed data edge counters
         // Because the same data edge might appear several times in the uncondensed multi-summary, we keep track of the increasing number of occurences at each level via `uncondensed_weight` 
-        k_type uncondensed_weight = 1;
+        k_type uncondensed_weight = 0;
         for (k_type i = edge_start+1; i <= final_depth; i++)
         {
+            if (i <= edge_end) uncondensed_weight++;  // Stop increasing the uncondensed_weight when `i == edge_end`, because `edge_end` is the last level at which a new copy of the edge is created in the uncondensed representation
             condensed_data_edge_counters[i]++;
             uncondensed_data_edge_counters[i] += uncondensed_weight;
-
-            // Stop increasing the uncondensed_weight when `i == edge_end`, because `edge_end` is the last level at which a new copy of the edge is created in the uncondensed representation
-            if (i < edge_end)
-            {
-                uncondensed_weight++;
-            }
         }
         // If the fixed point is reached, then there will be an extra edge from level k to level k.
         // This edge represents an edge that will be present between all layers beyond the fixed point (e.g. between k+1 and k).
@@ -401,6 +409,7 @@ int main(int ac, char *av[])
         std::ifstream refines_file(refines_file_string);
         while (true)
         {
+            std::cout << "DEBUG read refines block (COUNTING) (OLD)" << std::endl;
             read_uint_BLOCK_little_endian(refines_file);  // Read and ignore a block id. We need to perform a read to update the eof() flag, even if we ignore the contents of the read operation.
             if (refines_file.eof())
             {
@@ -408,9 +417,11 @@ int main(int ac, char *av[])
             }
             
             // TODO This can be done much cleaner with seekg if singleton blocks are just part of the regular mapping files
+            std::cout << "DEBUG read refines block (COUNTING) (COUNT)" << std::endl;
             block_index new_block_count = read_uint_BLOCK_little_endian(refines_file);
             for (block_index i = 0; i < new_block_count; i++)
             {
+            std::cout << "DEBUG read refines block (COUNTING) (NEW)" << std::endl;
                 block_index new_block = read_uint_BLOCK_little_endian(refines_file);
                 if (new_block != 0)
                 {
@@ -423,8 +434,11 @@ int main(int ac, char *av[])
         // TODO this is not needed if singleton blocks are just part of the regular mapping files
         std::string refines_singletons_file_string = experiment_directory + "bisimulation/singleton_mapping-" + k_previous_string + "to" + k_current_string + ".bin";
         std::ifstream refines_singletons_file(refines_singletons_file_string);
+        if (!refines_singletons_file) continue;  // If the file can't be read, assume it doesn't exist and continue
+
         while (true)
         {
+            std::cout << "DEBUG read singleton refines block (COUNTING) (OLD)" << std::endl;
             read_uint_BLOCK_little_endian(refines_singletons_file);  // Read and ignore a block id. We need to perform a read to update the eof() flag, even if we ignore the contents of the read operation.
             if (refines_singletons_file.eof())
             {

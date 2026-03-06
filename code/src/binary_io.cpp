@@ -91,7 +91,7 @@ block_or_singleton_index read_int_BLOCK_OR_SINGLETON_little_endian(std::istream 
     }
     if (inputstream.fail())
     {
-        std::cout << "Read block failed with code: " << inputstream.rdstate() << std::endl;
+        std::cout << "Read block_or_singleton failed with code: " << inputstream.rdstate() << std::endl;
         std::cout << "Goodbit: " << inputstream.good() << std::endl;
         std::cout << "Eofbit:  " << inputstream.eof() << std::endl;
         std::cout << "Failbit: " << (inputstream.fail() && !inputstream.bad()) << std::endl;
