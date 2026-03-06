@@ -123,7 +123,6 @@ private:
     {
         while (true)
         {
-            std::cout << "DEBUG read refines block (OLD)" << std::endl;
             block_index block = read_uint_BLOCK_little_endian(refines_map_file);
             if (!refines_map_file)
             {
@@ -131,11 +130,9 @@ private:
                 throw std::ios_base::failure("Input error while reading file");
             }
             block_or_singleton_index global_block = local_to_global_maps.get_current_map().at(static_cast<block_or_singleton_index>(block));
-            std::cout << "DEBUG read refines block (COUNT)" << std::endl;
             block_index new_block_count = read_uint_BLOCK_little_endian(refines_map_file);
             for (block_index i = 0; i < new_block_count; i++)
             {
-                std::cout << "DEBUG read refines block (NEW)" << std::endl;
                 block_index new_block = read_uint_BLOCK_little_endian(refines_map_file);
                 if (new_block == 0)
                 {
@@ -154,7 +151,6 @@ private:
     {
         while (true)
         {
-            std::cout << "DEBUG read singleton refines block (OLD)" << std::endl;
             block_index block = read_uint_BLOCK_little_endian(singleton_refines_map_file);
             if (!singleton_refines_map_file)
             {
@@ -250,14 +246,6 @@ public:
             current_data_edges = map_triple_set_(current_data_edges, k, object_already_mapped);
             data_edge_counts[k] = static_cast<block_or_singleton_index>(current_data_edges.size());
             object_already_mapped = false;
-            for (Triple data_edge : current_data_edges)
-            {
-                std::cout << "DEBUG data edge at " << k << ": s=" << data_edge.s << ", p=" << data_edge.p << ", o=" << data_edge.o << std::endl;
-            }
-            for (auto kv : refines_maps_[k])
-            {
-                std::cout << "DEBUG refines map at " << k << ": " << kv.first << "-->" << kv.second << std::endl;
-            }
         }
         return data_edge_counts;
     }
@@ -387,6 +375,7 @@ int main(int ac, char *av[])
     }
 
     // Compute the number of data edges in all quotient graphs
+    std::cout << "Computing quotient data edge counts (expensive)" << std::endl;
     std::vector<block_or_singleton_index> data_edge_counts = refines_maps.calculate_quotient_graph_data_edge_counts_destructive(std::move(current_data_edges));
 
     // Count condensed refines edges
@@ -409,7 +398,6 @@ int main(int ac, char *av[])
         std::ifstream refines_file(refines_file_string);
         while (true)
         {
-            std::cout << "DEBUG read refines block (COUNTING) (OLD)" << std::endl;
             read_uint_BLOCK_little_endian(refines_file);  // Read and ignore a block id. We need to perform a read to update the eof() flag, even if we ignore the contents of the read operation.
             if (refines_file.eof())
             {
@@ -417,11 +405,9 @@ int main(int ac, char *av[])
             }
             
             // TODO This can be done much cleaner with seekg if singleton blocks are just part of the regular mapping files
-            std::cout << "DEBUG read refines block (COUNTING) (COUNT)" << std::endl;
             block_index new_block_count = read_uint_BLOCK_little_endian(refines_file);
             for (block_index i = 0; i < new_block_count; i++)
             {
-            std::cout << "DEBUG read refines block (COUNTING) (NEW)" << std::endl;
                 block_index new_block = read_uint_BLOCK_little_endian(refines_file);
                 if (new_block != 0)
                 {
@@ -438,7 +424,6 @@ int main(int ac, char *av[])
 
         while (true)
         {
-            std::cout << "DEBUG read singleton refines block (COUNTING) (OLD)" << std::endl;
             read_uint_BLOCK_little_endian(refines_singletons_file);  // Read and ignore a block id. We need to perform a read to update the eof() flag, even if we ignore the contents of the read operation.
             if (refines_singletons_file.eof())
             {
@@ -461,7 +446,15 @@ int main(int ac, char *av[])
     block_index uncondensed_singleton_count = 0;
     block_index uncondensed_refines_count = 0;
 
-    full_stats["Refines edge count (uncondensed) (k=0)"] = 0;  // Because there is only a single layer at k=0, there are no refines edges this deep into the multi-summary
+    full_stats["Vertex count (condensed)"] = json::array();
+    full_stats["Vertex count (uncondensed)"] = json::array();
+    full_stats["Vertex count (quotient)"] = json::array();
+    full_stats["Singleton count (condensed)"] = json::array();
+    full_stats["Singleton count (quotient)"] = json::array();
+    full_stats["Singleton count (uncondensed)"] = json::array();
+    full_stats["Refines edge count (uncondensed)"] = json::array();
+
+    full_stats["Refines edge count (uncondensed)"].push_back(0);
     for (k_type current_level = 0; current_level <= final_depth; current_level++)
     {
         std::ostringstream k_stringstream;
@@ -477,36 +470,37 @@ int main(int ac, char *av[])
         uncondensed_vertex_count += outcome_stats["Block count"].get<block_index>();
         uncondensed_singleton_count += outcome_stats["Singleton count"].get<block_index>();
 
-        full_stats["Vertex count (condensed) (k=" + std::to_string(current_level) + ")"] = outcome_stats["Accumulated block count"];
-        full_stats["Vertex count (uncondensed) (k=" + std::to_string(current_level) + ")"] = uncondensed_vertex_count;
-        full_stats["Vertex count (quotient) (k=" + std::to_string(current_level) + ")"] = outcome_stats["Block count"];
-        full_stats["Singleton count (condensed) (k=" + std::to_string(current_level) + ")"] = outcome_stats["Singleton count"];
-        full_stats["Singleton count (quotient) (k=" + std::to_string(current_level) + ")"] = outcome_stats["Singleton count"];
-        full_stats["Singleton count (uncondensed) (k=" + std::to_string(current_level) + ")"] = uncondensed_singleton_count;
+        full_stats["Vertex count (condensed)"].push_back(outcome_stats["Accumulated block count"]);
+        full_stats["Vertex count (uncondensed)"].push_back(uncondensed_vertex_count);
+        full_stats["Vertex count (quotient)"].push_back(outcome_stats["Block count"]);
+        full_stats["Singleton count (condensed)"].push_back(outcome_stats["Singleton count"]);
+        full_stats["Singleton count (quotient)"].push_back(outcome_stats["Singleton count"]);
+        full_stats["Singleton count (uncondensed)"].push_back(uncondensed_singleton_count);
 
         if (current_level > 0)
         {
             uncondensed_refines_count += outcome_stats["Block count"].get<block_index>();
-            full_stats["Refines edge count (uncondensed) (k=" + std::to_string(current_level) + ")"] = uncondensed_refines_count;
+            full_stats["Refines edge count (uncondensed)"].push_back(uncondensed_refines_count);
         }
     }
 
     // Store the earlier loaded and newly computed stats
     full_stats["Final depth"] = final_depth;
     full_stats["Fixed point reached"] = fixed_point_reached;
-    for (k_type current_level = 0; current_level <= final_depth+1; current_level++)
-    {
-        full_stats["Data edge count (condensed) (k=" + std::to_string(current_level) + ")"] = condensed_data_edge_counters[current_level];
-        full_stats["Data edge count (uncondensed) (k=" + std::to_string(current_level) + ")"] = uncondensed_data_edge_counters[current_level];
-    }
+    full_stats["Data edge count (condensed)"] = json::array();
+    full_stats["Data edge count (uncondensed)"] = json::array();
+    full_stats["Data edge count (quotient)"] = json::array();
+    full_stats["Refines edge count (condensed)"] = json::array();
     for (k_type current_level = 0; current_level <= final_depth; current_level++)
     {
-        full_stats["Refines edge count (condensed) (k=" + std::to_string(current_level) + ")"] = condensed_refines_counts[current_level];
+        full_stats["Data edge count (condensed)"].push_back(condensed_data_edge_counters[current_level]);
+        full_stats["Data edge count (uncondensed)"].push_back(uncondensed_data_edge_counters[current_level]);
+        full_stats["Data edge count (quotient)"].push_back(data_edge_counts[current_level]);
+        full_stats["Refines edge count (condensed)"].push_back(condensed_refines_counts[current_level]);
     }
-    for (k_type current_level = 0; current_level <= final_depth; current_level++)
-    {
-        full_stats["Data edge count (quotient) (k=" + std::to_string(current_level) + ")"] = data_edge_counts[current_level];
-    }
+    // For the (condensed and uncondensed) multi-summaries we track data edge counts for one level beyond the fixed point (i.e. the data edges going from final_depth+1 to final_depth)
+    full_stats["Data edge count (condensed)"].push_back(condensed_data_edge_counters[final_depth+1]);
+    full_stats["Data edge count (uncondensed)"].push_back(uncondensed_data_edge_counters[final_depth+1]);
     
     // Write the full stats to a JSON file
     std::string full_stats_file_string = experiment_directory + "ad_hoc_results/full_stats.json";
