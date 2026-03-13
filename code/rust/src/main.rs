@@ -122,7 +122,7 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<u64
         current_outcome = get_i_bisimulation(
             graph,
             &predecessors,
-            &current_outcome,
+            current_outcome,
             i,
             min_support,
             refine_callback,
@@ -140,13 +140,18 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<u64
 
     let mut node_index_to_global_terminal_block_id = vec![0; graph.get_size()];
 
-    for (block_index, block) in current_outcome.blocks.iter().enumerate() {
-        if block.nodes.len() == 0 {
-            continue;
-        }
-        let global_block_id = previous_block_mapping.get(&block_index).unwrap();
-        for node in &*(*block).nodes {
-            node_index_to_global_terminal_block_id[*node] = *global_block_id;
+    for (block_index, maybe_block) in current_outcome.blocks.iter().enumerate() {
+        match maybe_block {
+            None => continue,
+            Some(block) => {
+                if block.nodes.len() == 0 {
+                    panic!("This must never happen");
+                }
+                let global_block_id = previous_block_mapping.get(&block_index).unwrap();
+                for node in &*(*block).nodes {
+                    node_index_to_global_terminal_block_id[*node] = *global_block_id;
+                }
+            }
         }
     }
 
