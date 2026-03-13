@@ -155,8 +155,8 @@ impl Graph {
 
     // returns for each relation,
     // 1. the number of triples using that relations,
-    // 2. the lowest and higghest entity in its subject position and
-    // 3. the lowest and higghest entity in its object position and
+    // 2. the lowest and highest entity in its subject position and
+    // 3. the lowest and highest entity in its object position and
     pub fn get_relation_distribution(&self) -> HashMap<EdgeType, RelStat> {
         let mut counts: HashMap<EdgeType, RelStat> = HashMap::new();
         let node_enumeration = self.nodes.iter().enumerate();
@@ -236,7 +236,7 @@ impl Graph {
 
         const TRIPLE_LENGTH: usize = BYTES_PER_ENTITY * 2 + BYTES_PER_PREDICATE;
 
-        let mut max_entitiy: NodeIndex = 0;
+        let mut max_entity: NodeIndex = 0;
 
         let mut start_index = 0;
         for output_triple in result.iter_mut() {
@@ -247,7 +247,7 @@ impl Graph {
                 subject |= (buf[start_index + b] as NodeIndex) << (8 * b);
             }
 
-            max_entitiy = max(subject, max_entitiy);
+            max_entity = max(subject, max_entity);
 
             let mut predicate: EdgeType = 0;
             for b in 0..BYTES_PER_PREDICATE {
@@ -260,7 +260,7 @@ impl Graph {
                     as NodeIndex)
                     << (8 * b);
             }
-            max_entitiy = max(object, max_entitiy);
+            max_entity = max(object, max_entity);
 
             if reverse_edges {
                 *output_triple = (object, predicate, subject);
@@ -269,7 +269,7 @@ impl Graph {
             }
             start_index += TRIPLE_LENGTH;
         }
-        (result, max_entitiy)
+        (result, max_entity)
     }
 
     /// Reads a graph from a binary file.
@@ -367,11 +367,11 @@ impl Graph {
         let path = Path::new(file_name);
         let file = File::open(path)?;
 
-        let chunck_size = (BYTES_PER_ENTITY * 2 + BYTES_PER_PREDICATE) * TRIPLE_PER_CHUNK;
+        let chunk_size = (BYTES_PER_ENTITY * 2 + BYTES_PER_PREDICATE) * TRIPLE_PER_CHUNK;
 
         let mmap = unsafe { MmapOptions::new().populate().map(&file) }?;
 
-        mmap.chunks(chunck_size)
+        mmap.chunks(chunk_size)
             .map(|file_chunk| {
                 // println!("{}", file_chunk.len());
 
@@ -521,23 +521,32 @@ impl Graph {
     }
 
     pub fn build_predecessors(&self) -> Predecessors {
-        let mut preds = vec![Vec::new(); self.nodes.len()];
+        let mut preds: Vec<Option<Vec<usize>>> = vec![None; self.nodes.len()];
         for (source_idx, node) in self.nodes.iter().enumerate() {
             for edge in &node.edges {
                 // Ensure we don't add duplicate predecessors if your data has them
-                preds[edge.target].push(source_idx);
+                match preds[edge.target].as_mut() {
+                    None => {
+                        preds[edge.target] = Some(vec![source_idx]);
+                    }
+                    Some(list) => {
+                        list.push(source_idx);
+                    }
+                }
             }
         }
         // Sort and dedup each predecessor list
-        for p in preds.iter_mut() {
-            p.sort_unstable();
-            p.dedup();
+        for maybe_p in preds.iter_mut() {
+            if let Some(p) = maybe_p {
+                p.sort_unstable();
+                p.dedup();
+            }
         }
         preds
     }
 }
 
-pub type Predecessors = Vec<Vec<usize>>;
+pub type Predecessors = Vec<Option<Vec<usize>>>;
 
 // A graph of which the edges are sorted, it is created by taking an existing graph and sorting it.
 // Then only a & to the original graph can be obtained so we can guarantee the sort invariant
@@ -552,7 +561,7 @@ impl SortedGraph {
     pub fn new(mut g: Graph) -> SortedGraph {
         g.nodes
             .par_iter_mut()
-            //perfom a quick check whether there is more than one element
+            //perform a quick check whether there is more than one element
             .for_each(|node| {
                 node.edges
                     .sort_unstable_by(|a, b| (a.label, a.target).cmp(&(b.label, b.target)));
