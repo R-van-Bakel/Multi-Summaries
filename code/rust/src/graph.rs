@@ -1,6 +1,5 @@
 use biterator::{Bit, Biterator};
 use core::panic;
-use std::fs;
 use itertools::Itertools;
 use memmap2::MmapOptions;
 use rayon::prelude::*;
@@ -8,6 +7,7 @@ use std::cmp::max;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fs;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::iter::repeat;
@@ -23,16 +23,18 @@ pub type NodeIndex = usize;
 
 pub const BYTES_PER_ENTITY: usize = 5;
 pub const BYTES_PER_PREDICATE: usize = 4;
-pub const BYTES_PER_TRIPLE: usize = 2*BYTES_PER_ENTITY + BYTES_PER_PREDICATE;
+pub const BYTES_PER_TRIPLE: usize = 2 * BYTES_PER_ENTITY + BYTES_PER_PREDICATE;
 // Rust's Vec handles capacity growth automatically, but we can hint at it.
 
 #[derive(Debug, Error)]
 pub enum GraphValidationError {
     #[error("I/O error during graph validation: {0}")]
     Io(#[from] std::io::Error),
-    
-    #[error("The graph binary size ({num_bytes} bytes) is not divisible by the number of bytes per triple ({BYTES_PER_TRIPLE})")]
-    NotDivisible { num_bytes: usize},
+
+    #[error(
+        "The graph binary size ({num_bytes} bytes) is not divisible by the number of bytes per triple ({BYTES_PER_TRIPLE})"
+    )]
+    NotDivisible { num_bytes: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -518,7 +520,7 @@ impl Graph {
         Ok(())
     }
 
-    pub fn build_predecessors(&self) -> Vec<Vec<usize>> {
+    pub fn build_predecessors(&self) -> Predecessors {
         let mut preds = vec![Vec::new(); self.nodes.len()];
         for (source_idx, node) in self.nodes.iter().enumerate() {
             for edge in &node.edges {
@@ -534,6 +536,8 @@ impl Graph {
         preds
     }
 }
+
+pub type Predecessors = Vec<Vec<usize>>;
 
 // A graph of which the edges are sorted, it is created by taking an existing graph and sorting it.
 // Then only a & to the original graph can be obtained so we can guarantee the sort invariant
@@ -796,11 +800,15 @@ fn write_uint_predicate<W: Write>(w: &mut W, val: EdgeType) -> io::Result<()> {
     w.write_all(&data)
 }
 
-pub fn get_graph_triple_count_from_binary_file<P: AsRef<Path>>(file: P) -> Result<usize, GraphValidationError> {
+pub fn get_graph_triple_count_from_binary_file<P: AsRef<Path>>(
+    file: P,
+) -> Result<usize, GraphValidationError> {
     let path = file.as_ref();
     let graph_binary_size = fs::metadata(path)?.len() as usize;
     if graph_binary_size % BYTES_PER_TRIPLE != 0 {
-        return Err(GraphValidationError::NotDivisible { num_bytes: (graph_binary_size) });
+        return Err(GraphValidationError::NotDivisible {
+            num_bytes: (graph_binary_size),
+        });
     }
-    Ok(graph_binary_size/BYTES_PER_TRIPLE)
+    Ok(graph_binary_size / BYTES_PER_TRIPLE)
 }

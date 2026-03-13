@@ -1,6 +1,6 @@
 use itertools::Itertools;
 
-use crate::graph::{EdgeType, Graph, NodeIndex}; // Assuming graph.rs is a module
+use crate::graph::{EdgeType, Graph, NodeIndex, Predecessors}; // Assuming graph.rs is a module
 use std::collections::{HashMap, HashSet};
 
 use std::fmt::{self, Display};
@@ -83,7 +83,7 @@ impl KBisimulationOutcome {
 
 pub fn get_k_bisimulation<F, F2>(
     graph: &Graph,
-    predecessors: &Vec<Vec<usize>>, // the predecessors computed with graph.build_predecessors()
+    predecessors: &Predecessors, // the predecessors computed with graph.build_predecessors()
     prev_outcome: &KBisimulationOutcome,
     min_support: usize,
     mut refine_callback: F,
