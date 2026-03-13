@@ -78,10 +78,10 @@ impl InternalNode2BlockMapper {
     // when that is no longer needed, we can finalize the mapping by committing which will write all chanes in new_mapping into the old_mapping
     // This consumes the current object, and returns the commited mapping and the singleton count
     pub fn commit_new_mapping(mut self) -> Node2Block {
-        for (k, v) in self.new_mapping.drain() {
+        for (k, v) in self.new_mapping.into_iter() {
             self.old_mapping[k] = v;
         }
-        //note: because of drain, the new_mapping is already empty at this point.
+        //note: because of into_iter, the new_mapping is already empty at this point.
         Node2Block {
             mapping: self.old_mapping,
             singleton_count: self.singleton_count,
@@ -205,7 +205,7 @@ where
 
         let mut only_singletons = true;
 
-        for (_, nodes) in signatures.drain() {
+        for (_, nodes) in signatures.into_iter() {
             if nodes.len() == 1 {
                 this_level_mapper.put_into_singleton(nodes[0]);
                 let refines_subject: BlockAssignment = BlockAssignment::Singleton(nodes[0]);
