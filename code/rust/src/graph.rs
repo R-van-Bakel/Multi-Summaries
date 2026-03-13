@@ -1,5 +1,6 @@
 use biterator::{Bit, Biterator};
 use core::panic;
+use std::fs;
 use itertools::Itertools;
 use memmap2::MmapOptions;
 use rayon::prelude::*;
@@ -13,6 +14,7 @@ use std::iter::repeat;
 use std::path::Path;
 use std::sync::mpsc::{self, channel};
 use std::thread;
+use thiserror::Error;
 
 // In Rust, 'usize' is the standard type for indexing arrays/vectors.
 // On 64-bit systems, this matches the 64-bit requirement.
@@ -21,7 +23,17 @@ pub type NodeIndex = usize;
 
 pub const BYTES_PER_ENTITY: usize = 5;
 pub const BYTES_PER_PREDICATE: usize = 4;
+pub const BYTES_PER_TRIPLE: usize = 2*BYTES_PER_ENTITY + BYTES_PER_PREDICATE;
 // Rust's Vec handles capacity growth automatically, but we can hint at it.
+
+#[derive(Debug, Error)]
+pub enum GraphValidationError {
+    #[error("I/O error during graph validation: {0}")]
+    Io(#[from] std::io::Error),
+    
+    #[error("The graph binary size ({num_bytes} bytes) is not divisible by the number of bytes per triple ({BYTES_PER_TRIPLE})")]
+    NotDivisible { num_bytes: usize},
+}
 
 #[derive(Debug, Clone)]
 pub struct Edge {
@@ -259,12 +271,12 @@ impl Graph {
     }
 
     /// Reads a graph from a binary file.
-    pub fn read_graph_parallel_memmmap(
+    pub fn read_graph_parallel_memmmap<P: AsRef<Path>>(
         &mut self,
-        file_name: &str,
+        file_name: P,
         reverse_edges: bool,
     ) -> io::Result<()> {
-        let path = Path::new(file_name);
+        let path = file_name.as_ref();
         let file = File::open(path)?;
 
         let chunck_size = (BYTES_PER_ENTITY * 2 + BYTES_PER_PREDICATE) * TRIPLE_PER_CHUNK;
@@ -782,4 +794,13 @@ fn write_uint_predicate<W: Write>(w: &mut W, val: EdgeType) -> io::Result<()> {
     }
 
     w.write_all(&data)
+}
+
+pub fn get_graph_triple_count_from_binary_file<P: AsRef<Path>>(file: P) -> Result<usize, GraphValidationError> {
+    let path = file.as_ref();
+    let graph_binary_size = fs::metadata(path)?.len() as usize;
+    if graph_binary_size % BYTES_PER_TRIPLE != 0 {
+        return Err(GraphValidationError::NotDivisible { num_bytes: (graph_binary_size) });
+    }
+    Ok(graph_binary_size/BYTES_PER_TRIPLE)
 }
