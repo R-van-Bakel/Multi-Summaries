@@ -6,7 +6,7 @@ use itertools::Itertools;
 use multi_summaries::graph::{Graph, NodeIndex};
 
 use multi_summaries::bisimulator::{
-    BlockAssignment, BlockIndex, get_0_bisimulation, get_k_bisimulation,
+    BlockAssignment, BlockIndex, get_0_bisimulation, get_i_bisimulation,
 };
 
 fn main() -> Result<()> {
@@ -19,7 +19,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<usize>) -> Result<()> {
+pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<u64>) -> Result<()> {
     // 1. Prepare the Graph: Build the reverse index needed for dirty propagation
     println!("Building predecessor index...");
     let predecessors = graph.build_predecessors();
@@ -28,7 +28,8 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<usi
     println!("Computing 0-bisimulation...");
     let mut current_outcome = get_0_bisimulation(graph);
 
-    let mut k = 0;
+    // The current level of simulation
+    let mut i = 0u64;
 
     let mut previous_block_mapping: HashMap<BlockIndex, u64> = HashMap::new();
     for i in 0..current_outcome.blocks.len() {
@@ -43,7 +44,7 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<usi
     loop {
         println!(
             "After computing {}-bisimulation (Dirty blocks: {}, singletons: {}, total blocks {})...",
-            k,
+            i,
             current_outcome.dirty_blocks.len(),
             current_outcome.singletons(),
             current_outcome.total_blocks()
@@ -51,20 +52,20 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<usi
 
         // Break if we've reached a user-defined depth limit
         if let Some(limit) = max_k {
-            if k >= limit {
+            if i >= limit {
                 break;
             }
         }
 
         // If no blocks are dirty, the partition is stable
         if current_outcome.dirty_blocks.is_empty() {
-            println!("Bisimulation stabilized at k = {}", k);
+            println!("Bisimulation stabilized at k = {}", i);
             break;
         }
 
-        k += 1;
+        i += 1;
 
-        let file = File::create(format!("refines/refines_{}", k))?;
+        let file = File::create(format!("refines/refines_{}", i))?;
         let mut refines_writer = BufWriter::new(file);
 
         let mut new_mappings: HashMap<NodeIndex, u64> = HashMap::new();
@@ -118,10 +119,11 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<usi
         };
 
         // Perform the refinement step
-        current_outcome = get_k_bisimulation(
+        current_outcome = get_i_bisimulation(
             graph,
             &predecessors,
             &current_outcome,
+            i,
             min_support,
             refine_callback,
             refine_target_can_be_freed,
@@ -139,11 +141,11 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<usi
     let mut node_index_to_global_terminal_block_id = vec![0; graph.get_size()];
 
     for (block_index, block) in current_outcome.blocks.iter().enumerate() {
-        if block.len() == 0 {
+        if block.nodes.len() == 0 {
             continue;
         }
         let global_block_id = previous_block_mapping.get(&block_index).unwrap();
-        for node in &**block {
+        for node in &*(*block).nodes {
             node_index_to_global_terminal_block_id[*node] = *global_block_id;
         }
     }

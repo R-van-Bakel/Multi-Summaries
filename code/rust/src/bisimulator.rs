@@ -27,7 +27,12 @@ impl Display for BlockAssignment {
     }
 }
 
-pub type Block = Vec<NodeIndex>;
+pub struct Block {
+    // The nodes in this block
+    pub nodes: Vec<NodeIndex>,
+    // The earliest level at which this block was encountered
+    pub f: u64,
+}
 pub type BlockPtr = Arc<Block>;
 
 pub struct Node2BlockMapper {
@@ -73,7 +78,7 @@ pub struct KBisimulationOutcome {
 
 impl KBisimulationOutcome {
     pub fn total_blocks(&self) -> usize {
-        let non_singleton = self.blocks.iter().filter(|b| !b.is_empty()).count();
+        let non_singleton = self.blocks.iter().filter(|b| !b.nodes.is_empty()).count();
         self.node_to_block.singleton_count + non_singleton
     }
     pub fn singletons(&self) -> usize {
@@ -81,10 +86,11 @@ impl KBisimulationOutcome {
     }
 }
 
-pub fn get_k_bisimulation<F, F2>(
+pub fn get_i_bisimulation<F, F2>(
     graph: &Graph,
     predecessors: &Predecessors, // the predecessors computed with graph.build_predecessors()
     prev_outcome: &KBisimulationOutcome,
+    i: u64,
     min_support: usize,
     mut refine_callback: F,
     mut refine_target_can_be_freed: F2,
@@ -100,19 +106,19 @@ where
         freeblock_indices: prev_outcome.node_to_block.freeblock_indices.clone(),
     };
 
-    let mut nodes_from_split_blocks = HashSet::new();
+    let mut refined_block_set: Vec<BlockIndex> = Vec::new();
 
     // Iterate through dirty blocks from the previous step
     for &dirty_idx in &prev_outcome.dirty_blocks {
         let block = &prev_outcome.blocks[dirty_idx];
-        if block.len() <= min_support {
+        if block.nodes.len() <= min_support {
             continue;
         }
 
         // signature_t: Map of (EdgeLabel, TargetBlockID) -> Nodes
         let mut signatures: HashMap<Vec<(EdgeType, i64)>, Vec<NodeIndex>> = HashMap::new();
 
-        for &v in block.iter() {
+        for &v in block.nodes.iter() {
             let sig: Vec<(EdgeType, i64)> = graph.nodes[v]
                 .edges
                 .iter()
@@ -129,14 +135,14 @@ where
             continue;
         } // No split occurred
 
-        // Mark nodes for dirty propagation
-        for &v in block.iter() {
-            nodes_from_split_blocks.insert(v);
-        }
+        refined_block_set.push(dirty_idx);
 
         // Mark old block as free
         k_mapper.freeblock_indices.push(dirty_idx);
-        k_blocks[dirty_idx] = Arc::new(Vec::new());
+        k_blocks[dirty_idx] = Arc::new(Block {
+            nodes: Vec::new(),
+            f: 0,
+        });
 
         let refines_object: BlockAssignment = BlockAssignment::Block(dirty_idx);
 
@@ -149,7 +155,7 @@ where
                 refine_callback(&refines_subject, &refines_object)?;
             } else {
                 only_singletons = false;
-                let new_block_ptr = Arc::new(nodes);
+                let new_block_ptr = Arc::new(Block { nodes, f: i });
                 let target_idx = if let Some(free_idx) = k_mapper.freeblock_indices.pop() {
                     k_blocks[free_idx] = new_block_ptr;
                     free_idx
@@ -160,7 +166,7 @@ where
 
                 let refines_subject = BlockAssignment::Block(target_idx);
                 refine_callback(&refines_subject, &refines_object)?;
-                for &node in k_blocks[target_idx].iter() {
+                for &node in k_blocks[target_idx].nodes.iter() {
                     k_mapper.overwrite_mapping(node, target_idx);
                 }
             }
@@ -175,9 +181,17 @@ where
     // If your Graph doesn't store 'reverse', you'll need to compute it once.
     let mut next_dirty = HashSet::new();
 
+    // Mark nodes for dirty propagation
+    // for &v in block.nodes.iter() {
+    //     nodes_from_split_blocks.insert(v);
+    // }
+
     // Mark blocks as dirty if they point to nodes that were part of a split
-    for target in nodes_from_split_blocks {
-        if let Some(preds) = predecessors.get(target) {
+    for refinded_block_idx in refined_block_set {
+        let block = &prev_outcome.blocks[refinded_block_idx];
+        for target in block.nodes.iter() {
+            // there must be a predecessor list, it might be empty.
+            let preds = predecessors.get(*target).unwrap();
             for &source in preds {
                 let dirty_block_id = k_mapper.get_block(source);
 
@@ -189,7 +203,7 @@ where
                 let block_idx = dirty_block_id as usize;
 
                 // Only mark if the block size meets the min_support requirement
-                if k_blocks[block_idx].len() >= min_support {
+                if k_blocks[block_idx].nodes.len() >= min_support {
                     next_dirty.insert(block_idx);
                 }
             }
@@ -228,7 +242,7 @@ pub fn get_typed_0_bisimulation(graph: &Graph, rdf_type_id: EdgeType) -> KBisimu
             for &node_idx in &nodes {
                 mapper.overwrite_mapping(node_idx, block_idx);
             }
-            new_blocks.push(Arc::new(nodes));
+            new_blocks.push(Arc::new(Block { nodes, f: 0 }));
             dirty.insert(block_idx);
         }
     }
@@ -247,7 +261,10 @@ pub fn get_0_bisimulation(graph: &crate::graph::Graph) -> KBisimulationOutcome {
     // C++: block->reserve(amount); for (unsigned int i = 0; i < amount; i++) { block->emplace_back(i); }
     let initial_block: Vec<usize> = (0..node_count).collect();
     let mut blocks = Vec::new();
-    blocks.push(Arc::new(initial_block));
+    blocks.push(Arc::new(Block {
+        nodes: initial_block,
+        f: 0,
+    }));
 
     // Initialize the mapper where every node points to block index 0
     // C++: std::shared_ptr<AllToZeroNode2BlockMapper> node_to_block = ...
