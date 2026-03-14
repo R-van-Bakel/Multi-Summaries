@@ -1,7 +1,7 @@
 use itertools::Itertools;
 
 use crate::graph::{EdgeType, Graph, NodeIndex, Predecessors}; // Assuming graph.rs is a module
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use std::fmt::{self, Display};
 use std::fs::File;
@@ -318,7 +318,9 @@ pub fn get_i_bisimulation(
         let mut signatures: HashMap<Vec<(EdgeType, i64)>, Vec<NodeIndex>> = HashMap::new();
 
         for &v in block_ref.nodes.iter() {
-            let sig: Vec<(EdgeType, i64)> = graph.nodes[v]
+            // We use a BtreeSet instead of using unique and then sorted on the iterator.
+            // This reduced runtime by 10-20% in experiments with the lubm dataset.
+            let btsig: BTreeSet<_> = graph.nodes[v]
                 .edges
                 .iter()
                 .map(|e| {
@@ -327,10 +329,8 @@ pub fn get_i_bisimulation(
                         this_level_mapper.get_previous_level_block_idx(e.target),
                     )
                 })
-                .unique()
-                // Sort signature to ensure hash consistency
-                .sorted()
                 .collect();
+            let sig: Vec<(EdgeType, i64)> = btsig.into_iter().collect();
 
             signatures.entry(sig).or_default().push(v);
         }
