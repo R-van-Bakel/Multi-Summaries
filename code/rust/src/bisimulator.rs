@@ -4,7 +4,8 @@ use crate::graph::{EdgeType, Graph, NodeIndex, Predecessors}; // Assuming graph.
 use std::collections::{HashMap, HashSet};
 
 use std::fmt::{self, Display};
-use std::io::Result;
+use std::fs::File;
+use std::io::{BufWriter, Result, Write};
 
 pub type BlockIndex = usize;
 
@@ -144,21 +145,155 @@ impl KBisimulationOutcome {
         return self.node_to_block.singleton_count;
     }
 }
+pub struct SharedBisimulationState {
+    pub i: u64,
+    global_largest_block_id: u64,
+    pub previous_block_mapping: HashMap<BlockIndex, u64>,
+    pub singleton_mapping: HashMap<NodeIndex, u64>,
+    refines_writer: BufWriter<File>,
+    new_mappings: HashMap<NodeIndex, u64>,
+    to_be_removed_local_ids: HashSet<NodeIndex>
+}
 
-pub fn get_i_bisimulation<F, F2>(
+impl SharedBisimulationState {
+    fn new(bisimulation_outcome: &KBisimulationOutcome) -> Result<Self> {
+        let i = 1;  // TODO NB the current code sets this to 0u64 initially
+
+        let mut previous_block_mapping = HashMap::new();
+        for j in 0..bisimulation_outcome .blocks.len() {
+            previous_block_mapping.insert(j, j as u64);
+        }
+
+        let singleton_mapping = HashMap::new();
+
+        let global_largest_block_id = (bisimulation_outcome.blocks.len() - 1) as u64;
+
+        let file = File::create(format!("refines/refines_{}", i))?;
+        let refines_writer = BufWriter::new(file);
+
+        let new_mappings: HashMap<NodeIndex, u64> = HashMap::new();
+        let to_be_removed_local_ids: HashSet<NodeIndex> = HashSet::new();
+
+        Ok(Self {
+            i,
+            global_largest_block_id,
+            previous_block_mapping: previous_block_mapping.into(),
+            singleton_mapping: singleton_mapping.into(),
+            refines_writer: refines_writer.into(),
+            new_mappings: new_mappings.into(),
+            to_be_removed_local_ids: to_be_removed_local_ids.into()
+        })
+    }
+
+    pub fn update_level(&mut self) -> Result<()> {
+        for to_be_removed_local_id in &self.to_be_removed_local_ids {
+            self.previous_block_mapping.remove(&to_be_removed_local_id);
+        }
+
+        for (local, global) in self.new_mappings.iter() {
+            self.previous_block_mapping.insert(*local, *global);
+        }
+
+        self.i += 1;
+
+        let file = File::create(format!("refines/refines_{}", self.i))?;
+        self.refines_writer = BufWriter::new(file);
+
+        self.new_mappings = HashMap::new();
+        self.to_be_removed_local_ids = HashSet::new();
+
+        Ok(())
+    }
+
+    fn refine_callback(&mut self, refine_source_block: &BlockAssignment, refine_target_block: &BlockAssignment) -> Result<()> {
+        match (refine_source_block, refine_target_block) {
+            (
+                BlockAssignment::Block(source_local),
+                BlockAssignment::Block(target_local),
+            ) => {
+                self.global_largest_block_id += 1;
+                let source_global = self.global_largest_block_id;
+
+                let target_global = self.previous_block_mapping.get(target_local).unwrap();
+
+                //println!("{} -> {}", source_global, target_global);
+                self.refines_writer.write_all(&source_global.to_be_bytes())?;
+                self.refines_writer.write_all(&target_global.to_be_bytes())?;
+
+                self.new_mappings.insert(*source_local, source_global);
+            }
+            (
+                BlockAssignment::Singleton(node_index),
+                BlockAssignment::Block(target_local),
+            ) => {
+                //let source_global = (-(*source_local as i64)) - 1;
+                self.global_largest_block_id += 1;
+                let source_global = self.global_largest_block_id;
+
+                let target_global = self.previous_block_mapping.get(target_local).unwrap();
+
+                // println!("s - {} -> {}", source_global, target_global);
+                self.refines_writer.write_all(&source_global.to_be_bytes())?;
+                self.refines_writer.write_all(&target_global.to_be_bytes())?;
+
+                self.singleton_mapping.insert(*node_index, source_global);
+                // TODO: this can also be written out immediately
+            }
+            _ => {
+                panic!("Not a valid edge");
+            }
+        }
+        Ok(())
+    }
+
+    fn refine_target_can_be_freed (&mut self, local_target_id: &BlockIndex) -> Result<()> {
+        self.to_be_removed_local_ids.insert(*local_target_id);
+            Ok(())
+    }
+}
+
+pub struct FullBisimulationState {
+    pub shared_state: SharedBisimulationState,
+    pub current_outcome: KBisimulationOutcome
+}
+
+impl FullBisimulationState {
+    pub fn new(bisimulation_outcome: KBisimulationOutcome) -> Result<Self> {
+        Ok(Self {
+            shared_state: SharedBisimulationState::new(&bisimulation_outcome)?,
+            current_outcome: bisimulation_outcome.into()
+        })
+    }
+
+    fn steal_outcome(self) -> (PartialBisimulationState, KBisimulationOutcome) {
+        let FullBisimulationState { shared_state, current_outcome } = self;
+        (PartialBisimulationState { shared_state }, current_outcome)
+    }
+
+    pub fn into_parts(self) -> (SharedBisimulationState, KBisimulationOutcome) {
+        let FullBisimulationState { shared_state, current_outcome } = self;
+        (shared_state, current_outcome)
+    }
+}
+
+struct PartialBisimulationState {
+    shared_state: SharedBisimulationState
+}
+
+impl PartialBisimulationState {
+    fn restore_outcome(self, new_outcome: KBisimulationOutcome) -> FullBisimulationState {
+        FullBisimulationState { shared_state: self.shared_state, current_outcome: new_outcome }
+    }
+}
+
+pub fn get_i_bisimulation(
     graph: &Graph,
     predecessors: &Predecessors, // the predecessors computed with graph.build_predecessors()
     // We take ownership of the previous outcome and will reuse parts of this for the current outcome
-    prev_outcome: KBisimulationOutcome,
-    i: u64,
+    bisimulation_state: FullBisimulationState,
     min_support: usize,
-    mut refine_callback: F,
-    mut refine_target_can_be_freed: F2,
-) -> Result<KBisimulationOutcome>
-where
-    F: FnMut(&BlockAssignment, &BlockAssignment) -> Result<()>,
-    F2: FnMut(&BlockIndex) -> Result<()>,
-{
+) -> Result<FullBisimulationState> {
+    let (mut partial_bisimulation_state, prev_outcome) = bisimulation_state.steal_outcome();
     // We take the parts out of the previous_outcome for reuse
     let mut k_blocks = prev_outcome.blocks;
 
@@ -216,10 +351,10 @@ where
             if nodes.len() == 1 {
                 this_level_mapper.put_into_singleton(nodes[0]);
                 let refines_subject: BlockAssignment = BlockAssignment::Singleton(nodes[0]);
-                refine_callback(&refines_subject, &refines_object)?;
+                partial_bisimulation_state.shared_state.refine_callback(&refines_subject, &refines_object)?;
             } else {
                 only_singletons = false;
-                let new_block = Some(Block { nodes, f: i });
+                let new_block = Some(Block { nodes, f: partial_bisimulation_state.shared_state.i });
 
                 let target_idx = if let Some(free_idx) = freeblock_indices.pop() {
                     k_blocks[free_idx] = new_block;
@@ -230,7 +365,7 @@ where
                 };
 
                 let refines_subject = BlockAssignment::Block(target_idx);
-                refine_callback(&refines_subject, &refines_object)?;
+                partial_bisimulation_state.shared_state.refine_callback(&refines_subject, &refines_object)?;
 
                 // we just inserted it, so it must exist.
                 for &node in k_blocks[target_idx].as_ref().unwrap().nodes.iter() {
@@ -239,7 +374,7 @@ where
             }
         }
         if only_singletons {
-            refine_target_can_be_freed(&dirty_idx)?;
+            partial_bisimulation_state.shared_state.refine_target_can_be_freed(&dirty_idx)?;
         }
 
         refined_block_set.push(block);
@@ -289,12 +424,14 @@ where
     // it is likely that each next level dirty block vector has fewer elements, hence shrinking
     dirty_blocks.shrink_to_fit();
 
-    Ok(KBisimulationOutcome {
+    let full_bisimulation_state = partial_bisimulation_state.restore_outcome(KBisimulationOutcome {
         blocks: k_blocks,
         dirty_blocks: dirty_blocks,
         node_to_block: this_level_mapper.commit_new_mapping(),
         freeblock_indices: freeblock_indices,
-    })
+    });
+
+    Ok(full_bisimulation_state)
 }
 
 pub fn get_typed_0_bisimulation(graph: &Graph, rdf_type_id: EdgeType) -> KBisimulationOutcome {
