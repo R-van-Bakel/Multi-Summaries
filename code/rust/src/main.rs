@@ -4,9 +4,7 @@ use std::io::{BufWriter, Result, Write};
 use itertools::Itertools;
 use multi_summaries::graph::Graph;
 
-use multi_summaries::bisimulator::{
-    get_0_bisimulation, get_i_bisimulation, FullBisimulationState
-};
+use multi_summaries::bisimulator::{FullBisimulationState, get_0_bisimulation, get_i_bisimulation};
 
 fn main() -> Result<()> {
     let file_name = "fb15k.bin";
@@ -31,7 +29,7 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<u64
     loop {
         println!(
             "After computing {}-bisimulation (Dirty blocks: {}, singletons: {}, total blocks {})...",
-            bisimulation_state.shared_state.i-1,
+            bisimulation_state.shared_state.i - 1,
             bisimulation_state.current_outcome.dirty_blocks.len(),
             bisimulation_state.current_outcome.singletons(),
             bisimulation_state.current_outcome.total_blocks()
@@ -46,21 +44,19 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<u64
 
         // If no blocks are dirty, the partition is stable
         if bisimulation_state.current_outcome.dirty_blocks.is_empty() {
-            println!("Bisimulation stabilized at k = {}", bisimulation_state.shared_state.i-1);
+            println!(
+                "Bisimulation stabilized at k = {}",
+                bisimulation_state.shared_state.i - 1
+            );
             break;
         }
 
         // Perform the refinement step
-        bisimulation_state = get_i_bisimulation(
-            graph,
-            &predecessors,
-            bisimulation_state,
-            min_support
-        )?;
-        
+        bisimulation_state =
+            get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?;
+
         // Update state
         bisimulation_state.shared_state.update_level()?;
-        
     }
 
     // Deconstruct the bisimulation state
@@ -75,7 +71,10 @@ pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<u64
                 if block.nodes.len() == 0 {
                     panic!("This must never happen");
                 }
-                let global_block_id = final_state.previous_block_mapping.get(&block_index).unwrap();
+                let global_block_id = final_state
+                    .previous_block_mapping
+                    .get(&block_index)
+                    .unwrap();
                 for node in &*(*block).nodes {
                     node_index_to_global_terminal_block_id[*node] = *global_block_id;
                 }
