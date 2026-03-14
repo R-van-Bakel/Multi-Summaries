@@ -186,21 +186,17 @@ impl SharedBisimulationState {
     }
 
     pub fn update_level(&mut self) -> Result<()> {
-        for to_be_removed_local_id in &self.to_be_removed_local_ids {
+        for to_be_removed_local_id in self.to_be_removed_local_ids.drain() {
             self.previous_block_mapping.remove(&to_be_removed_local_id);
         }
 
-        for (local, global) in self.new_mappings.iter() {
-            self.previous_block_mapping.insert(*local, *global);
-        }
+        self.previous_block_mapping
+            .extend(self.new_mappings.drain());
 
         self.i += 1;
 
         let file = File::create(format!("refines/refines_{}", self.i))?;
         self.refines_writer = BufWriter::new(file);
-
-        self.new_mappings = HashMap::new();
-        self.to_be_removed_local_ids = HashSet::new();
 
         Ok(())
     }
