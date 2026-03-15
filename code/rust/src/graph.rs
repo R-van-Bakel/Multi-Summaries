@@ -6,6 +6,7 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::cmp::min;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fs;
 use std::fs::File;
@@ -24,7 +25,6 @@ pub type NodeIndex = usize;
 pub const BYTES_PER_ENTITY: usize = 5;
 pub const BYTES_PER_PREDICATE: usize = 4;
 pub const BYTES_PER_TRIPLE: usize = 2 * BYTES_PER_ENTITY + BYTES_PER_PREDICATE;
-// Rust's Vec handles capacity growth automatically, but we can hint at it.
 
 #[derive(Debug, Error)]
 pub enum GraphValidationError {
@@ -302,7 +302,7 @@ impl Graph {
                 // .fold(
                 //     || {
                 //         // Initializer for local accumulator, we try to group by subject,
-                //         // but only those that are adjecent, like posix uniq
+                //         // but only those that are adjacent, like posix uniq
                 //         let identity: Vec<(NodeIndex, Vec<(EdgeType, NodeIndex)>)> = Vec::new();
                 //         let max: NodeIndex = 0;
                 //         (identity, max)
@@ -547,6 +547,92 @@ impl Graph {
 }
 
 pub type Predecessors = Vec<Option<Vec<usize>>>;
+
+// A graph where all edges are in a large array, indexed with the numbers in the node array.
+// The edges for node i are edges[nodes[i-1]..nodes[i]]
+// Moreover, the edges for a node are lexicographically sorted
+pub struct FlatGraph {
+    nodes: Vec<usize>,
+    edges: Vec<Edge>,
+}
+
+impl FlatGraph {
+    pub fn new(g: Graph) -> Self {
+        // first we get the sizes to be allocated
+        let node_count = g.nodes.len();
+        let edge_count = g.get_total_edge_count();
+        let mut sg = FlatGraph {
+            nodes: Vec::with_capacity(node_count),
+            edges: Vec::with_capacity(edge_count),
+        };
+
+        let mut nodes: VecDeque<Node> = VecDeque::from(g.nodes);
+
+        // g.nodes
+        //     .into_iter().re
+        //     par_iter_mut()
+        //     //perform a quick check whether there is more than one element
+        //     .for_each(|node| {
+        //         node.edges
+        //             .sort_unstable_by(|a, b| (a.label, a.target).cmp(&(b.label, b.target)));
+        //         node.edges.dedup_by_key(|e| (e.label, e.target));
+        //     });
+        // SortedGraph { graph: g }
+        while !nodes.is_empty() {
+            let node: Node = nodes.pop_front().unwrap();
+            let edges_in_this_node_count = node.edges.len();
+            sg.nodes.push(sg.edges.len() + edges_in_this_node_count);
+            // we move all edges out of the node
+            sg.edges.extend(node.edges.into_iter());
+        }
+
+        return sg;
+    }
+
+    pub fn get_size(&self) -> usize {
+        self.nodes.iter().len()
+    }
+
+    pub fn get_node(&self, node_idx: usize) -> FlatGraphNode<'_> {
+        let start = match node_idx {
+            0 => 0,
+            _ => self.nodes[node_idx - 1],
+        };
+        let end = self.nodes[node_idx];
+        let the_edges = &self.edges[start..end];
+        FlatGraphNode { edges: the_edges }
+    }
+
+    pub fn build_predecessors(&self) -> Predecessors {
+        let mut preds: Vec<Option<Vec<usize>>> = vec![None; self.nodes.len()];
+        for source_idx in 0..self.nodes.len() {
+            let node = self.get_node(source_idx);
+            for edge in node.edges {
+                // Ensure we don't add duplicate predecessors if your data has them
+                match preds[edge.target].as_mut() {
+                    None => {
+                        preds[edge.target] = Some(vec![source_idx]);
+                    }
+                    Some(list) => {
+                        list.push(source_idx);
+                    }
+                }
+            }
+        }
+        // Sort and dedup each predecessor list
+        for maybe_p in preds.iter_mut() {
+            if let Some(p) = maybe_p {
+                p.sort_unstable();
+                p.dedup();
+            }
+        }
+        preds
+    }
+}
+
+pub struct FlatGraphNode<'a> {
+    pub edges: &'a [Edge],
+}
 
 // A graph of which the edges are sorted, it is created by taking an existing graph and sorting it.
 // Then only a & to the original graph can be obtained so we can guarantee the sort invariant

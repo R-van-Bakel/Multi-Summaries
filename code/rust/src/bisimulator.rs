@@ -1,6 +1,4 @@
-use itertools::Itertools;
-
-use crate::graph::{EdgeType, Graph, NodeIndex, Predecessors}; // Assuming graph.rs is a module
+use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors}; // Assuming graph.rs is a module
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use std::fmt::{self, Display};
@@ -294,7 +292,7 @@ impl PartialBisimulationState {
 }
 
 pub fn get_i_bisimulation(
-    graph: &Graph,
+    graph: &FlatGraph,
     predecessors: &Predecessors, // the predecessors computed with graph.build_predecessors()
     // We take ownership of the previous outcome and will reuse parts of this for the current outcome
     bisimulation_state: FullBisimulationState,
@@ -327,7 +325,8 @@ pub fn get_i_bisimulation(
         for &v in block_ref.nodes.iter() {
             // We use a BtreeSet instead of using unique and then sorted on the iterator.
             // This reduced runtime by 10-20% in experiments with the lubm dataset.
-            let btsig: BTreeSet<_> = graph.nodes[v]
+            let btsig: BTreeSet<_> = graph
+                .get_node(v)
                 .edges
                 .iter()
                 .map(|e| {
@@ -451,22 +450,23 @@ pub fn get_i_bisimulation(
     Ok(full_bisimulation_state)
 }
 
-pub fn get_typed_0_bisimulation(graph: &Graph, rdf_type_id: EdgeType) -> KBisimulationOutcome {
+pub fn get_typed_0_bisimulation(graph: &FlatGraph, rdf_type_id: EdgeType) -> KBisimulationOutcome {
     let mut partition_map: HashMap<Vec<NodeIndex>, Vec<NodeIndex>> = HashMap::new();
 
-    for (i, node) in graph.nodes.iter().enumerate() {
+    for node_idx in 0..graph.get_size() {
+        let node = graph.get_node(node_idx);
         let mut type_set: HashSet<usize> = HashSet::new();
-        for edge in &node.edges {
+        for edge in node.edges {
             if edge.label == rdf_type_id {
                 type_set.insert(edge.target);
             }
         }
         let types: Vec<NodeIndex> = type_set.into_iter().collect();
-        partition_map.entry(types).or_default().push(i);
+        partition_map.entry(types).or_default().push(node_idx);
     }
 
     let mut new_blocks = Vec::new();
-    let mut mapper = InternalNode2BlockMapper::new_all_zero(graph.nodes.len());
+    let mut mapper = InternalNode2BlockMapper::new_all_zero(graph.get_size());
     let mut dirty = Vec::new();
 
     for (_types, nodes) in partition_map {
@@ -490,7 +490,7 @@ pub fn get_typed_0_bisimulation(graph: &Graph, rdf_type_id: EdgeType) -> KBisimu
     }
 }
 
-pub fn get_0_bisimulation(graph: &crate::graph::Graph) -> KBisimulationOutcome {
+pub fn get_0_bisimulation(graph: &FlatGraph) -> KBisimulationOutcome {
     let node_count = graph.get_size();
 
     // Create the initial block containing all node indices

@@ -2,21 +2,26 @@ use std::fs::File;
 use std::io::{BufWriter, Result, Write};
 
 use itertools::Itertools;
-use multi_summaries::graph::Graph;
+use multi_summaries::graph::{Graph, FlatGraph};
 
 use multi_summaries::bisimulator::{FullBisimulationState, get_0_bisimulation, get_i_bisimulation};
 
 fn main() -> Result<()> {
-    let file_name = "fb15k.bin";
+    let file_name = "lubm.bin";
 
     let mut g = Graph::new(1_000_000);
     g.read_graph_parallel_memmmap(&file_name, false)?;
-    compute_bisimulation(&g, 0, None)?;
+
+    compute_bisimulation(&FlatGraph::new(g), 0, None)?;
 
     Ok(())
 }
 
-pub fn compute_bisimulation(graph: &Graph, min_support: usize, max_k: Option<u64>) -> Result<()> {
+pub fn compute_bisimulation(
+    graph: &FlatGraph,
+    min_support: usize,
+    max_k: Option<u64>,
+) -> Result<()> {
     // 1. Prepare the Graph: Build the reverse index needed for dirty propagation
     println!("Building predecessor index...");
     let predecessors = graph.build_predecessors();
