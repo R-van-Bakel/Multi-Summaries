@@ -1,3 +1,5 @@
+use fxhash::FxBuildHasher;
+
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors}; // Assuming graph.rs is a module
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -51,7 +53,7 @@ struct InternalNode2BlockMapper {
     // mapping[i] >= 0 is BlockIndex, < 0 is Singleton
 
     // The new_mapping is taking precedence over what is in the old mapping.
-    new_mapping: HashMap<usize, i64>,
+    new_mapping: HashMap<usize, i64, FxBuildHasher>,
     old_mapping: Vec<i64>,
     singleton_count: usize,
 }
@@ -59,7 +61,7 @@ struct InternalNode2BlockMapper {
 impl InternalNode2BlockMapper {
     pub fn new_all_zero(max_nodes: usize) -> Self {
         Self {
-            new_mapping: HashMap::new(),
+            new_mapping: HashMap::with_hasher(FxBuildHasher::default()), //HashMap::new(),
             old_mapping: vec![0; max_nodes],
             singleton_count: 0,
         }
@@ -67,7 +69,7 @@ impl InternalNode2BlockMapper {
 
     pub fn new_from_previous(previous: Node2Block) -> Self {
         Self {
-            new_mapping: HashMap::new(),
+            new_mapping: HashMap::with_hasher(FxBuildHasher::default()),
             old_mapping: previous.mapping,
             singleton_count: previous.singleton_count,
         }
