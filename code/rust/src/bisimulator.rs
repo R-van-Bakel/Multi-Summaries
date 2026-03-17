@@ -349,7 +349,7 @@ pub fn get_i_bisimulation(
             continue;
         } // No split occurred
 
-        let targets = signature_to_unique_target_blocks(&signatures);
+        let targets = signatures_to_unique_signature_parts(&signatures);
 
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
         let block = std::mem::replace(&mut k_blocks[*dirty_idx], None).unwrap();
@@ -477,7 +477,7 @@ impl<'a> PartialOrd for IndexAndSignature<'a> {
     }
 }
 
-fn signature_to_unique_target_blocks(
+fn signatures_to_unique_signature_parts(
     sig: &HashMap<Vec<(EdgeType, i64)>, Vec<NodeIndex>>,
 ) -> Vec<(u32, i64)> {
     let mut pq: BinaryHeap<IndexAndSignature> = sig
@@ -488,7 +488,7 @@ fn signature_to_unique_target_blocks(
         })
         .collect();
     let mut signature_pieces_union = Vec::new();
-    // We only check for equality. We assume we will not realistically get to i64::MIN. u32::MAX we might reach perhaps.
+
     let mut last_seen: Option<(u32, i64)> = None;
     while let Some(x) = pq.pop() {
         let possibly_new_piece = x.signature[x.index];
