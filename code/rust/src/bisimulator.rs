@@ -1,7 +1,9 @@
 use fxhash::FxBuildHasher;
 
-use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors}; // Assuming graph.rs is a module
-use std::collections::{BTreeSet, HashMap, HashSet};
+use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
+use std::cmp::Ordering;
+// Assuming graph.rs is a module
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 
 use std::fmt::{self, Display};
 use std::fs::File;
@@ -322,7 +324,7 @@ pub fn get_i_bisimulation(
         }
 
         // signature_t: Map of (EdgeLabel, TargetBlockID) -> Nodes
-        let mut signatures: HashMap<Vec<(EdgeType, i64)>, Vec<NodeIndex>> = HashMap::new();
+        let mut signatures: HashMap<Vec<(i64, EdgeType)>, Vec<NodeIndex>> = HashMap::new();
 
         for &v in block_ref.nodes.iter() {
             // We use a BtreeSet instead of using unique and then sorted on the iterator.
@@ -333,12 +335,12 @@ pub fn get_i_bisimulation(
                 .iter()
                 .map(|e| {
                     (
-                        e.label,
                         this_level_mapper.get_previous_level_block_idx(e.target),
+                        e.label,
                     )
                 })
                 .collect();
-            let sig: Vec<(EdgeType, i64)> = btsig.into_iter().collect();
+            let sig: Vec<(i64, EdgeType)> = btsig.into_iter().collect();
 
             signatures.entry(sig).or_default().push(v);
         }
@@ -346,6 +348,8 @@ pub fn get_i_bisimulation(
         if signatures.len() <= 1 {
             continue;
         } // No split occurred
+
+        // let targets = signature_to_unique_target_blocks(&signatures);
 
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
         let block = std::mem::replace(&mut k_blocks[*dirty_idx], None).unwrap();
@@ -450,6 +454,63 @@ pub fn get_i_bisimulation(
         });
 
     Ok(full_bisimulation_state)
+}
+
+#[derive(Eq, PartialEq)]
+struct IndexAndSignature<'a> {
+    // the current index into the signature
+    index: usize,
+    signature: &'a Vec<(i64, EdgeType)>,
+}
+
+impl<'a> Ord for IndexAndSignature<'a> {
+    // The ordering is on the block of the current index
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.signature[self.index]
+            .0
+            .cmp(&other.signature[other.index].0)
+    }
+}
+
+// Ord also requires PartialOrd
+impl<'a> PartialOrd for IndexAndSignature<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn signature_to_unique_target_blocks(
+    sig: &HashMap<Vec<(i64, EdgeType)>, Vec<NodeIndex>>,
+) -> Vec<i64> {
+    let mut pq: BinaryHeap<IndexAndSignature> = sig
+        .keys()
+        .map(|signature| IndexAndSignature {
+            index: 0 as usize,
+            signature,
+        })
+        .collect();
+    let mut target_blocks = Vec::new();
+    let mut last_seen = i64::MIN;
+    while let Some(x) = pq.pop() {
+        let possibly_new_block = x.signature[x.index].0;
+        if possibly_new_block == last_seen {
+            continue;
+        } else {
+            last_seen = possibly_new_block;
+            target_blocks.push(possibly_new_block);
+            //  skip next ones with the same block to save some inserts
+            for next_index in (x.index + 1)..(x.signature.len() - 1) {
+                if x.signature[next_index].0 != last_seen {
+                    pq.push(IndexAndSignature {
+                        index: next_index,
+                        signature: x.signature,
+                    });
+                    break;
+                }
+            }
+        }
+    }
+    return target_blocks;
 }
 
 pub fn get_typed_0_bisimulation(graph: &FlatGraph, rdf_type_id: EdgeType) -> KBisimulationOutcome {
