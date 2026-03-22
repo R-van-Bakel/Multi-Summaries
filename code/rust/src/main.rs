@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{BufWriter, Result, Write};
 
 use itertools::Itertools;
-use multi_summaries::graph::{Graph, FlatGraph};
+use multi_summaries::graph::{FlatGraph, Graph};
 
 use multi_summaries::bisimulator::{FullBisimulationState, get_0_bisimulation, get_i_bisimulation};
 

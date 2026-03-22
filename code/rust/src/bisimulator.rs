@@ -350,6 +350,7 @@ pub fn get_i_bisimulation(
         } // No split occurred
 
         let targets = signatures_to_unique_signature_parts(&signatures);
+        println!("{}", targets.len());
 
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
         let block = std::mem::replace(&mut k_blocks[*dirty_idx], None).unwrap();
@@ -482,21 +483,25 @@ fn signatures_to_unique_signature_parts(
 ) -> Vec<(u32, i64)> {
     let mut pq: BinaryHeap<IndexAndSignature> = sig
         .keys()
+        .filter(|x| !x.is_empty())
         .map(|signature| IndexAndSignature {
             index: 0 as usize,
             signature,
         })
         .collect();
-    let mut signature_pieces_union = Vec::new();
+    let mut signature_pieces_union: Vec<(u32, i64)> = Vec::new();
 
-    let mut last_seen: Option<(u32, i64)> = None;
+    //    let mut last_seen: Option<(u32, i64)> = None;
     while let Some(x) = pq.pop() {
-        let possibly_new_piece = x.signature[x.index];
-        if last_seen.is_some_and(|ls| ls == possibly_new_piece) {
+        let possibly_new_piece = &x.signature[x.index];
+        if signature_pieces_union
+            .last()
+            .is_some_and(|last_seen| last_seen == possibly_new_piece)
+        {
             continue;
         }
-        last_seen = Some(possibly_new_piece);
-        signature_pieces_union.push(possibly_new_piece);
+        //        last_seen = Some(possibly_new_piece.clone());
+        signature_pieces_union.push(*possibly_new_piece);
 
         if x.index + 1 < x.signature.len() {
             pq.push(IndexAndSignature {
