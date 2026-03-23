@@ -1,6 +1,7 @@
 use fxhash::FxBuildHasher;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
+use crate::signature_tree::{RadixTree, UniqueSignatureCount};
 use std::cmp::Ordering;
 // Assuming graph.rs is a module
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
@@ -315,6 +316,8 @@ pub fn get_i_bisimulation(
 
     let mut refined_block_set: Vec<Block> = Vec::new();
 
+    let mut signatures: RadixTree<(EdgeType, i64)> = RadixTree::new(); //HashMap<Vec<(EdgeType, i64)>, Vec<NodeIndex>> = HashMap::new();
+
     // Iterate through dirty blocks from the previous step
     for dirty_idx in dirty_blocks.iter() {
         // we are sure this block must exist, so we can unwrap
@@ -323,8 +326,9 @@ pub fn get_i_bisimulation(
             continue;
         }
 
+        signatures.reset();
+
         // signature_t: Map of (EdgeLabel, TargetBlockID) -> Nodes
-        let mut signatures: HashMap<Vec<(EdgeType, i64)>, Vec<NodeIndex>> = HashMap::new();
 
         for &v in block_ref.nodes.iter() {
             // We use a BtreeSet instead of using unique and then sorted on the iterator.
@@ -340,17 +344,17 @@ pub fn get_i_bisimulation(
                     )
                 })
                 .collect();
-            let sig: Vec<(EdgeType, i64)> = btsig.into_iter().collect();
+            //let sig: Vec<(EdgeType, i64)> = btsig.into_iter().collect();
 
-            signatures.entry(sig).or_default().push(v);
+            signatures.insert(btsig.into_iter(), v);
         }
 
-        if signatures.len() <= 1 {
+        if signatures.get_unique_signature_count() != UniqueSignatureCount::MORE {
             continue;
         } // No split occurred
 
-        let targets = signatures_to_unique_signature_parts(&signatures);
-        println!("{}", targets.len());
+        // let targets = signatures_to_unique_signature_parts(&signatures);
+        // println!("{}", targets.len());
 
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
         let block = std::mem::replace(&mut k_blocks[*dirty_idx], None).unwrap();
@@ -360,7 +364,7 @@ pub fn get_i_bisimulation(
 
         let mut only_singletons = true;
 
-        for (_, nodes) in signatures.into_iter() {
+        for (_, nodes) in signatures.iter() {
             if nodes.len() == 1 {
                 this_level_mapper.put_into_singleton(nodes[0]);
                 let refines_subject: BlockAssignment = BlockAssignment::Singleton(nodes[0]);
@@ -370,7 +374,7 @@ pub fn get_i_bisimulation(
             } else {
                 only_singletons = false;
                 let new_block = Some(Block {
-                    nodes,
+                    nodes: nodes.to_vec(),
                     f: partial_bisimulation_state.shared_state.i,
                 });
 

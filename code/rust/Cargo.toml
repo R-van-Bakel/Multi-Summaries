@@ -9,7 +9,15 @@ fxhash = "0.2.1"
 itertools = "0.14.0"
 memmap2 = "0.9.9"
 rayon = "1.11.0"
+smallvec = { version="1.15.1", features = ["const_generics"]}
 thiserror = "2.0.18"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "radix_bench"
+harness = false
 
 #[profile.release]
 #debug = true

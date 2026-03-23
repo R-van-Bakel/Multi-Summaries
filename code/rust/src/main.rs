@@ -7,7 +7,7 @@ use multi_summaries::graph::{FlatGraph, Graph};
 use multi_summaries::bisimulator::{FullBisimulationState, get_0_bisimulation, get_i_bisimulation};
 
 fn main() -> Result<()> {
-    let file_name = "lubm.bin";
+    let file_name = "BSBM_100M_graph.bin";
 
     let mut g = Graph::new(1_000_000);
     g.read_graph_parallel_memmmap(&file_name, false)?;
