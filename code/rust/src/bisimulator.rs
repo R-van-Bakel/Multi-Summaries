@@ -1,7 +1,7 @@
 use fxhash::FxBuildHasher;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
-use std::cmp::{Ordering, Reverse};
+use std::cmp::Reverse;
 // Assuming graph.rs is a module
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 
@@ -23,8 +23,8 @@ pub enum BlockAssignment {
 }
 
 impl BlockAssignment {
-    const VARIANT1_HASH: usize = 12634128529936681850 as usize; // 8-byte slice from SHA256(0), truncates for 32-bit systems
-    const VARIANT2_HASH: usize = 14782610670539863730 as usize; // 8-byte slice from SHA256(1), truncates for 32-bit systems
+    const VARIANT1_HASH: usize = 12634128529936681850_usize; // 8-byte slice from SHA256(0), truncates for 32-bit systems
+    const VARIANT2_HASH: usize = 14782610670539863730_usize; // 8-byte slice from SHA256(1), truncates for 32-bit systems
     fn salt(&self) -> usize {
         match self {
             BlockAssignment::Block(v) => v ^ BlockAssignment::VARIANT1_HASH,
@@ -114,14 +114,14 @@ impl InternalNode2BlockMapper {
     }
 
     pub fn get_previous_level_block_idx(&self, node: NodeIndex) -> BlockAssignment {
-        return self.old_mapping[node].clone();
+        self.old_mapping[node].clone()
     }
 
     pub fn get_block_idx(&self, node: NodeIndex) -> BlockAssignment {
         if let Some(index) = self.new_mapping.get(&node) {
-            return (*index).clone();
+            (*index).clone()
         } else {
-            return self.old_mapping[node].clone();
+            self.old_mapping[node].clone()
         }
     }
 
@@ -175,7 +175,7 @@ impl KBisimulationOutcome {
         self.node_to_block.singleton_count + non_singleton
     }
     pub fn singletons(&self) -> usize {
-        return self.node_to_block.singleton_count;
+        self.node_to_block.singleton_count
     }
 }
 #[derive(Clone, Copy)]
@@ -202,26 +202,26 @@ enum DataEdgeTarget {
     Invariant(GlobalBlockIndexAndLevel),
 }
 
-#[derive(Eq, PartialEq)]
-struct IndexAndSignature<'a> {
-    // the current index into the signature
-    index: usize,
-    signature: &'a Vec<(EdgeType, BlockAssignment)>,
-}
+// #[derive(Eq, PartialEq)]
+// struct IndexAndSignature<'a> {
+//     // the current index into the signature
+//     index: usize,
+//     signature: &'a Vec<(EdgeType, BlockAssignment)>,
+// }
 
-impl<'a> Ord for IndexAndSignature<'a> {
-    // The ordering is on the block of the current index
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.signature[self.index].cmp(&other.signature[other.index])
-    }
-}
+// impl<'a> Ord for IndexAndSignature<'a> {
+//     // The ordering is on the block of the current index
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         self.signature[self.index].cmp(&other.signature[other.index])
+//     }
+// }
 
-// Ord also requires PartialOrd
-impl<'a> PartialOrd for IndexAndSignature<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
+// // Ord also requires PartialOrd
+// impl<'a> PartialOrd for IndexAndSignature<'a> {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
 
 pub struct SharedBisimulationState {
     pub i: LevelIndex,
@@ -262,14 +262,14 @@ impl SharedBisimulationState {
         Ok(Self {
             i,
             global_largest_block_id,
-            previous_block_mapping: previous_block_mapping.into(),
+            previous_block_mapping,
             singleton_mapping: HashMap::with_hasher(FxBuildHasher::default()),
-            refines_writer: refines_writer.into(),
+            refines_writer,
             new_mappings: HashMap::with_hasher(FxBuildHasher::default()),
             to_be_removed_local_ids: HashSet::new(),
             previous_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
             new_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
-            data_edge_writer: data_edge_writer.into(),
+            data_edge_writer,
         })
     }
 
@@ -315,7 +315,7 @@ impl SharedBisimulationState {
                     (*refine_source_block).clone(),
                     GlobalBlockIndexAndLevel {
                         global_id: *target_global,
-                        level: target_level.clone(),
+                        level: *target_level,
                     },
                 ); // Store the current refines map in memory
 
@@ -347,7 +347,7 @@ impl SharedBisimulationState {
                     (*refine_source_block).clone(),
                     GlobalBlockIndexAndLevel {
                         global_id: *target_global,
-                        level: target_level.clone(),
+                        level: *target_level,
                     },
                 ); // Store the current refines map in memory
 
@@ -398,7 +398,7 @@ impl SharedBisimulationState {
             else {
                 continue;
             };
-            signature_pieces_union.push((edge_type.clone(), global_id.clone(), level.clone()));
+            signature_pieces_union.push((*edge_type, *global_id, *level));
         }
 
         signature_pieces_union.sort();
@@ -434,14 +434,14 @@ impl SharedBisimulationState {
         // The helper function that handles the mapping to global signatures, along with the starting levels
         let signature_to_global_mapper_helper = |block: &BlockAssignment| -> DataEdgeTarget {
             let get_previous_global_id_fallback = || {
-                let target = self.get_global_id(block).clone();
+                let target = *self.get_global_id(block);
                 DataEdgeTarget::Invariant(target)
             };
-            let global_id_and_level = self.previous_refines_map.get(block).copied().map_or_else(
-                || get_previous_global_id_fallback(),
-                |target| DataEdgeTarget::Refined(target),
-            );
-            global_id_and_level
+            // return the  global_id_and_level
+            self.previous_refines_map
+                .get(block)
+                .copied()
+                .map_or_else(get_previous_global_id_fallback, DataEdgeTarget::Refined)
         };
 
         // Convenient way to map the target and pass on the edge type
@@ -583,7 +583,7 @@ impl FullBisimulationState {
     pub fn new(bisimulation_outcome: KBisimulationOutcome) -> Result<Self> {
         Ok(Self {
             shared_state: SharedBisimulationState::new(&bisimulation_outcome)?,
-            current_outcome: bisimulation_outcome.into(),
+            current_outcome: bisimulation_outcome,
         })
     }
 
@@ -700,10 +700,9 @@ pub fn get_i_bisimulation(
         let GlobalBlockIndexAndLevel {
             global_id: global_subject,
             level: subject_level,
-        } = partial_bisimulation_state
+        } = *partial_bisimulation_state
             .shared_state
-            .get_global_id(&semi_dirty_idx)
-            .clone();
+            .get_global_id(&semi_dirty_idx);
         for (edge_type, global_target, target_level) in targets {
             let start_time = std::cmp::max(subject_level, target_level + 1);
             let end_time = partial_bisimulation_state.shared_state.i - 1;
@@ -759,10 +758,9 @@ pub fn get_i_bisimulation(
             let GlobalBlockIndexAndLevel {
                 global_id: global_subject,
                 level: subject_level,
-            } = partial_bisimulation_state
+            } = *partial_bisimulation_state
                 .shared_state
-                .get_global_id(&BlockAssignment::Block(dirty_idx))
-                .clone();
+                .get_global_id(&BlockAssignment::Block(dirty_idx));
             for (edge_type, global_target, target_level) in targets {
                 let start_time = std::cmp::max(subject_level, target_level + 1);
                 let end_time = partial_bisimulation_state.shared_state.i - 1;
@@ -785,10 +783,9 @@ pub fn get_i_bisimulation(
         let GlobalBlockIndexAndLevel {
             global_id: global_subject,
             level: subject_level,
-        } = partial_bisimulation_state
+        } = *partial_bisimulation_state
             .shared_state
-            .get_global_id(&BlockAssignment::Block(dirty_idx))
-            .clone();
+            .get_global_id(&BlockAssignment::Block(dirty_idx));
         for (edge_type, global_target, target_level) in targets.into_iter() {
             let start_time = std::cmp::max(subject_level, target_level + 1);
             let end_time = partial_bisimulation_state.shared_state.i - 1;
@@ -799,7 +796,8 @@ pub fn get_i_bisimulation(
         }
 
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
-        let block = std::mem::replace(&mut k_blocks[dirty_idx], None).unwrap();
+
+        let block = k_blocks[dirty_idx].take().unwrap();
         freeblock_indices.push(dirty_idx);
 
         let refines_object: BlockAssignment = BlockAssignment::Block(dirty_idx);
@@ -879,18 +877,19 @@ pub fn get_i_bisimulation(
                         // Only mark if the block size meets the min_support requirement
                         if k_blocks[block_idx].as_ref().unwrap().nodes.len() >= min_support {
                             // only add it if it is not a duplicate, this is a heuristic saving by checking whether it is the same as the previous
-                            if let Some(last) = dirty_blocks.last() {
-                                if *last == block_idx {
-                                    continue;
-                                }
+                            if let Some(last) = dirty_blocks.last()
+                                && *last == block_idx
+                            {
+                                continue;
                             }
                             dirty_blocks.push(block_idx);
                         } else {
-                            if let Some(last) = semi_dirty_blocks.last() {
-                                if *last == dirty_block_id {
-                                    continue;
-                                }
+                            if let Some(last) = semi_dirty_blocks.last()
+                                && *last == dirty_block_id
+                            {
+                                continue;
                             }
+
                             semi_dirty_blocks.push(dirty_block_id);
                         }
                     }
@@ -912,10 +911,10 @@ pub fn get_i_bisimulation(
     let full_bisimulation_state =
         partial_bisimulation_state.restore_outcome(KBisimulationOutcome {
             blocks: k_blocks,
-            dirty_blocks: dirty_blocks,
-            semi_dirty_blocks: semi_dirty_blocks,
+            dirty_blocks,
+            semi_dirty_blocks,
             node_to_block: this_level_mapper.commit_new_mapping(),
-            freeblock_indices: freeblock_indices,
+            freeblock_indices,
         });
 
     Ok(full_bisimulation_state)
@@ -968,11 +967,11 @@ pub fn get_0_bisimulation(graph: &FlatGraph) -> KBisimulationOutcome {
     // Create the initial block containing all node indices
     // C++: block->reserve(amount); for (unsigned int i = 0; i < amount; i++) { block->emplace_back(i); }
     let initial_block: Vec<usize> = (0..node_count).collect();
-    let mut blocks = Vec::new();
-    blocks.push(Some(Block {
+
+    let blocks = vec![Some(Block {
         nodes: initial_block,
         f: 0,
-    }));
+    })];
 
     // Initialize the mapper where every node points to block index 0
     // C++: std::shared_ptr<AllToZeroNode2BlockMapper> node_to_block = ...

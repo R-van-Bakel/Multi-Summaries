@@ -536,12 +536,12 @@ impl Graph {
             }
         }
         // Sort and dedup each predecessor list
-        for maybe_p in preds.iter_mut() {
-            if let Some(p) = maybe_p {
-                p.sort_unstable();
-                p.dedup();
-            }
+        // flatten to skip None's.
+        for p in preds.iter_mut().flatten() {
+            p.sort_unstable();
+            p.dedup();
         }
+
         preds
     }
 }
@@ -586,7 +586,7 @@ impl FlatGraph {
             sg.edges.extend(node.edges.into_iter());
         }
 
-        return sg;
+        sg
     }
 
     pub fn get_size(&self) -> usize {
@@ -620,11 +620,10 @@ impl FlatGraph {
             }
         }
         // Sort and dedup each predecessor list
-        for maybe_p in preds.iter_mut() {
-            if let Some(p) = maybe_p {
-                p.sort_unstable();
-                p.dedup();
-            }
+        // flatten to skip None's.
+        for p in preds.iter_mut().flatten() {
+            p.sort_unstable();
+            p.dedup();
         }
         preds
     }
@@ -668,9 +667,7 @@ impl SortedGraph {
 
         if self_node_count < other_node_count {
             // we need to expand self to the size of other
-            self.graph
-                .nodes
-                .resize_with(other_node_count, || Node::new());
+            self.graph.nodes.resize_with(other_node_count, Node::new);
         }
 
         // We only need to iterate over the nodes of other
@@ -687,7 +684,7 @@ impl SortedGraph {
                 .get(i)
                 .expect("array resized above, element must exist")
                 .edges;
-            if b.len() == 0 {
+            if b.is_empty() {
                 // nothing to do
                 continue;
             }
@@ -900,7 +897,7 @@ pub fn get_graph_triple_count_from_binary_file<P: AsRef<Path>>(
 ) -> Result<usize, GraphValidationError> {
     let path = file.as_ref();
     let graph_binary_size = fs::metadata(path)?.len() as usize;
-    if graph_binary_size % BYTES_PER_TRIPLE != 0 {
+    if graph_binary_size.is_multiple_of(BYTES_PER_TRIPLE) {
         return Err(GraphValidationError::NotDivisible {
             num_bytes: (graph_binary_size),
         });
