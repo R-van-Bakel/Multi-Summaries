@@ -53,12 +53,8 @@ pub fn compute_bisimulation(
             }
         }
 
-        // If no blocks are dirty, the partition is stable
+        // If no blocks are dirty, the partition is stable, but if semi_dirty_blocks is not empty, we still need to emit some of there associated data edges
         if bisimulation_state.current_outcome.dirty_blocks.is_empty() {
-            // println!(
-            //     "Bisimulation stabilized at k = {}",
-            //     bisimulation_state.shared_state.i - 1
-            // );
             let fixed_point = bisimulation_state.shared_state.i - 1;
             if !bisimulation_state
                 .current_outcome
@@ -73,14 +69,6 @@ pub fn compute_bisimulation(
             println!("Bisimulation stabilized at k = {}", fixed_point);
             break;
         }
-        // if bisimulation_state.current_outcome.dirty_blocks.is_empty() {
-        // // && bisimulation_state.current_outcome.semi_dirty_blocks.is_empty() {
-        //     println!(
-        //         "Bisimulation stabilized at k = {}",
-        //         bisimulation_state.shared_state.i - 1
-        //     );
-        //     break;
-        // }
 
         // Perform the refinement step
         bisimulation_state =
@@ -90,40 +78,10 @@ pub fn compute_bisimulation(
         bisimulation_state.shared_state.update_level()?;
     }
 
-    // Deconstruct the bisimulation state
+    // 4. Emit the data edges for the remaining (non-singleton) blocks
     let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
-
-    // let mut node_index_to_global_terminal_block_id = vec![0; graph.get_size()];
-
-    // for (block_index, maybe_block) in final_outcome.blocks.iter().enumerate() {
-    //     match maybe_block {
-    //         None => continue,
-    //         Some(block) => {
-    //             if block.nodes.len() == 0 {
-    //                 panic!("This must never happen");
-    //             }
-    //             let GlobalBlockIndexAndLevel {global_id, level} = final_state
-    //                 .previous_block_mapping
-    //                 .get(&block_index)
-    //                 .unwrap();
-    //             for node in &*(*block).nodes {
-    //                 node_index_to_global_terminal_block_id[*node] = *global_id;
-    //             }
-    //         }
-    //     }
-    // }
-    // for (block_index, GlobalBlockIndexAndLevel {global_id, level}) in final_state.singleton_mapping.iter() {
-    //     node_index_to_global_terminal_block_id[*block_index] = *global_id;
-    // }
-
-    // for (node_id, block) in final_outcome.node_to_block.mapping.iter().enumerate() {
-    //     match block {
-    //         BlockAssignment::Block(block_id) => println!("Node({}) -> Block({}) = {}", node_id, block_id, final_state.previous_block_mapping.get(block_id).unwrap().global_id),
-    //         BlockAssignment::Singleton(singleton_id) => println!("Node({}) -> Singleton({}) = {}", node_id, singleton_id, final_state.singleton_mapping.get(singleton_id).unwrap().global_id)
-    //     }
-    // }
-
-    // We final_outcome.blocks
+    let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
+    let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
     for (block_idx, block) in std::mem::take(&mut final_outcome.blocks)
         .into_iter()
         .enumerate()
@@ -132,13 +90,9 @@ pub fn compute_bisimulation(
         let GlobalBlockIndexAndLevel {
             global_id: global_subject,
             level: subject_level,
-        } = final_state.previous_block_mapping.get(&block_idx).unwrap();
+        } = block_mapping.get(&block_idx).unwrap();
         let mut sorted_inners = Vec::new();
         for node_idx in block.nodes.iter() {
-            // let GlobalBlockIndexAndLevel {global_id: global_subject, level: subject_level} = match &final_outcome.node_to_block.mapping[*node_idx] {
-            //     BlockAssignment::Block(block_id) => final_state.previous_block_mapping.get(block_id).copied().unwrap(),
-            //     BlockAssignment::Singleton(singleton_id) => final_state.singleton_mapping.get(singleton_id).copied().unwrap()
-            // };
             let mut inner_data_edges = Vec::new();
             for edge in graph.get_node(*node_idx).edges.iter() {
                 let edge_type = edge.label;
@@ -146,15 +100,13 @@ pub fn compute_bisimulation(
                     global_id: global_target,
                     level: target_level,
                 } = match &final_outcome.node_to_block.mapping[edge.target] {
-                    BlockAssignment::Block(block_id) => {
-                        final_state.previous_block_mapping.get(block_id).unwrap()
-                    }
+                    BlockAssignment::Block(block_id) => block_mapping.get(block_id).unwrap(),
                     BlockAssignment::Singleton(singleton_id) => {
-                        final_state.singleton_mapping.get(singleton_id).unwrap()
+                        singleton_mapping.get(singleton_id).unwrap()
                     }
                 };
                 let start_time = std::cmp::max(*subject_level, target_level + 1);
-                let end_time = 0; // final_state.i-1;
+                let end_time = 0; // NB: we are using 0 to encode for infinity
                 inner_data_edges.push(DataEdgeAndInterval {
                     data_edge: (*global_subject, edge_type, *global_target),
                     interval: (start_time, end_time),
@@ -171,19 +123,18 @@ pub fn compute_bisimulation(
             interval: (start_time, end_time),
         } in outer_data_edges.into_iter()
         {
-            // println!("DEBUG final: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
             final_state.data_edge_callback((global_subject, edge_type, global_target))?;
         }
     }
 
-    let stolen_singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
+    // 5. Emit the data edges for the remaining singleton blocks
     for (
         node_idx,
         GlobalBlockIndexAndLevel {
             global_id: global_subject,
             level: subject_level,
         },
-    ) in stolen_singleton_mapping.iter()
+    ) in singleton_mapping.iter()
     {
         let mut inner_data_edges = Vec::new();
         for edge in graph.get_node(*node_idx).edges.iter() {
@@ -192,13 +143,9 @@ pub fn compute_bisimulation(
                 global_id: global_target,
                 level: target_level,
             } = match &final_outcome.node_to_block.mapping[edge.target] {
-                BlockAssignment::Block(block_id) => final_state
-                    .previous_block_mapping
-                    .get(block_id)
-                    .copied()
-                    .unwrap(),
+                BlockAssignment::Block(block_id) => block_mapping.get(block_id).copied().unwrap(),
                 BlockAssignment::Singleton(singleton_id) => {
-                    stolen_singleton_mapping.get(singleton_id).copied().unwrap()
+                    singleton_mapping.get(singleton_id).copied().unwrap()
                 }
             };
             let start_time = std::cmp::max(*subject_level, target_level + 1);
@@ -215,24 +162,13 @@ pub fn compute_bisimulation(
             interval: (start_time, end_time),
         } in inner_data_edges.into_iter()
         {
-            // println!("DEBUG final: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
             final_state.data_edge_callback((global_subject, edge_type, global_target))?;
         }
     }
 
+    // Explicit flush is good practice, though it happens automatically on drop
     final_state.data_edge_writer.flush()?;
     final_state.refines_writer.flush()?;
-
-    // let file = File::create("node_index_to_global_terminal_block_id")?;
-    // let mut writer = BufWriter::new(file);
-
-    // for num in node_index_to_global_terminal_block_id {
-    //     // to_be_bytes() converts the u64 into an [u8; 8] array in Big Endian
-    //     writer.write_all(&num.to_be_bytes())?;
-    // }
-
-    // // Explicit flush is good practice, though it happens automatically on drop
-    // writer.flush()?;
 
     Ok(())
 }
@@ -253,11 +189,11 @@ pub fn k_way_merge<T: Ord + Clone>(lists: Vec<Vec<T>>) -> Vec<T> {
     let mut last_seen = None;
 
     while let Some((Reverse(value), idx)) = heap.pop() {
-        if last_seen.as_ref().is_some_and(|ls| ls == &value) {
-            continue;
+        if !last_seen.as_ref().is_some_and(|ls| ls == &value) {
+            last_seen = Some(value.clone());
+            result.push(value);
         }
-        last_seen = Some(value.clone());
-        result.push(value);
+
         if let Some(next) = iters[idx].next() {
             heap.push((Reverse(next), idx));
         }
