@@ -1,11 +1,14 @@
-use std::io::{Result, Write};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::io::{Result, Write};
 
 // use itertools::Itertools;
 use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
 
-use multi_summaries::bisimulator::{BlockAssignment, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel, LevelIndex, get_0_bisimulation, get_i_bisimulation};
+use multi_summaries::bisimulator::{
+    BlockAssignment, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel, LevelIndex,
+    get_0_bisimulation, get_i_bisimulation,
+};
 
 fn main() -> Result<()> {
     let file_name = "fb15k.bin";
@@ -57,15 +60,17 @@ pub fn compute_bisimulation(
             //     bisimulation_state.shared_state.i - 1
             // );
             let fixed_point = bisimulation_state.shared_state.i - 1;
-            if !bisimulation_state.current_outcome.semi_dirty_blocks.is_empty() {
+            if !bisimulation_state
+                .current_outcome
+                .semi_dirty_blocks
+                .is_empty()
+            {
                 println!("Running extra iteration to emit data edges that end at the fixed point");
-                bisimulation_state = get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?;
-                bisimulation_state.shared_state.update_level()?;  // TODO this call might not be needed
+                bisimulation_state =
+                    get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?;
+                bisimulation_state.shared_state.update_level()?; // TODO this call might not be needed
             }
-            println!(
-                "Bisimulation stabilized at k = {}",
-                fixed_point
-            );
+            println!("Bisimulation stabilized at k = {}", fixed_point);
             break;
         }
         // if bisimulation_state.current_outcome.dirty_blocks.is_empty() {
@@ -118,9 +123,16 @@ pub fn compute_bisimulation(
     //     }
     // }
 
-    // We final_outcome.blocks 
-    for (block_idx, block) in std::mem::take(&mut final_outcome.blocks).into_iter().enumerate().filter_map(|(block_idx, maybe_block)| maybe_block.map(|block| (block_idx, block))) {
-        let GlobalBlockIndexAndLevel {global_id: global_subject, level: subject_level} = final_state.previous_block_mapping.get(&block_idx).unwrap();
+    // We final_outcome.blocks
+    for (block_idx, block) in std::mem::take(&mut final_outcome.blocks)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(block_idx, maybe_block)| maybe_block.map(|block| (block_idx, block)))
+    {
+        let GlobalBlockIndexAndLevel {
+            global_id: global_subject,
+            level: subject_level,
+        } = final_state.previous_block_mapping.get(&block_idx).unwrap();
         let mut sorted_inners = Vec::new();
         for node_idx in block.nodes.iter() {
             // let GlobalBlockIndexAndLevel {global_id: global_subject, level: subject_level} = match &final_outcome.node_to_block.mapping[*node_idx] {
@@ -130,42 +142,79 @@ pub fn compute_bisimulation(
             let mut inner_data_edges = Vec::new();
             for edge in graph.get_node(*node_idx).edges.iter() {
                 let edge_type = edge.label;
-                let GlobalBlockIndexAndLevel {global_id: global_target, level: target_level} = match &final_outcome.node_to_block.mapping[edge.target] {
-                    BlockAssignment::Block(block_id) => final_state.previous_block_mapping.get(block_id).unwrap(),
-                    BlockAssignment::Singleton(singleton_id) => final_state.singleton_mapping.get(singleton_id).unwrap()
+                let GlobalBlockIndexAndLevel {
+                    global_id: global_target,
+                    level: target_level,
+                } = match &final_outcome.node_to_block.mapping[edge.target] {
+                    BlockAssignment::Block(block_id) => {
+                        final_state.previous_block_mapping.get(block_id).unwrap()
+                    }
+                    BlockAssignment::Singleton(singleton_id) => {
+                        final_state.singleton_mapping.get(singleton_id).unwrap()
+                    }
                 };
-                let start_time = std::cmp::max(*subject_level, target_level+1);
+                let start_time = std::cmp::max(*subject_level, target_level + 1);
                 let end_time = 0; // final_state.i-1;
-                inner_data_edges.push(DataEdgeAndInterval {data_edge: (*global_subject, edge_type, *global_target), interval: (start_time, end_time)});
+                inner_data_edges.push(DataEdgeAndInterval {
+                    data_edge: (*global_subject, edge_type, *global_target),
+                    interval: (start_time, end_time),
+                });
             }
             inner_data_edges.sort();
             inner_data_edges.dedup();
             sorted_inners.push(inner_data_edges);
         }
-        
+
         let outer_data_edges = k_way_merge(sorted_inners);
-        for DataEdgeAndInterval {data_edge: (global_subject, edge_type, global_target), interval: (start_time, end_time)} in outer_data_edges.into_iter() {
+        for DataEdgeAndInterval {
+            data_edge: (global_subject, edge_type, global_target),
+            interval: (start_time, end_time),
+        } in outer_data_edges.into_iter()
+        {
             // println!("DEBUG final: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
             final_state.data_edge_callback((global_subject, edge_type, global_target))?;
         }
     }
 
     let stolen_singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
-    for (node_idx, GlobalBlockIndexAndLevel {global_id: global_subject, level: subject_level}) in stolen_singleton_mapping.iter() {
+    for (
+        node_idx,
+        GlobalBlockIndexAndLevel {
+            global_id: global_subject,
+            level: subject_level,
+        },
+    ) in stolen_singleton_mapping.iter()
+    {
         let mut inner_data_edges = Vec::new();
         for edge in graph.get_node(*node_idx).edges.iter() {
             let edge_type = edge.label;
-            let GlobalBlockIndexAndLevel {global_id: global_target, level: target_level} = match &final_outcome.node_to_block.mapping[edge.target] {
-                BlockAssignment::Block(block_id) => final_state.previous_block_mapping.get(block_id).copied().unwrap(),
-                BlockAssignment::Singleton(singleton_id) => stolen_singleton_mapping.get(singleton_id).copied().unwrap()
+            let GlobalBlockIndexAndLevel {
+                global_id: global_target,
+                level: target_level,
+            } = match &final_outcome.node_to_block.mapping[edge.target] {
+                BlockAssignment::Block(block_id) => final_state
+                    .previous_block_mapping
+                    .get(block_id)
+                    .copied()
+                    .unwrap(),
+                BlockAssignment::Singleton(singleton_id) => {
+                    stolen_singleton_mapping.get(singleton_id).copied().unwrap()
+                }
             };
-            let start_time = std::cmp::max(*subject_level, target_level+1);
+            let start_time = std::cmp::max(*subject_level, target_level + 1);
             let end_time = 0; // final_state.i-1;
-            inner_data_edges.push(DataEdgeAndInterval {data_edge: (*global_subject, edge_type, global_target), interval: (start_time, end_time)});
+            inner_data_edges.push(DataEdgeAndInterval {
+                data_edge: (*global_subject, edge_type, global_target),
+                interval: (start_time, end_time),
+            });
         }
-            inner_data_edges.sort();
-            inner_data_edges.dedup();
-        for DataEdgeAndInterval {data_edge: (global_subject, edge_type, global_target), interval: (start_time, end_time)} in inner_data_edges.into_iter() {
+        inner_data_edges.sort();
+        inner_data_edges.dedup();
+        for DataEdgeAndInterval {
+            data_edge: (global_subject, edge_type, global_target),
+            interval: (start_time, end_time),
+        } in inner_data_edges.into_iter()
+        {
             // println!("DEBUG final: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
             final_state.data_edge_callback((global_subject, edge_type, global_target))?;
         }
@@ -176,7 +225,7 @@ pub fn compute_bisimulation(
 
     // let file = File::create("node_index_to_global_terminal_block_id")?;
     // let mut writer = BufWriter::new(file);
-    
+
     // for num in node_index_to_global_terminal_block_id {
     //     // to_be_bytes() converts the u64 into an [u8; 8] array in Big Endian
     //     writer.write_all(&num.to_be_bytes())?;
@@ -191,7 +240,7 @@ pub fn compute_bisimulation(
 // TODO: double check if this is correct
 pub fn k_way_merge<T: Ord + Clone>(lists: Vec<Vec<T>>) -> Vec<T> {
     let mut iters: Vec<_> = lists.into_iter().map(|v| v.into_iter()).collect();
-    let mut heap: BinaryHeap<(Reverse<T>, usize)> = BinaryHeap::new();
+    let mut heap: BinaryHeap<(Reverse<T>, usize)> = BinaryHeap::with_capacity(iters.len());
 
     // Seed heap with first element of each iterator
     for (i, iter) in iters.iter_mut().enumerate() {
@@ -202,7 +251,7 @@ pub fn k_way_merge<T: Ord + Clone>(lists: Vec<Vec<T>>) -> Vec<T> {
 
     let mut result = Vec::new();
     let mut last_seen = None;
-    
+
     while let Some((Reverse(value), idx)) = heap.pop() {
         if last_seen.as_ref().is_some_and(|ls| ls == &value) {
             continue;
@@ -220,7 +269,7 @@ pub fn k_way_merge<T: Ord + Clone>(lists: Vec<Vec<T>>) -> Vec<T> {
 #[derive(Clone)]
 struct DataEdgeAndInterval {
     pub data_edge: (GlobalBlockIndex, EdgeType, GlobalBlockIndex),
-    pub interval: (LevelIndex, LevelIndex)
+    pub interval: (LevelIndex, LevelIndex),
 }
 
 // Data edges are uniquely identified by their triples, so we can ignore the intervals for the purposes of equality and ordering

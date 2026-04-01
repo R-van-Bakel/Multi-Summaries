@@ -1,13 +1,13 @@
 use fxhash::FxBuildHasher;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 // Assuming graph.rs is a module
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 
 use std::fmt::{self, Display};
 use std::fs::File;
-use std::hash::{Hash,Hasher};
+use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Result, Write};
 
 pub type BlockIndex = usize;
@@ -23,8 +23,8 @@ pub enum BlockAssignment {
 }
 
 impl BlockAssignment {
-    const VARIANT1_HASH: usize = 12634128529936681850 as usize;  // 8-byte slice from SHA256(0), truncates for 32-bit systems
-    const VARIANT2_HASH: usize = 14782610670539863730 as usize;  // 8-byte slice from SHA256(1), truncates for 32-bit systems
+    const VARIANT1_HASH: usize = 12634128529936681850 as usize; // 8-byte slice from SHA256(0), truncates for 32-bit systems
+    const VARIANT2_HASH: usize = 14782610670539863730 as usize; // 8-byte slice from SHA256(1), truncates for 32-bit systems
     fn salt(&self) -> usize {
         match self {
             BlockAssignment::Block(v) => v ^ BlockAssignment::VARIANT1_HASH,
@@ -38,7 +38,6 @@ impl Hash for BlockAssignment {
         self.salt().hash(state);
     }
 }
-
 
 impl Display for BlockAssignment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -144,7 +143,6 @@ impl InternalNode2BlockMapper {
             self.singleton_count += 1;
         }
         self.new_mapping.insert(node, block);
-        
     }
 }
 
@@ -183,7 +181,7 @@ impl KBisimulationOutcome {
 #[derive(Clone, Copy)]
 pub struct GlobalBlockIndexAndLevel {
     pub global_id: GlobalBlockIndex,
-    pub level: LevelIndex
+    pub level: LevelIndex,
 }
 
 // // NB: we assume global ids are unique and therefore enough for hashing and equality
@@ -201,7 +199,7 @@ pub struct GlobalBlockIndexAndLevel {
 
 enum DataEdgeTarget {
     Refined(GlobalBlockIndexAndLevel),
-    Invariant(GlobalBlockIndexAndLevel)
+    Invariant(GlobalBlockIndexAndLevel),
 }
 
 #[derive(Eq, PartialEq)]
@@ -244,7 +242,13 @@ impl SharedBisimulationState {
 
         let mut previous_block_mapping = HashMap::with_hasher(FxBuildHasher::default());
         for new_id in 0..bisimulation_outcome.blocks.len() {
-            previous_block_mapping.insert(new_id, GlobalBlockIndexAndLevel{global_id: new_id, level: 0});
+            previous_block_mapping.insert(
+                new_id,
+                GlobalBlockIndexAndLevel {
+                    global_id: new_id,
+                    level: 0,
+                },
+            );
         }
 
         let global_largest_block_id = (bisimulation_outcome.blocks.len() - 1) as BlockIndex;
@@ -296,7 +300,10 @@ impl SharedBisimulationState {
                 self.global_largest_block_id += 1;
                 let source_global = self.global_largest_block_id;
 
-                let GlobalBlockIndexAndLevel {global_id: target_global, level: target_level} = self.previous_block_mapping.get(target_local).unwrap();
+                let GlobalBlockIndexAndLevel {
+                    global_id: target_global,
+                    level: target_level,
+                } = self.previous_block_mapping.get(target_local).unwrap();
 
                 //println!("{} -> {}", source_global, target_global);
                 self.refines_writer
@@ -304,16 +311,31 @@ impl SharedBisimulationState {
                 self.refines_writer
                     .write_all(&target_global.to_be_bytes())?;
 
-                self.new_refines_map.insert((*refine_source_block).clone(), GlobalBlockIndexAndLevel {global_id: *target_global, level: target_level.clone()}); // Store the current refines map in memory
+                self.new_refines_map.insert(
+                    (*refine_source_block).clone(),
+                    GlobalBlockIndexAndLevel {
+                        global_id: *target_global,
+                        level: target_level.clone(),
+                    },
+                ); // Store the current refines map in memory
 
-                self.new_mappings.insert(*source_local, GlobalBlockIndexAndLevel { global_id: source_global, level: self.i });
+                self.new_mappings.insert(
+                    *source_local,
+                    GlobalBlockIndexAndLevel {
+                        global_id: source_global,
+                        level: self.i,
+                    },
+                );
             }
             (BlockAssignment::Singleton(node_index), BlockAssignment::Block(target_local)) => {
                 //let source_global = (-(*source_local as i64)) - 1;
                 self.global_largest_block_id += 1;
                 let source_global = self.global_largest_block_id;
 
-                let GlobalBlockIndexAndLevel {global_id: target_global, level: target_level} = self.previous_block_mapping.get(target_local).unwrap();
+                let GlobalBlockIndexAndLevel {
+                    global_id: target_global,
+                    level: target_level,
+                } = self.previous_block_mapping.get(target_local).unwrap();
 
                 // println!("s - {} -> {}", source_global, target_global);
                 self.refines_writer
@@ -321,9 +343,21 @@ impl SharedBisimulationState {
                 self.refines_writer
                     .write_all(&target_global.to_be_bytes())?;
 
-                self.new_refines_map.insert((*refine_source_block).clone(), GlobalBlockIndexAndLevel{global_id: *target_global, level: target_level.clone()}); // Store the current refines map in memory
+                self.new_refines_map.insert(
+                    (*refine_source_block).clone(),
+                    GlobalBlockIndexAndLevel {
+                        global_id: *target_global,
+                        level: target_level.clone(),
+                    },
+                ); // Store the current refines map in memory
 
-                self.singleton_mapping.insert(*node_index, GlobalBlockIndexAndLevel { global_id: source_global, level: self.i });
+                self.singleton_mapping.insert(
+                    *node_index,
+                    GlobalBlockIndexAndLevel {
+                        global_id: source_global,
+                        level: self.i,
+                    },
+                );
             }
             _ => {
                 panic!("Not a valid edge");
@@ -349,16 +383,19 @@ impl SharedBisimulationState {
         sig_keys: I,
     ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>>
     where
-        I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>> {
+        I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>>,
+    {
         // Return early when the level is 0 or 1, because at those levels there is not enough information to emit any data edges
         if self.i <= 1 {
-            return None
+            return None;
         }
-        
+
         let mut signature_pieces_union = Vec::new();
 
         for (edge_type, block) in sig_keys.into_iter().flatten() {
-            let Some(GlobalBlockIndexAndLevel {global_id, level}) = self.previous_refines_map.get(block) else {
+            let Some(GlobalBlockIndexAndLevel { global_id, level }) =
+                self.previous_refines_map.get(block)
+            else {
                 continue;
             };
             signature_pieces_union.push((edge_type.clone(), global_id.clone(), level.clone()));
@@ -371,21 +408,98 @@ impl SharedBisimulationState {
 
     fn get_global_id(&self, block: &BlockAssignment) -> &GlobalBlockIndexAndLevel {
         match block {
-            BlockAssignment::Block(block_id) => self.previous_block_mapping.get(block_id).expect("Block not found in previous_block_mapping"),
-            BlockAssignment::Singleton(singleton_id) => self.singleton_mapping.get(singleton_id).expect("Singleton not found in singleton_mapping")
+            BlockAssignment::Block(block_id) => self
+                .previous_block_mapping
+                .get(block_id)
+                .expect("Block not found in previous_block_mapping"),
+            BlockAssignment::Singleton(singleton_id) => self
+                .singleton_mapping
+                .get(singleton_id)
+                .expect("Singleton not found in singleton_mapping"),
         }
     }
 
+    // // This function is for finding all outgoing data edges for splitting blocks, so the can be emitted later
+    // fn signatures_to_unique_signature_parts<'a, I>(
+    //     &mut self,
+    //     sig_keys: I,
+    // ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>>
+    // where
+    //     I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>> {
+    //     // Return early when the level is 0 or 1, because at those levels there is not enough information to emit any data edges
+    //     if self.i <= 1 {
+    //         return None
+    //     }
+    //     // The helper function that handles the mapping to global signatures, along with the starting levels
+    //     let signature_to_global_mapper_helper = |block: &BlockAssignment| -> DataEdgeTarget {
+    //         let get_previous_global_id_fallback = || {
+    //             let target = self.get_global_id(block).clone();
+    //             DataEdgeTarget::Invariant(target)
+    //         };
+    //         let global_id_and_level = self.previous_refines_map
+    //             .get(block)
+    //             .copied()
+    //             .map_or_else(|| get_previous_global_id_fallback(),|target| DataEdgeTarget::Refined(target));
+    //         global_id_and_level
+    //     };
+
+    //     // Convenient way to map the target and pass on the edge type
+    //     let map_piece = |piece: &(u32, BlockAssignment)| {
+    //         let target = signature_to_global_mapper_helper(&piece.1);
+    //         (piece.0, target)
+    //     };
+
+    //     let mut iters: Vec<_> = sig_keys.into_iter().map(|v| v.into_iter()).collect();
+    //     let mut pq: BinaryHeap<(Reverse<&(u32, BlockAssignment)>, usize)> = BinaryHeap::with_capacity(iters.len());
+
+    //     for (i, iter) in iters.iter_mut().enumerate() {
+    //         if let Some(first) = iter.next() {
+    //             pq.push((Reverse(first), i));
+    //         }
+    // }
+    //     let mut signature_pieces_union = Vec::new();
+
+    //     let mut refined_targets = Vec::new();
+
+    //     let mut last_seen: Option<(u32, BlockAssignment)> = None;
+    //     while let Some((Reverse(x), idx)) = pq.pop() {
+    //         let possibly_new_piece = x;
+    //         let (pred, mapped_target) = map_piece(possibly_new_piece);
+    //         let (global_id, level) = match mapped_target {
+    //             DataEdgeTarget::Refined(GlobalBlockIndexAndLevel {global_id, level}) => {
+    //                 refined_targets.push((pred, global_id, level));
+    //                 continue;  // You can thank Rust's "never" type :D
+    //             }
+    //             DataEdgeTarget::Invariant(GlobalBlockIndexAndLevel {global_id, level}) => (global_id, level)
+    //         };
+    //         if last_seen.as_ref().is_some_and(|ls| ls == possibly_new_piece) {
+    //             continue;
+    //         }
+    //         last_seen = Some(possibly_new_piece.clone());
+    //         signature_pieces_union.push((pred, global_id, level));
+
+    //         if let Some(next) = iters[idx].next() {
+    //             pq.push((Reverse(next), idx));
+    //         }
+    //     }
+    //     refined_targets.sort();
+    //     refined_targets.dedup();
+    //     signature_pieces_union.extend(refined_targets);
+    //     Some(signature_pieces_union)
+    // }
+
+    // DUMMY IMPLEMENTATION TO TEST THE CODE
     // This function is for finding all outgoing data edges for splitting blocks, so the can be emitted later
     fn signatures_to_unique_signature_parts<'a, I>(
         &mut self,
         sig_keys: I,
     ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>>
     where
-        I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>> {
+        I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>>,
+    {
         // Return early when the level is 0 or 1, because at those levels there is not enough information to emit any data edges
         if self.i <= 1 {
-            return None
+            return None;
         }
         // The helper function that handles the mapping to global signatures, along with the starting levels
         let signature_to_global_mapper_helper = |block: &BlockAssignment| -> DataEdgeTarget {
@@ -393,10 +507,10 @@ impl SharedBisimulationState {
                 let target = self.get_global_id(block).clone();
                 DataEdgeTarget::Invariant(target)
             };
-            let global_id_and_level = self.previous_refines_map
-                .get(block)
-                .copied()
-                .map_or_else(|| get_previous_global_id_fallback(),|target| DataEdgeTarget::Refined(target));
+            let global_id_and_level = self.previous_refines_map.get(block).copied().map_or_else(
+                || get_previous_global_id_fallback(),
+                |target| DataEdgeTarget::Refined(target),
+            );
             global_id_and_level
         };
 
@@ -406,58 +520,45 @@ impl SharedBisimulationState {
             (piece.0, target)
         };
 
-        let mut pq: BinaryHeap<IndexAndSignature> = sig_keys
+        // DEBUG: This is just for debugging
+        let mut taken_sigs = Vec::new();
+        for sig in sig_keys.into_iter() {
+            assert!(sig.is_sorted());
+            // assert!(sig.is_sorted_by_key(|k| Reverse(k)));  // Check for reverse sorting
+            // println!("{:?}", sig);
+            taken_sigs.push(sig);
+        }
+
+        let mut mapped_signatures: Vec<_> = taken_sigs
             .into_iter()
-            .map(|signature| IndexAndSignature {
-                index: 0 as usize,
-                signature,
+            .flat_map(|v| {
+                v.iter().map(|x| {
+                    let (pred, target) = map_piece(x);
+                    let (global_id, level) = match target {
+                        DataEdgeTarget::Refined(id_level) | DataEdgeTarget::Invariant(id_level) => {
+                            let GlobalBlockIndexAndLevel { global_id, level } = id_level;
+                            (global_id, level)
+                        }
+                    };
+                    (pred, global_id, level)
+                })
             })
             .collect();
-        let mut signature_pieces_union = Vec::new();
-
-        let mut refined_targets = Vec::new();
-
-        let mut last_seen: Option<(u32, BlockAssignment)> = None;
-        while let Some(x) = pq.pop() {
-            let possibly_new_piece = x.signature[x.index].clone();
-            let (pred, mapped_target) = map_piece(&possibly_new_piece);
-            let (global_id, level) = match mapped_target {
-                DataEdgeTarget::Refined(GlobalBlockIndexAndLevel {global_id, level}) => {
-                    refined_targets.push((pred, global_id, level));
-                    continue;  // You can thank Rust's "never" type :D
-                }
-                DataEdgeTarget::Invariant(GlobalBlockIndexAndLevel {global_id, level}) => (global_id, level)
-            };
-            if last_seen.as_ref().is_some_and(|ls| ls == &possibly_new_piece) {
-                continue;
-            }
-            last_seen = Some(possibly_new_piece.clone());
-            signature_pieces_union.push((pred, global_id, level));
-
-            if x.index + 1 < x.signature.len() {
-                pq.push(IndexAndSignature {
-                    index: x.index + 1,
-                    signature: x.signature,
-                });
-            }
-        }
-        refined_targets.sort();
-        refined_targets.dedup();
-        signature_pieces_union.extend(refined_targets);
-        Some(signature_pieces_union)
+        mapped_signatures.sort();
+        mapped_signatures.dedup();
+        Some(mapped_signatures)
     }
 
-    pub fn data_edge_callback(&mut self, (subject, predicate, object): (GlobalBlockIndex, u32, GlobalBlockIndex)) -> Result<()> {
+    pub fn data_edge_callback(
+        &mut self,
+        (subject, predicate, object): (GlobalBlockIndex, u32, GlobalBlockIndex),
+    ) -> Result<()> {
         // println!("{} -{}-> {}", subject, predicate, object);
-        self.data_edge_writer
-            .write_all(&subject.to_be_bytes())?;
-        self.data_edge_writer
-            .write_all(&predicate.to_be_bytes())?;
-        self.data_edge_writer
-            .write_all(&object.to_be_bytes())?;
+        self.data_edge_writer.write_all(&subject.to_be_bytes())?;
+        self.data_edge_writer.write_all(&predicate.to_be_bytes())?;
+        self.data_edge_writer.write_all(&object.to_be_bytes())?;
         Ok(())
     }
-    
 }
 
 pub struct FullBisimulationState {
@@ -526,17 +627,15 @@ pub fn get_i_bisimulation(
 
     let mut semi_dirty_blocks = prev_outcome.semi_dirty_blocks;
 
-
     for semi_dirty_idx in semi_dirty_blocks.drain(..) {
         // let block_nodes = match semi_dirty_idx {
         //     BlockAssignment::Block(block_id) => std::borrow::Cow::Borrowed(&k_blocks[block_id].as_ref().unwrap().nodes),  // We are sure this block must exist, so we can unwrap and borrow
         //     BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id])  // Create new singleton block to own
         // };
 
-        
         let block_nodes: std::borrow::Cow<'_, Vec<usize>> = match semi_dirty_idx {
-            BlockAssignment::Block(block_id) => continue,  // TODO implement this arm for non-singletons below the mininam support. We are sure this block must exist, so we can unwrap and borrow
-            BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id])  // Create new singleton block to own
+            BlockAssignment::Block(block_id) => continue, // TODO implement this arm for non-singletons below the mininam support. We are sure this block must exist, so we can unwrap and borrow
+            BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id]), // Create new singleton block to own
         };
 
         let mut joint_signature = Vec::new();
@@ -581,13 +680,24 @@ pub fn get_i_bisimulation(
         // let joint_signature = sig_set.into_iter().collect();
 
         // Because we already know the block doesn't split, we use `refined_signatures_to_unique_signature_parts()`
-        let targets = partial_bisimulation_state.shared_state.refined_signatures_to_unique_signature_parts(std::iter::once(&joint_signature)).unwrap_or_default();
-        let GlobalBlockIndexAndLevel {global_id: global_subject, level: subject_level} = partial_bisimulation_state.shared_state.get_global_id(&semi_dirty_idx).clone();
+        let targets = partial_bisimulation_state
+            .shared_state
+            .refined_signatures_to_unique_signature_parts(std::iter::once(&joint_signature))
+            .unwrap_or_default();
+        let GlobalBlockIndexAndLevel {
+            global_id: global_subject,
+            level: subject_level,
+        } = partial_bisimulation_state
+            .shared_state
+            .get_global_id(&semi_dirty_idx)
+            .clone();
         for (edge_type, global_target, target_level) in targets {
-            let start_time = std::cmp::max(subject_level, target_level+1);
-            let end_time = partial_bisimulation_state.shared_state.i-1;
+            let start_time = std::cmp::max(subject_level, target_level + 1);
+            let end_time = partial_bisimulation_state.shared_state.i - 1;
             // println!("DEBUG s-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-            partial_bisimulation_state.shared_state.data_edge_callback((global_subject, edge_type, global_target))?;
+            partial_bisimulation_state
+                .shared_state
+                .data_edge_callback((global_subject, edge_type, global_target))?;
         }
     }
 
@@ -602,7 +712,8 @@ pub fn get_i_bisimulation(
         // }
 
         // signature_t: Map of (EdgeLabel, TargetBlockID) -> Nodes
-        let mut signatures: HashMap<Vec<(EdgeType, BlockAssignment)>, Vec<NodeIndex>> = HashMap::new();
+        let mut signatures: HashMap<Vec<(EdgeType, BlockAssignment)>, Vec<NodeIndex>> =
+            HashMap::new();
 
         for &v in block_ref.nodes.iter() {
             // We use a BtreeSet instead of using unique and then sorted on the iterator.
@@ -628,13 +739,24 @@ pub fn get_i_bisimulation(
         if signatures.len() <= 1 {
             // Check for any data edges that need to be persisted
             // TODO clean this up (perhaps move the map through previous_refines_map to the signatures_to_unique_signature_parts function itself)
-            let targets = partial_bisimulation_state.shared_state.refined_signatures_to_unique_signature_parts(signatures.keys()).unwrap_or_default();
-            let GlobalBlockIndexAndLevel {global_id: global_subject, level: subject_level} = partial_bisimulation_state.shared_state.get_global_id(&BlockAssignment::Block(dirty_idx)).clone();
+            let targets = partial_bisimulation_state
+                .shared_state
+                .refined_signatures_to_unique_signature_parts(signatures.keys())
+                .unwrap_or_default();
+            let GlobalBlockIndexAndLevel {
+                global_id: global_subject,
+                level: subject_level,
+            } = partial_bisimulation_state
+                .shared_state
+                .get_global_id(&BlockAssignment::Block(dirty_idx))
+                .clone();
             for (edge_type, global_target, target_level) in targets {
-                let start_time = std::cmp::max(subject_level, target_level+1);
-                let end_time = partial_bisimulation_state.shared_state.i-1;
+                let start_time = std::cmp::max(subject_level, target_level + 1);
+                let end_time = partial_bisimulation_state.shared_state.i - 1;
                 // println!("DEBUG f-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-                partial_bisimulation_state.shared_state.data_edge_callback((global_subject, edge_type, global_target))?;
+                partial_bisimulation_state
+                    .shared_state
+                    .data_edge_callback((global_subject, edge_type, global_target))?;
             }
 
             continue;
@@ -642,14 +764,25 @@ pub fn get_i_bisimulation(
 
         // Persist outgoing data edges
         // TODO clean this up (perhaps move the map through previous_refines_map to the signatures_to_unique_signature_parts function itself)
-        // TODO add a function to get the global id and 
-        let targets = partial_bisimulation_state.shared_state.signatures_to_unique_signature_parts(signatures.keys()).unwrap_or_default();
-        let GlobalBlockIndexAndLevel {global_id: global_subject, level: subject_level} = partial_bisimulation_state.shared_state.get_global_id(&BlockAssignment::Block(dirty_idx)).clone();
+        // TODO add a function to get the global id and
+        let targets = partial_bisimulation_state
+            .shared_state
+            .signatures_to_unique_signature_parts(signatures.keys())
+            .unwrap_or_default();
+        let GlobalBlockIndexAndLevel {
+            global_id: global_subject,
+            level: subject_level,
+        } = partial_bisimulation_state
+            .shared_state
+            .get_global_id(&BlockAssignment::Block(dirty_idx))
+            .clone();
         for (edge_type, global_target, target_level) in targets.into_iter() {
-            let start_time = std::cmp::max(subject_level, target_level+1);
-            let end_time = partial_bisimulation_state.shared_state.i-1;
+            let start_time = std::cmp::max(subject_level, target_level + 1);
+            let end_time = partial_bisimulation_state.shared_state.i - 1;
             // println!("DEBUG f-out: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-            partial_bisimulation_state.shared_state.data_edge_callback((global_subject, edge_type, global_target))?;
+            partial_bisimulation_state
+                .shared_state
+                .data_edge_callback((global_subject, edge_type, global_target))?;
         }
 
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
@@ -718,14 +851,14 @@ pub fn get_i_bisimulation(
                 Some(preds) => {
                     for &source in preds {
                         let dirty_block_id = this_level_mapper.get_block_idx(source);
-                        
+
                         let block_idx = match dirty_block_id {
                             BlockAssignment::Singleton(_) => {
                                 // If it is a singleton, it can never split, so no need to mark dirty
                                 semi_dirty_blocks.push(dirty_block_id);
                                 continue;
                             }
-                            BlockAssignment::Block(block_idx) => block_idx
+                            BlockAssignment::Block(block_idx) => block_idx,
                         };
 
                         // let block_idx = dirty_block_id;
@@ -757,7 +890,7 @@ pub fn get_i_bisimulation(
     dirty_blocks.dedup();
     // it is likely that each next level dirty block vector has fewer elements, hence shrinking
     dirty_blocks.shrink_to_fit();
-    
+
     semi_dirty_blocks.sort();
     semi_dirty_blocks.dedup();
     // it is likely that each next level semi-dirty block vector has fewer elements, hence shrinking
@@ -810,7 +943,7 @@ pub fn get_typed_0_bisimulation(graph: &FlatGraph, rdf_type_id: EdgeType) -> KBi
     KBisimulationOutcome {
         blocks: new_blocks,
         dirty_blocks: dirty,
-        semi_dirty_blocks: Vec::new(),  // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
+        semi_dirty_blocks: Vec::new(), // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
         node_to_block: mapper.commit_new_mapping(),
         freeblock_indices: Vec::new(),
     }
@@ -842,7 +975,7 @@ pub fn get_0_bisimulation(graph: &FlatGraph) -> KBisimulationOutcome {
     KBisimulationOutcome {
         blocks,
         dirty_blocks,
-        semi_dirty_blocks: Vec::new(),  // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
+        semi_dirty_blocks: Vec::new(), // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
         node_to_block: mapper,
         freeblock_indices: Vec::new(),
     }
