@@ -16,7 +16,7 @@ fn main() -> Result<()> {
     // let file_name = "heterogeneous_hubs.bin";
 
     let mut g = Graph::new(1_000_000);
-    g.read_graph_parallel_memmmap(&file_name, false)?;
+    g.read_graph_parallel_memmmap(file_name, false)?;
 
     compute_bisimulation(&FlatGraph::new(g), 0, None)?;
 
@@ -47,10 +47,10 @@ pub fn compute_bisimulation(
         );
 
         // Break if we've reached a user-defined depth limit
-        if let Some(limit) = max_k {
-            if bisimulation_state.shared_state.i >= limit {
-                break;
-            }
+        if let Some(limit) = max_k
+            && bisimulation_state.shared_state.i >= limit
+        {
+            break;
         }
 
         // If no blocks are dirty, the partition is stable, but if semi_dirty_blocks is not empty, we still need to emit some of there associated data edges
@@ -189,7 +189,7 @@ pub fn k_way_merge<T: Ord + Clone>(lists: Vec<Vec<T>>) -> Vec<T> {
     let mut last_seen = None;
 
     while let Some((Reverse(value), idx)) = heap.pop() {
-        if !last_seen.as_ref().is_some_and(|ls| ls == &value) {
+        if last_seen.as_ref().is_none_or(|ls| ls != &value) {
             last_seen = Some(value.clone());
             result.push(value);
         }
@@ -219,7 +219,7 @@ impl Eq for DataEdgeAndInterval {}
 
 impl PartialOrd for DataEdgeAndInterval {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.data_edge.partial_cmp(&other.data_edge)
+        Some(self.cmp(other))
     }
 }
 
