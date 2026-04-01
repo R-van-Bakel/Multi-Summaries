@@ -11,5 +11,8 @@ memmap2 = "0.9.9"
 rayon = "1.11.0"
 thiserror = "2.0.18"
 
+[dev-dependencies]
+tempfile = "3"
+
 #[profile.release]
 #debug = true

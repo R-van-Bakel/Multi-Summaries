@@ -420,76 +420,6 @@ impl SharedBisimulationState {
     }
 
     // // This function is for finding all outgoing data edges for splitting blocks, so the can be emitted later
-    // fn signatures_to_unique_signature_parts<'a, I>(
-    //     &mut self,
-    //     sig_keys: I,
-    // ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>>
-    // where
-    //     I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>> {
-    //     // Return early when the level is 0 or 1, because at those levels there is not enough information to emit any data edges
-    //     if self.i <= 1 {
-    //         return None
-    //     }
-    //     // The helper function that handles the mapping to global signatures, along with the starting levels
-    //     let signature_to_global_mapper_helper = |block: &BlockAssignment| -> DataEdgeTarget {
-    //         let get_previous_global_id_fallback = || {
-    //             let target = self.get_global_id(block).clone();
-    //             DataEdgeTarget::Invariant(target)
-    //         };
-    //         let global_id_and_level = self.previous_refines_map
-    //             .get(block)
-    //             .copied()
-    //             .map_or_else(|| get_previous_global_id_fallback(),|target| DataEdgeTarget::Refined(target));
-    //         global_id_and_level
-    //     };
-
-    //     // Convenient way to map the target and pass on the edge type
-    //     let map_piece = |piece: &(u32, BlockAssignment)| {
-    //         let target = signature_to_global_mapper_helper(&piece.1);
-    //         (piece.0, target)
-    //     };
-
-    //     let mut iters: Vec<_> = sig_keys.into_iter().map(|v| v.into_iter()).collect();
-    //     let mut pq: BinaryHeap<(Reverse<&(u32, BlockAssignment)>, usize)> = BinaryHeap::with_capacity(iters.len());
-
-    //     for (i, iter) in iters.iter_mut().enumerate() {
-    //         if let Some(first) = iter.next() {
-    //             pq.push((Reverse(first), i));
-    //         }
-    // }
-    //     let mut signature_pieces_union = Vec::new();
-
-    //     let mut refined_targets = Vec::new();
-
-    //     let mut last_seen: Option<(u32, BlockAssignment)> = None;
-    //     while let Some((Reverse(x), idx)) = pq.pop() {
-    //         let possibly_new_piece = x;
-    //         let (pred, mapped_target) = map_piece(possibly_new_piece);
-    //         let (global_id, level) = match mapped_target {
-    //             DataEdgeTarget::Refined(GlobalBlockIndexAndLevel {global_id, level}) => {
-    //                 refined_targets.push((pred, global_id, level));
-    //                 continue;  // You can thank Rust's "never" type :D
-    //             }
-    //             DataEdgeTarget::Invariant(GlobalBlockIndexAndLevel {global_id, level}) => (global_id, level)
-    //         };
-    //         if last_seen.as_ref().is_some_and(|ls| ls == possibly_new_piece) {
-    //             continue;
-    //         }
-    //         last_seen = Some(possibly_new_piece.clone());
-    //         signature_pieces_union.push((pred, global_id, level));
-
-    //         if let Some(next) = iters[idx].next() {
-    //             pq.push((Reverse(next), idx));
-    //         }
-    //     }
-    //     refined_targets.sort();
-    //     refined_targets.dedup();
-    //     signature_pieces_union.extend(refined_targets);
-    //     Some(signature_pieces_union)
-    // }
-
-    // DUMMY IMPLEMENTATION TO TEST THE CODE
-    // This function is for finding all outgoing data edges for splitting blocks, so the can be emitted later
     fn signatures_to_unique_signature_parts<'a, I>(
         &mut self,
         sig_keys: I,
@@ -520,34 +450,114 @@ impl SharedBisimulationState {
             (piece.0, target)
         };
 
-        // DEBUG: This is just for debugging
-        let mut taken_sigs = Vec::new();
-        for sig in sig_keys.into_iter() {
-            assert!(sig.is_sorted());
-            // assert!(sig.is_sorted_by_key(|k| Reverse(k)));  // Check for reverse sorting
-            // println!("{:?}", sig);
-            taken_sigs.push(sig);
-        }
+        let mut iters: Vec<_> = sig_keys.into_iter().map(|v| v.into_iter()).collect();
+        let mut pq: BinaryHeap<(Reverse<&(u32, BlockAssignment)>, usize)> =
+            BinaryHeap::with_capacity(iters.len());
 
-        let mut mapped_signatures: Vec<_> = taken_sigs
-            .into_iter()
-            .flat_map(|v| {
-                v.iter().map(|x| {
-                    let (pred, target) = map_piece(x);
-                    let (global_id, level) = match target {
-                        DataEdgeTarget::Refined(id_level) | DataEdgeTarget::Invariant(id_level) => {
-                            let GlobalBlockIndexAndLevel { global_id, level } = id_level;
-                            (global_id, level)
-                        }
-                    };
-                    (pred, global_id, level)
-                })
-            })
-            .collect();
-        mapped_signatures.sort();
-        mapped_signatures.dedup();
-        Some(mapped_signatures)
+        for (i, iter) in iters.iter_mut().enumerate() {
+            if let Some(first) = iter.next() {
+                pq.push((Reverse(first), i));
+            }
+        }
+        let mut signature_pieces_union = Vec::new();
+
+        let mut refined_targets = Vec::new();
+
+        let mut last_seen: Option<(u32, BlockAssignment)> = None;
+        while let Some((Reverse(x), idx)) = pq.pop() {
+            let possibly_new_piece = x;
+            let (pred, mapped_target) = map_piece(possibly_new_piece);
+            let (global_id, level) = match mapped_target {
+                DataEdgeTarget::Refined(GlobalBlockIndexAndLevel { global_id, level }) => {
+                    refined_targets.push((pred, global_id, level));
+                    if let Some(next) = iters[idx].next() {
+                        pq.push((Reverse(next), idx));
+                    }
+                    continue; // You can thank Rust's "never" type :D
+                }
+                DataEdgeTarget::Invariant(GlobalBlockIndexAndLevel { global_id, level }) => {
+                    (global_id, level)
+                }
+            };
+            if last_seen
+                .as_ref()
+                .is_some_and(|ls| ls == possibly_new_piece)
+            {
+                continue;
+            }
+            last_seen = Some(possibly_new_piece.clone());
+            signature_pieces_union.push((pred, global_id, level));
+
+            if let Some(next) = iters[idx].next() {
+                pq.push((Reverse(next), idx));
+            }
+        }
+        refined_targets.sort();
+        refined_targets.dedup();
+        signature_pieces_union.extend(refined_targets);
+        Some(signature_pieces_union)
     }
+
+    // DUMMY IMPLEMENTATION TO TEST THE CODE
+    // This function is for finding all outgoing data edges for splitting blocks, so the can be emitted later
+    // fn signatures_to_unique_signature_parts<'a, I>(
+    //     &mut self,
+    //     sig_keys: I,
+    // ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>>
+    // where
+    //     I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>>,
+    // {
+    //     // Return early when the level is 0 or 1, because at those levels there is not enough information to emit any data edges
+    //     if self.i <= 1 {
+    //         return None;
+    //     }
+    //     // The helper function that handles the mapping to global signatures, along with the starting levels
+    //     let signature_to_global_mapper_helper = |block: &BlockAssignment| -> DataEdgeTarget {
+    //         let get_previous_global_id_fallback = || {
+    //             let target = self.get_global_id(block).clone();
+    //             DataEdgeTarget::Invariant(target)
+    //         };
+    //         let global_id_and_level = self.previous_refines_map.get(block).copied().map_or_else(
+    //             || get_previous_global_id_fallback(),
+    //             |target| DataEdgeTarget::Refined(target),
+    //         );
+    //         global_id_and_level
+    //     };
+
+    //     // Convenient way to map the target and pass on the edge type
+    //     let map_piece = |piece: &(u32, BlockAssignment)| {
+    //         let target = signature_to_global_mapper_helper(&piece.1);
+    //         (piece.0, target)
+    //     };
+
+    //     // DEBUG: This is just for debugging
+    //     let mut taken_sigs = Vec::new();
+    //     for sig in sig_keys.into_iter() {
+    //         assert!(sig.is_sorted());
+    //         // assert!(sig.is_sorted_by_key(|k| Reverse(k)));  // Check for reverse sorting
+    //         // println!("{:?}", sig);
+    //         taken_sigs.push(sig);
+    //     }
+
+    //     let mut mapped_signatures: Vec<_> = taken_sigs
+    //         .into_iter()
+    //         .flat_map(|v| {
+    //             v.iter().map(|x| {
+    //                 let (pred, target) = map_piece(x);
+    //                 let (global_id, level) = match target {
+    //                     DataEdgeTarget::Refined(id_level) | DataEdgeTarget::Invariant(id_level) => {
+    //                         let GlobalBlockIndexAndLevel { global_id, level } = id_level;
+    //                         (global_id, level)
+    //                     }
+    //                 };
+    //                 (pred, global_id, level)
+    //             })
+    //         })
+    //         .collect();
+    //     mapped_signatures.sort();
+    //     mapped_signatures.dedup();
+    //     Some(mapped_signatures)
+    // }
 
     pub fn data_edge_callback(
         &mut self,
@@ -978,5 +988,140 @@ pub fn get_0_bisimulation(graph: &FlatGraph) -> KBisimulationOutcome {
         semi_dirty_blocks: Vec::new(), // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
         node_to_block: mapper,
         freeblock_indices: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempfile;
+
+    // --- Mock Setup Helper ---
+    fn setup_mock_state(i: LevelIndex) -> SharedBisimulationState {
+        let mut previous_refines_map = HashMap::with_hasher(FxBuildHasher::default());
+        let mut previous_block_mapping = HashMap::with_hasher(FxBuildHasher::default());
+
+        // Seed the map for the "Refined" path test.
+        // If the block is 10, it maps to global ID 100, level 5.
+        previous_refines_map.insert(
+            BlockAssignment::Block(10),
+            GlobalBlockIndexAndLevel {
+                global_id: 100,
+                level: 5,
+            },
+        );
+
+        // Seed the map for the "Invariant Fallback" path test.
+        // If the block is 999, it is NOT in previous_refines_map,
+        // but get_global_id() will find it here.
+        previous_block_mapping.insert(
+            999,
+            GlobalBlockIndexAndLevel {
+                global_id: 200,
+                level: 3,
+            },
+        );
+
+        // We use tempfile() so the files are created and destroyed cleanly in the OS temp directory
+        let temp_file_1 = tempfile().expect("Failed to create temp file for refines_writer");
+        let temp_file_2 = tempfile().expect("Failed to create temp file for data_edge_writer");
+
+        SharedBisimulationState {
+            i,
+            global_largest_block_id: 0,
+            previous_block_mapping,
+            singleton_mapping: HashMap::with_hasher(FxBuildHasher::default()),
+            refines_writer: BufWriter::new(temp_file_1),
+            new_mappings: HashMap::with_hasher(FxBuildHasher::default()),
+            to_be_removed_local_ids: HashSet::new(),
+            previous_refines_map,
+            new_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
+            data_edge_writer: BufWriter::new(temp_file_2),
+        }
+    }
+
+    #[test]
+    fn test_early_return_when_i_is_0_or_1() {
+        let mut state_0 = setup_mock_state(0);
+        let mut state_1 = setup_mock_state(1);
+
+        let signatures: Vec<Vec<(EdgeType, BlockAssignment)>> = vec![];
+
+        assert_eq!(
+            state_0.signatures_to_unique_signature_parts(&signatures),
+            None
+        );
+        assert_eq!(
+            state_1.signatures_to_unique_signature_parts(&signatures),
+            None
+        );
+    }
+
+    #[test]
+    fn test_refined_mapping_from_previous_refines_map() {
+        let mut state = setup_mock_state(2);
+
+        // Input MUST be sorted to pass the internal assert!(sig.is_sorted())
+        let sig1 = vec![(1, BlockAssignment::Block(10))];
+        let signatures = vec![sig1];
+
+        let result = state
+            .signatures_to_unique_signature_parts(&signatures)
+            .unwrap();
+
+        // Expect it to use `previous_refines_map` (global_id: 100, level: 5)
+        assert_eq!(result, vec![(1, 100, 5)]);
+    }
+
+    #[test]
+    fn test_invariant_fallback_mapping() {
+        let mut state = setup_mock_state(2);
+
+        // Block 999 is NOT in `previous_refines_map`, triggering the invariant fallback.
+        // It should pull from `previous_block_mapping` (global_id: 200, level: 3).
+        let sig1 = vec![(2, BlockAssignment::Block(999))];
+        let signatures = vec![sig1];
+
+        let result = state
+            .signatures_to_unique_signature_parts(&signatures)
+            .unwrap();
+
+        assert_eq!(result, vec![(2, 200, 3)]);
+    }
+
+    #[test]
+    fn test_flattening_sorting_and_deduplication() {
+        let mut state = setup_mock_state(2);
+
+        // Vector 1 (Sorted)
+        let sig1 = vec![
+            (1, BlockAssignment::Block(10)), // Maps to (1, 100, 5)
+            (3, BlockAssignment::Block(10)), // Maps to (3, 100, 5)
+        ];
+
+        // Vector 2 (Sorted) - Contains a duplicate to test deduplication
+        let sig2 = vec![
+            (1, BlockAssignment::Block(10)), // Duplicate, should be deduplicated
+            (2, BlockAssignment::Block(10)), // Maps to (2, 100, 5)
+        ];
+
+        let signatures = vec![sig1, sig2];
+        let result = state
+            .signatures_to_unique_signature_parts(&signatures)
+            .unwrap();
+        print!("{:?}", result);
+        assert_eq!(result, vec![(1, 100, 5), (2, 100, 5), (3, 100, 5),]);
+    }
+
+    #[test]
+    fn test_empty_input_iterator() {
+        let mut state = setup_mock_state(2);
+        let signatures: Vec<Vec<(EdgeType, BlockAssignment)>> = vec![];
+
+        let result = state
+            .signatures_to_unique_signature_parts(&signatures)
+            .unwrap();
+
+        assert_eq!(result, vec![]);
     }
 }
