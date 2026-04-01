@@ -483,6 +483,9 @@ impl SharedBisimulationState {
                 .as_ref()
                 .is_some_and(|ls| ls == possibly_new_piece)
             {
+                if let Some(next) = iters[idx].next() {
+                    pq.push((Reverse(next), idx));
+                }
                 continue;
             }
             last_seen = Some(possibly_new_piece.clone());
