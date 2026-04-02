@@ -240,6 +240,7 @@ impl SharedBisimulationState {
     fn new(bisimulation_outcome: &KBisimulationOutcome) -> Result<Self> {
         let i = 1; // TODO NB the current code sets this to 0u64 initially
 
+        // Track the living blocks
         let mut previous_block_mapping = HashMap::with_hasher(FxBuildHasher::default());
         for new_id in 0..bisimulation_outcome.blocks.len() {
             previous_block_mapping.insert(
@@ -249,6 +250,25 @@ impl SharedBisimulationState {
                     level: 0,
                 },
             );
+        }
+
+        // Track the singletons
+        let mut next_id = bisimulation_outcome.blocks.len();
+        let mut singleton_mapping = HashMap::with_hasher(FxBuildHasher::default());
+        for block in &bisimulation_outcome.node_to_block.mapping {
+            match block {
+                BlockAssignment::Block(_) => continue,
+                BlockAssignment::Singleton(node_idx) => {
+                    singleton_mapping.insert(
+                        *node_idx,
+                        GlobalBlockIndexAndLevel {
+                            global_id: next_id,
+                            level: 0,
+                        },
+                    );
+                    next_id += 1;
+                }
+            }
         }
 
         let global_largest_block_id = (bisimulation_outcome.blocks.len() - 1) as BlockIndex;
@@ -263,7 +283,7 @@ impl SharedBisimulationState {
             i,
             global_largest_block_id,
             previous_block_mapping,
-            singleton_mapping: HashMap::with_hasher(FxBuildHasher::default()),
+            singleton_mapping,
             refines_writer,
             new_mappings: HashMap::with_hasher(FxBuildHasher::default()),
             to_be_removed_local_ids: HashSet::new(),
