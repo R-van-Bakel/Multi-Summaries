@@ -1,4 +1,4 @@
-use fxhash::{FxBuildHasher, FxHasher};
+use fxhash::FxBuildHasher;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
 use std::cmp::Reverse;
@@ -585,11 +585,15 @@ impl SharedBisimulationState {
     pub fn data_edge_callback(
         &mut self,
         (subject, predicate, object): (GlobalBlockIndex, u32, GlobalBlockIndex),
+        (start_level, end_level): (LevelIndex, LevelIndex),
     ) -> Result<()> {
         // println!("{} -{}-> {}", subject, predicate, object);
         self.data_edge_writer.write_all(&subject.to_be_bytes())?;
         self.data_edge_writer.write_all(&predicate.to_be_bytes())?;
         self.data_edge_writer.write_all(&object.to_be_bytes())?;
+        self.data_edge_writer
+            .write_all(&start_level.to_be_bytes())?;
+        self.data_edge_writer.write_all(&end_level.to_be_bytes())?;
         Ok(())
     }
 }
@@ -667,7 +671,7 @@ pub fn get_i_bisimulation(
         // };
 
         let block_nodes: std::borrow::Cow<'_, Vec<usize>> = match semi_dirty_idx {
-            BlockAssignment::Block(block_id) => continue, // TODO implement this arm for non-singletons below the mininam support. We are sure this block must exist, so we can unwrap and borrow
+            BlockAssignment::Block(_) => continue, // TODO implement this arm for non-singletons below the mininam support. We are sure this block must exist, so we can unwrap and borrow
             BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id]), // Create new singleton block to own
         };
 
@@ -724,12 +728,13 @@ pub fn get_i_bisimulation(
             .shared_state
             .get_global_id(&semi_dirty_idx);
         for (edge_type, global_target, target_level) in targets {
-            let start_time = std::cmp::max(subject_level, target_level + 1);
-            let end_time = partial_bisimulation_state.shared_state.i - 1;
+            let start_level = std::cmp::max(subject_level, target_level + 1);
+            let end_level = partial_bisimulation_state.shared_state.i - 1;
             // println!("DEBUG s-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-            partial_bisimulation_state
-                .shared_state
-                .data_edge_callback((global_subject, edge_type, global_target))?;
+            partial_bisimulation_state.shared_state.data_edge_callback(
+                (global_subject, edge_type, global_target),
+                (start_level, end_level),
+            )?;
         }
     }
 
@@ -782,12 +787,13 @@ pub fn get_i_bisimulation(
                 .shared_state
                 .get_global_id(&BlockAssignment::Block(dirty_idx));
             for (edge_type, global_target, target_level) in targets {
-                let start_time = std::cmp::max(subject_level, target_level + 1);
-                let end_time = partial_bisimulation_state.shared_state.i - 1;
+                let start_level = std::cmp::max(subject_level, target_level + 1);
+                let end_level = partial_bisimulation_state.shared_state.i - 1;
                 // println!("DEBUG f-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-                partial_bisimulation_state
-                    .shared_state
-                    .data_edge_callback((global_subject, edge_type, global_target))?;
+                partial_bisimulation_state.shared_state.data_edge_callback(
+                    (global_subject, edge_type, global_target),
+                    (start_level, end_level),
+                )?;
             }
 
             continue;
@@ -807,12 +813,13 @@ pub fn get_i_bisimulation(
             .shared_state
             .get_global_id(&BlockAssignment::Block(dirty_idx));
         for (edge_type, global_target, target_level) in targets.into_iter() {
-            let start_time = std::cmp::max(subject_level, target_level + 1);
-            let end_time = partial_bisimulation_state.shared_state.i - 1;
+            let start_level = std::cmp::max(subject_level, target_level + 1);
+            let end_level = partial_bisimulation_state.shared_state.i - 1;
             // println!("DEBUG f-out: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-            partial_bisimulation_state
-                .shared_state
-                .data_edge_callback((global_subject, edge_type, global_target))?;
+            partial_bisimulation_state.shared_state.data_edge_callback(
+                (global_subject, edge_type, global_target),
+                (start_level, end_level),
+            )?;
         }
 
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free

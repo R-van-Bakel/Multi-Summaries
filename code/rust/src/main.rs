@@ -1,30 +1,96 @@
+use clap::{ArgGroup, Parser};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
-use std::io::{Result, Write};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
 
 // use itertools::Itertools;
 use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
 
 use multi_summaries::bisimulator::{
     BlockAssignment, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel, LevelIndex,
-    get_0_bisimulation, get_i_bisimulation,
+    get_0_bisimulation, get_i_bisimulation, get_typed_0_bisimulation,
 };
 
-fn main() -> Result<()> {
-    let file_name = "fb15k.bin";
-    // let file_name = "multi_block_tree.bin";
-    // let file_name = "heterogeneous_hubs.bin";
+#[derive(Parser, Debug)]
+#[command(group(
+    ArgGroup::new("source")
+        .args(&["type_relation_id", "rel_to_id_file"])
+        .multiple(false)   // mutually exclusive
+))]
+struct Cli {
+    /// The input graph in binary format
+    input: String,
 
+    /// The id for the relation used for splitting at iteration 0
+    #[arg(long)]
+    type_relation_id: Option<u32>,
+
+    /// A file containing the rdf:type relation along with its id used for splitting at iteration 0
+    #[arg(long)]
+    rel_to_id_file: Option<String>,
+
+    /// The minimal block size needed to be eligible to split
+    #[arg(long)]
+    min_support: Option<usize>,
+
+    /// The maximum bisimulation depth to search
+    #[arg(long)]
+    max_k: Option<u64>,
+}
+
+// TODO this function could also be extended to work on "rel2ID.meta.json" files
+fn parse_rel_to_id(rel_to_id_path: &str) -> Result<Option<u32>> {
+    const RDF_TYPE_RELATION_STRING: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    let file = File::open(rel_to_id_path)?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line?;
+        let mut parts = line.split_whitespace();
+
+        if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+            if k == RDF_TYPE_RELATION_STRING {
+                if let Ok(num) = v.parse::<u32>() {
+                    return Ok(Some(num));
+                }
+                return Err(Error::new(ErrorKind::InvalidData, "Invalid number"));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn main() -> Result<()> {
+    // Parse arguments
+    let args = Cli::parse();
+    let file_name = &args.input;
+    let type_id = match (&args.type_relation_id, &args.rel_to_id_file) {
+        (Some(edge_type), None) => Some(*edge_type),
+        (None, Some(rel_to_id_path)) => parse_rel_to_id(rel_to_id_path)?.or_else(|| {
+            eprintln!("Warning rel_to_id_file was provided, but no 'rdf:type' relation was found");
+            None
+        }),
+        (None, None) => None,
+        _ => unreachable!("Clap's ArgGroup should prevent case"),
+    };
+    let min_support = args.min_support.unwrap_or(0);
+    let max_k = args.max_k;
+
+    // Create graph
     let mut g = Graph::new(1_000_000);
     g.read_graph_parallel_memmmap(file_name, false)?;
 
-    compute_bisimulation(&FlatGraph::new(g), 0, None)?;
+    // Run bisimulation
+    compute_bisimulation(&FlatGraph::new(g), type_id, min_support, max_k)?;
 
     Ok(())
 }
 
 pub fn compute_bisimulation(
     graph: &FlatGraph,
+    type_id: Option<u32>,
     min_support: usize,
     max_k: Option<u64>,
 ) -> Result<()> {
@@ -34,7 +100,12 @@ pub fn compute_bisimulation(
 
     // 2. Initial Partition: Level 0 (All nodes in one block)
     println!("Computing 0-bisimulation...");
-    let mut bisimulation_state = FullBisimulationState::new(get_0_bisimulation(graph))?;
+
+    let zero_outcome = match type_id {
+        Some(edge_type) => get_typed_0_bisimulation(graph, edge_type),
+        None => get_0_bisimulation(graph),
+    };
+    let mut bisimulation_state = FullBisimulationState::new(zero_outcome)?;
 
     // 3. Iterative Refinement
     loop {
@@ -119,11 +190,11 @@ pub fn compute_bisimulation(
 
         let outer_data_edges = k_way_merge(sorted_inners);
         for DataEdgeAndInterval {
-            data_edge: (global_subject, edge_type, global_target),
-            interval: (start_time, end_time),
+            data_edge,
+            interval,
         } in outer_data_edges.into_iter()
         {
-            final_state.data_edge_callback((global_subject, edge_type, global_target))?;
+            final_state.data_edge_callback(data_edge, interval)?;
         }
     }
 
@@ -158,11 +229,11 @@ pub fn compute_bisimulation(
         inner_data_edges.sort();
         inner_data_edges.dedup();
         for DataEdgeAndInterval {
-            data_edge: (global_subject, edge_type, global_target),
-            interval: (start_time, end_time),
+            data_edge,
+            interval,
         } in inner_data_edges.into_iter()
         {
-            final_state.data_edge_callback((global_subject, edge_type, global_target))?;
+            final_state.data_edge_callback(data_edge, interval)?;
         }
     }
 
