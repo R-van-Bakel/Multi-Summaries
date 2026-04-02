@@ -273,9 +273,9 @@ impl Graph {
     }
 
     /// Reads a graph from a binary file.
-    pub fn read_graph_parallel_memmmap<P: AsRef<Path>>(
+    pub fn read_graph_parallel_memmmap(
         &mut self,
-        file_name: P,
+        file_name: impl AsRef<Path>,
         reverse_edges: bool,
     ) -> io::Result<()> {
         let path = file_name.as_ref();

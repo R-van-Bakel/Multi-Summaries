@@ -3,6 +3,7 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
+use std::path::{Path, PathBuf};
 
 // use itertools::Itertools;
 use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
@@ -20,7 +21,10 @@ use multi_summaries::bisimulator::{
 ))]
 struct Cli {
     /// The input graph in binary format
-    input: String,
+    input: PathBuf,
+
+    /// The output directory for the generated files
+    output: PathBuf,
 
     /// The id for the relation used for splitting at iteration 0
     #[arg(long)]
@@ -28,7 +32,7 @@ struct Cli {
 
     /// A file containing the rdf:type relation along with its id used for splitting at iteration 0
     #[arg(long)]
-    rel_to_id_file: Option<String>,
+    rel_to_id_file: Option<PathBuf>,
 
     /// The minimal block size needed to be eligible to split
     #[arg(long)]
@@ -40,7 +44,7 @@ struct Cli {
 }
 
 // TODO this function could also be extended to work on "rel2ID.meta.json" files
-fn parse_rel_to_id(rel_to_id_path: &str) -> Result<Option<u32>> {
+fn parse_rel_to_id(rel_to_id_path: impl AsRef<Path>) -> Result<Option<u32>> {
     const RDF_TYPE_RELATION_STRING: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
     let file = File::open(rel_to_id_path)?;
     let reader = BufReader::new(file);
@@ -65,7 +69,12 @@ fn parse_rel_to_id(rel_to_id_path: &str) -> Result<Option<u32>> {
 fn main() -> Result<()> {
     // Parse arguments
     let args = Cli::parse();
-    let file_name = &args.input;
+    if args.output.is_dir() {
+        return Err(Error::new(ErrorKind::AlreadyExists, format!("Output directory '{}' already exist", args.output.display())));
+    }
+
+    let input_file = &args.input;
+    let output_dir = &args.output;
     let type_id = match (&args.type_relation_id, &args.rel_to_id_file) {
         (Some(edge_type), None) => Some(*edge_type),
         (None, Some(rel_to_id_path)) => parse_rel_to_id(rel_to_id_path)?.or_else(|| {
@@ -80,18 +89,19 @@ fn main() -> Result<()> {
 
     // Create graph
     let mut g = Graph::new(1_000_000);
-    g.read_graph_parallel_memmmap(file_name, false)?;
+    g.read_graph_parallel_memmmap(input_file, false)?;
 
     // Run bisimulation
-    compute_bisimulation(&FlatGraph::new(g), type_id, min_support, max_k)?;
+    compute_bisimulation(&FlatGraph::new(g), output_dir, min_support, type_id, max_k)?;
 
     Ok(())
 }
 
 pub fn compute_bisimulation(
     graph: &FlatGraph,
-    type_id: Option<u32>,
+    output_dir: impl AsRef<Path>,
     min_support: usize,
+    type_id: Option<u32>,
     max_k: Option<u64>,
 ) -> Result<()> {
     // 1. Prepare the Graph: Build the reverse index needed for dirty propagation
@@ -105,7 +115,7 @@ pub fn compute_bisimulation(
         Some(edge_type) => get_typed_0_bisimulation(graph, edge_type),
         None => get_0_bisimulation(graph),
     };
-    let mut bisimulation_state = FullBisimulationState::new(zero_outcome)?;
+    let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_dir)?;
 
     // 3. Iterative Refinement
     loop {

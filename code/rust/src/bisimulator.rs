@@ -6,9 +6,10 @@ use std::cmp::Reverse;
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 
 use std::fmt::{self, Display};
-use std::fs::File;
+use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Result, Write};
+use std::path::{Path, PathBuf};
 
 pub type BlockIndex = usize;
 pub type GlobalBlockIndex = usize;
@@ -228,6 +229,7 @@ pub struct SharedBisimulationState {
     global_largest_block_id: BlockIndex,
     pub previous_block_mapping: HashMap<BlockIndex, GlobalBlockIndexAndLevel, FxBuildHasher>,
     pub singleton_mapping: HashMap<NodeIndex, GlobalBlockIndexAndLevel, FxBuildHasher>,
+    output_directory: PathBuf,
     pub refines_writer: BufWriter<File>,
     new_mappings: HashMap<NodeIndex, GlobalBlockIndexAndLevel, FxBuildHasher>,
     to_be_removed_local_ids: HashSet<BlockIndex>,
@@ -237,7 +239,7 @@ pub struct SharedBisimulationState {
 }
 
 impl SharedBisimulationState {
-    fn new(bisimulation_outcome: &KBisimulationOutcome) -> Result<Self> {
+    fn new(bisimulation_outcome: &KBisimulationOutcome, output_dir: impl AsRef<Path>) -> Result<Self> {
         let i = 1; // TODO NB the current code sets this to 0u64 initially
 
         // Track the living blocks
@@ -273,10 +275,15 @@ impl SharedBisimulationState {
 
         let global_largest_block_id = (bisimulation_outcome.blocks.len() - 1) as BlockIndex;
 
-        let refines_file = File::create(format!("refines/refines_{}", i))?;
+        let output_directory = output_dir.as_ref().to_path_buf();
+
+        let refine_path = output_directory.join(format!("refines/refines_{}", i));
+        fs::create_dir_all(refine_path.parent().unwrap())?;
+        let refines_file = File::create(refine_path)?;
         let refines_writer = BufWriter::new(refines_file);
 
-        let data_edge_file = File::create("data_edges")?;
+        let data_edge_path = output_directory.join("data_edges");
+        let data_edge_file = File::create(data_edge_path)?;
         let data_edge_writer = BufWriter::new(data_edge_file);
 
         Ok(Self {
@@ -284,6 +291,7 @@ impl SharedBisimulationState {
             global_largest_block_id,
             previous_block_mapping,
             singleton_mapping,
+            output_directory,
             refines_writer,
             new_mappings: HashMap::with_hasher(FxBuildHasher::default()),
             to_be_removed_local_ids: HashSet::new(),
@@ -303,7 +311,8 @@ impl SharedBisimulationState {
 
         self.i += 1;
 
-        let file = File::create(format!("refines/refines_{}", self.i))?;
+        let refine_path = self.output_directory.join(format!("refines/refines_{}", self.i));
+        let file = File::create(refine_path)?;
         self.refines_writer = BufWriter::new(file);
 
         Ok(())
@@ -604,9 +613,9 @@ pub struct FullBisimulationState {
 }
 
 impl FullBisimulationState {
-    pub fn new(bisimulation_outcome: KBisimulationOutcome) -> Result<Self> {
+    pub fn new(bisimulation_outcome: KBisimulationOutcome, output_dir: impl AsRef<Path>) -> Result<Self> {
         Ok(Self {
-            shared_state: SharedBisimulationState::new(&bisimulation_outcome)?,
+            shared_state: SharedBisimulationState::new(&bisimulation_outcome, output_dir)?,
             current_outcome: bisimulation_outcome,
         })
     }
@@ -1054,6 +1063,9 @@ mod tests {
             },
         );
 
+        // Set a dummy output directory
+        let dummy_output = "dummy_output";
+
         // We use tempfile() so the files are created and destroyed cleanly in the OS temp directory
         let temp_file_1 = tempfile().expect("Failed to create temp file for refines_writer");
         let temp_file_2 = tempfile().expect("Failed to create temp file for data_edge_writer");
@@ -1063,6 +1075,7 @@ mod tests {
             global_largest_block_id: 0,
             previous_block_mapping,
             singleton_mapping: HashMap::with_hasher(FxBuildHasher::default()),
+            output_directory: dummy_output.into(),
             refines_writer: BufWriter::new(temp_file_1),
             new_mappings: HashMap::with_hasher(FxBuildHasher::default()),
             to_be_removed_local_ids: HashSet::new(),
