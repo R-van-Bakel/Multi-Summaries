@@ -1,4 +1,4 @@
-use fxhash::FxBuildHasher;
+use fxhash::{FxBuildHasher, FxHasher};
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
 use std::cmp::Reverse;
@@ -921,11 +921,14 @@ pub fn get_i_bisimulation(
 }
 
 pub fn get_typed_0_bisimulation(graph: &FlatGraph, rdf_type_id: EdgeType) -> KBisimulationOutcome {
-    let mut partition_map: HashMap<Vec<NodeIndex>, Vec<NodeIndex>> = HashMap::new();
+    let mut partition_map: HashMap<Vec<NodeIndex>, Vec<NodeIndex>, _> =
+        HashMap::with_hasher(FxBuildHasher::default());
+
+    //HashMap::new();
 
     for node_idx in 0..graph.get_size() {
         let node = graph.get_node(node_idx);
-        let mut type_set: HashSet<usize> = HashSet::new();
+        let mut type_set: BTreeSet<usize> = BTreeSet::new();
         for edge in node.edges {
             if edge.label == rdf_type_id {
                 type_set.insert(edge.target);
