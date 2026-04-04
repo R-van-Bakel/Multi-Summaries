@@ -70,7 +70,10 @@ fn main() -> Result<()> {
     // Parse arguments
     let args = Cli::parse();
     if args.output.is_dir() {
-        return Err(Error::new(ErrorKind::AlreadyExists, format!("Output directory '{}' already exist", args.output.display())));
+        return Err(Error::new(
+            ErrorKind::AlreadyExists,
+            format!("Output directory '{}' already exist", args.output.display()),
+        ));
     }
 
     let input_file = &args.input;
@@ -88,7 +91,7 @@ fn main() -> Result<()> {
     let max_k = args.max_k;
 
     // Create graph
-    let mut g = Graph::new(1_000_000);
+    let mut g = Graph::new(1_000_000_000);
     g.read_graph_parallel_memmmap(input_file, false)?;
 
     // Run bisimulation

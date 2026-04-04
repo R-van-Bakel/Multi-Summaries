@@ -484,7 +484,7 @@ impl SharedBisimulationState {
             (piece.0, target)
         };
 
-        let iters = sig_keys.into_iter().map(|v| v.into_iter()).kmerge().dedup();
+        let iters = sig_keys.into_iter().map(|v| v.iter()).kmerge().dedup();
 
         let mut signature_pieces_union = Vec::new();
 
