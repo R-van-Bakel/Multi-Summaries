@@ -661,7 +661,15 @@ pub fn get_i_bisimulation(
         // };
 
         let block_nodes: std::borrow::Cow<'_, Vec<usize>> = match semi_dirty_idx {
-            BlockAssignment::Block(_) => continue, // TODO implement this arm for non-singletons below the mininam support. We are sure this block must exist, so we can unwrap and borrow
+            BlockAssignment::Block(_) => {
+                if min_support > 1 {
+                    todo!(
+                        "Incomplete implementation for non-singletons below the mininam support."
+                    );
+                    // We are sure this block must exist, so we can unwrap and borrow
+                }
+                continue;
+            } // TODO
             BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id]), // Create new singleton block to own
         };
 
