@@ -4,7 +4,9 @@
 // Then, this was changed to support const generics for the sizes,
 // and to support an tree reduce the number of allocations and have things closer in memory
 // Further comments, tests and benchmarks were added afterwards
-// Later, the use of clone was reduced/remo
+// Later, the use of clone was reduced/removed
+// Even later: analyzing, it became clear that the each node kept its segment memory allocated for the longest prefix it ever contained.
+// as the segment will never grow again, it makes sense to shrink it to fit its memory requirements. This might also make it fit into SEG_CAP.
 
 use std::usize;
 
@@ -151,6 +153,9 @@ impl<T: Ord + Clone, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP
         // This transfers ownership of the elements into `new_segment`
         // AND automatically truncates the original segment down to `match_len`.
         let new_segment: SmallVec<_> = self.nodes[child_idx].segment.drain(match_len..).collect();
+
+        // Free the memory of the original segment, potentially moving it back inline!
+        self.nodes[child_idx].segment.shrink_to_fit();
 
         // 2. Steal indices and children from the original node
         let indices = std::mem::take(&mut self.nodes[child_idx].indices);
