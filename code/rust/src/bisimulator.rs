@@ -224,6 +224,35 @@ enum DataEdgeTarget {
 //     }
 // }
 
+#[derive(Clone)]
+pub struct DataEdgeCounter {
+    pub condensed_counts: Vec<usize>,
+    pub uncondensed_counts: Vec<usize>,
+}
+
+impl DataEdgeCounter {
+    fn new() -> Self {
+        DataEdgeCounter {
+            condensed_counts: vec![0],
+            uncondensed_counts: vec![0]
+        }
+    }
+
+    fn increment_by_interval(&mut self, start_level: u64, end_level: u64) {
+        let mut uncondensed_offset = 1;
+        for i in (start_level as usize) ..= (end_level as usize) {
+            self.condensed_counts[i] += 1;
+            self.uncondensed_counts[i] += uncondensed_offset;
+            uncondensed_offset += 1;
+        }
+    }
+
+    fn add_level (&mut self) {
+        self.condensed_counts.push(0);
+        self.uncondensed_counts.push(0);
+    }
+}
+
 pub struct SharedBisimulationState {
     pub i: LevelIndex,
     global_largest_block_id: BlockIndex,
@@ -236,6 +265,7 @@ pub struct SharedBisimulationState {
     previous_refines_map: HashMap<BlockAssignment, GlobalBlockIndexAndLevel, FxBuildHasher>,
     new_refines_map: HashMap<BlockAssignment, GlobalBlockIndexAndLevel, FxBuildHasher>,
     pub data_edge_writer: BufWriter<File>,
+    data_edge_counter: DataEdgeCounter,
 }
 
 impl SharedBisimulationState {
@@ -277,14 +307,18 @@ impl SharedBisimulationState {
 
         let output_directory = output_dir.as_ref().to_path_buf();
 
-        let refine_path = output_directory.join(format!("refines/refines_{}", i));
-        fs::create_dir_all(refine_path.parent().unwrap())?;
-        let refines_file = File::create(refine_path)?;
+        let refines_dir = output_directory.join("refines");
+        fs::create_dir(refines_dir.clone())?;
+        let refines_path = refines_dir.join(format!("refines_{}", i));
+        let refines_file = File::create(refines_path)?;
         let refines_writer = BufWriter::new(refines_file);
 
         let data_edge_path = output_directory.join("data_edges");
         let data_edge_file = File::create(data_edge_path)?;
         let data_edge_writer = BufWriter::new(data_edge_file);
+
+        let mut data_edge_counter = DataEdgeCounter::new();
+        data_edge_counter.add_level();
 
         Ok(Self {
             i,
@@ -298,6 +332,7 @@ impl SharedBisimulationState {
             previous_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
             new_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
             data_edge_writer,
+            data_edge_counter
         })
     }
 
@@ -314,6 +349,8 @@ impl SharedBisimulationState {
         let refine_path = self.output_directory.join(format!("refines/refines_{}", self.i));
         let file = File::create(refine_path)?;
         self.refines_writer = BufWriter::new(file);
+
+        self.data_edge_counter.add_level();
 
         Ok(())
     }
@@ -597,6 +634,12 @@ impl SharedBisimulationState {
         (start_level, end_level): (LevelIndex, LevelIndex),
     ) -> Result<()> {
         // println!("{} -{}-> {}", subject, predicate, object);
+        let end_level_or_fixed_point = if end_level == 0 {
+            self.i  // NB: we use 0 as a stand-in for infinity. We assume self.i is currently equal to the fixed point
+        } else {
+            end_level
+        };
+        self.data_edge_counter.increment_by_interval(start_level, end_level_or_fixed_point);
         self.data_edge_writer.write_all(&subject.to_be_bytes())?;
         self.data_edge_writer.write_all(&predicate.to_be_bytes())?;
         self.data_edge_writer.write_all(&object.to_be_bytes())?;
@@ -604,6 +647,14 @@ impl SharedBisimulationState {
             .write_all(&start_level.to_be_bytes())?;
         self.data_edge_writer.write_all(&end_level.to_be_bytes())?;
         Ok(())
+    }
+
+    pub fn refines_edge_count(&self) -> usize {
+        self.new_refines_map.len()
+    }
+
+    pub fn data_edge_counter(&self) -> DataEdgeCounter {
+        self.data_edge_counter.clone()
     }
 }
 
@@ -1082,6 +1133,7 @@ mod tests {
             previous_refines_map,
             new_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
             data_edge_writer: BufWriter::new(temp_file_2),
+            data_edge_counter: DataEdgeCounter::new(),
         }
     }
 

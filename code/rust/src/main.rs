@@ -1,7 +1,8 @@
 use clap::{ArgGroup, Parser};
+use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
 
@@ -9,8 +10,7 @@ use std::path::{Path, PathBuf};
 use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
 
 use multi_summaries::bisimulator::{
-    BlockAssignment, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel, LevelIndex,
-    get_0_bisimulation, get_i_bisimulation, get_typed_0_bisimulation,
+    BlockAssignment, DataEdgeCounter, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel, LevelIndex, get_0_bisimulation, get_i_bisimulation, get_typed_0_bisimulation
 };
 
 #[derive(Parser, Debug)]
@@ -42,6 +42,34 @@ struct Cli {
     #[arg(long)]
     max_k: Option<u64>,
 }
+#[derive(Serialize, Deserialize)]
+struct BisimulationStatistics {
+    singletons_condensed: Vec<usize>,
+    singletons_uncondensed: Vec<usize>,
+    blocks_quotient: Vec<usize>,
+    blocks_condensed: Vec<usize>,
+    blocks_uncondensed: Vec<usize>,
+    refines_edges_condensed: Vec<usize>,
+    data_edges_quotient: Vec<usize>,
+    data_edges_condensed: Vec<usize>,
+    data_edges_uncondensed: Vec<usize>,
+}
+
+impl BisimulationStatistics {
+    fn new() -> Self {
+        BisimulationStatistics {
+            singletons_condensed: Vec::new(),
+            singletons_uncondensed: Vec::new(),
+            blocks_quotient: Vec::new(),
+            blocks_condensed: Vec::new(),
+            blocks_uncondensed: Vec::new(),
+            refines_edges_condensed: Vec::new(),
+            data_edges_quotient: Vec::new(),
+            data_edges_condensed: Vec::new(),
+            data_edges_uncondensed: Vec::new()
+        }
+    }
+}
 
 // TODO this function could also be extended to work on "rel2ID.meta.json" files
 fn parse_rel_to_id(rel_to_id_path: impl AsRef<Path>) -> Result<Option<u32>> {
@@ -69,12 +97,12 @@ fn parse_rel_to_id(rel_to_id_path: impl AsRef<Path>) -> Result<Option<u32>> {
 fn main() -> Result<()> {
     // Parse arguments
     let args = Cli::parse();
+    let input_file = &args.input;
+    let output_dir = &args.output;
     if args.output.is_dir() {
         return Err(Error::new(ErrorKind::AlreadyExists, format!("Output directory '{}' already exist", args.output.display())));
     }
-
-    let input_file = &args.input;
-    let output_dir = &args.output;
+    fs::create_dir_all(output_dir)?;
     let type_id = match (&args.type_relation_id, &args.rel_to_id_file) {
         (Some(edge_type), None) => Some(*edge_type),
         (None, Some(rel_to_id_path)) => parse_rel_to_id(rel_to_id_path)?.or_else(|| {
@@ -115,16 +143,42 @@ pub fn compute_bisimulation(
         Some(edge_type) => get_typed_0_bisimulation(graph, edge_type),
         None => get_0_bisimulation(graph),
     };
-    let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_dir)?;
+    let output_path_buf = output_dir.as_ref().to_path_buf();
+    let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_path_buf.clone())?;
+
+    let mut singletons_uncondensed = 0;
+    let mut total_blocks_condensed = bisimulation_state.current_outcome.total_blocks();
+    let mut total_blocks_uncondensed = 0;
+    let mut refines_edges_condensed = 0;
+
+    let mut bisimulation_statistics = BisimulationStatistics::new();
+    let statistics_path = output_path_buf.join("statistics.json");
+    let statistics_file = File::create(statistics_path)?;
 
     // 3. Iterative Refinement
     loop {
+        singletons_uncondensed += bisimulation_state.current_outcome.singletons();
+        total_blocks_condensed += bisimulation_state.shared_state.refines_edge_count();
+        total_blocks_uncondensed += bisimulation_state.current_outcome.total_blocks();
+        refines_edges_condensed += bisimulation_state.shared_state.refines_edge_count();
+
+        bisimulation_statistics.singletons_condensed.push(bisimulation_state.current_outcome.singletons());
+        bisimulation_statistics.singletons_uncondensed.push(singletons_uncondensed);
+        bisimulation_statistics.blocks_condensed.push(bisimulation_state.current_outcome.total_blocks());
+        bisimulation_statistics.blocks_condensed.push(total_blocks_condensed);
+        bisimulation_statistics.blocks_uncondensed.push(total_blocks_uncondensed);
+        bisimulation_statistics.refines_edges_condensed.push(refines_edges_condensed);
+
         println!(
-            "After computing {}-bisimulation (Dirty blocks: {}, singletons: {}, total blocks {})...",
+            "After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
             bisimulation_state.shared_state.i - 1,
             bisimulation_state.current_outcome.dirty_blocks.len(),
             bisimulation_state.current_outcome.singletons(),
-            bisimulation_state.current_outcome.total_blocks()
+            bisimulation_state.current_outcome.total_blocks(),
+            total_blocks_condensed,
+            singletons_uncondensed,
+            total_blocks_uncondensed,
+            refines_edges_condensed,
         );
 
         // Break if we've reached a user-defined depth limit
@@ -250,6 +304,14 @@ pub fn compute_bisimulation(
     // Explicit flush is good practice, though it happens automatically on drop
     final_state.data_edge_writer.flush()?;
     final_state.refines_writer.flush()?;
+
+    // Get the data edge statistics
+    let DataEdgeCounter {condensed_counts: data_edges_condensed, uncondensed_counts: data_edges_uncondensed} = final_state.data_edge_counter();
+    bisimulation_statistics.data_edges_condensed = data_edges_condensed;
+    bisimulation_statistics.data_edges_uncondensed = data_edges_uncondensed;
+
+    // Serialize the bisimulation statistics
+    serde_json::to_writer_pretty(statistics_file, &bisimulation_statistics)?;
 
     Ok(())
 }
