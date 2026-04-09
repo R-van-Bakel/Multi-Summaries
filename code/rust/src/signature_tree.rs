@@ -1,5 +1,5 @@
 // Code generated with gemini 3.1 Pro with the following prompt:
-// I want to build a data structure and algorithm in rust to do the following: given an Iterator<Iterator<T>> with T ordinal. Think of the inner Iterator as a string (that contains more complex structs instead of characters). I need to find the unique strings in the outer Iterator, and their corresponding index in the outer Iterator. A trivial solution is a hashmap in which I maintain a counter with the number of encounters, but that is not efficient because it hashes the whole string while just finding one difference is sufficient. In the end I need to be able to iterate over the data structure and at each step get (an Iterator over) the string and the set of indices that had that string. A radix tree seems like a good solution. Can you write me an implementation of the data structure and the iterator trait? Optimize where possible, unsafe and a specialized vector type to store small vectors can be used.
+// "I want to build a data structure and algorithm in rust to do the following: given an Iterator<Iterator<T>> with T ordinal. Think of the inner Iterator as a string (that contains more complex structs instead of characters). I need to find the unique strings in the outer Iterator, and their corresponding index in the outer Iterator. A trivial solution is a hashmap in which I maintain a counter with the number of encounters, but that is not efficient because it hashes the whole string while just finding one difference is sufficient. In the end I need to be able to iterate over the data structure and at each step get (an Iterator over) the string and the set of indices that had that string. A radix tree seems like a good solution. Can you write me an implementation of the data structure and the iterator trait? Optimize where possible, unsafe and a specialized vector type to store small vectors can be used."
 // The into_iter needed several further requests until it looked reasonable
 // Then, this was changed to support const generics for the sizes,
 // and to support an tree reduce the number of allocations and have things closer in memory
@@ -7,8 +7,11 @@
 // Later, the use of clone was reduced/removed
 // Even later: analyzing, it became clear that the each node kept its segment memory allocated for the longest prefix it ever contained.
 // as the segment will never grow again, it makes sense to shrink it to fit its memory requirements. This might also make it fit into SEG_CAP.
+// We also need to get the set of unique T's in our bisimulation code. At the same time, we have also realized the signature tree is used most efficiently if the sequences that get insereted in sort order such that the most frequent items are first.
+// We use this property here too. A fast iterator that makes use of the sortedness was created with the following prompt (and some manual modification to remove an unnecessary check).
+// "Given the implementation I shared. I would need a new functionality. I need to get all unique T values. I happen to know that all sequences I am inserting are already sorted. Can I implement this with a K-way merge iterator? How?"
 
-use std::usize;
+use std::{cmp::Ordering, collections::BinaryHeap, usize};
 
 use smallvec::{Array, SmallVec};
 
@@ -200,6 +203,34 @@ impl<T: Ord + Clone, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP
             _ => UniqueSignatureCount::MORE, // Handled by the short-circuit, but satisfies the compiler
         }
     }
+
+    /// Returns a lazy, zero-copy iterator over all unique `T` values in the tree.
+    /// WARNING: This will only yield globally sorted output if the sequences inserted
+    /// into the tree were strictly sorted before insertion!
+    pub fn unique_values(&self) -> UniqueValuesIter<'_, T, SEG_CAP, IDX_CAP, CHILD_CAP> {
+        let mut heap = BinaryHeap::new();
+
+        // The root node (idx 0) is a routing anchor with an empty segment.
+        // We seed the K-way merge by pushing the start of all top-level branches.
+        if !self.nodes.is_empty() {
+            for &child_idx in &self.nodes[0].children {
+                let child_segment = &self.nodes[child_idx].segment;
+                if !child_segment.is_empty() {
+                    heap.push(MergeNode {
+                        val: &child_segment[0],
+                        node_idx: child_idx,
+                        item_idx: 0,
+                    });
+                }
+            }
+        }
+
+        UniqueValuesIter {
+            arena: self,
+            heap,
+            last_yielded: None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -257,6 +288,114 @@ where
                 // 4. We only clone the path ONCE at the very end to hand it to the user
                 return Some((self.current_path.clone(), &node.indices));
             }
+        }
+        None
+    }
+}
+
+/// State tracker for our dynamic K-way merge.
+struct MergeNode<'a, T> {
+    val: &'a T,
+    node_idx: usize,
+    item_idx: usize,
+}
+
+// We implement Eq and PartialEq based on the value
+impl<'a, T: PartialEq> PartialEq for MergeNode<'a, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.val == other.val
+    }
+}
+impl<'a, T: Eq> Eq for MergeNode<'a, T> {}
+
+// We reverse the ordering so the BinaryHeap acts as a Min-Heap!
+impl<'a, T: Ord> PartialOrd for MergeNode<'a, T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl<'a, T: Ord> Ord for MergeNode<'a, T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.val.cmp(self.val) // Reversed because we use a max heap!!
+    }
+}
+
+// The following itererator yields &'a T references, so it requires zero allocations and zero copies of your elements!
+pub struct UniqueValuesIter<
+    'a,
+    T,
+    const SEG_CAP: usize,
+    const IDX_CAP: usize,
+    const CHILD_CAP: usize,
+> where
+    [T; SEG_CAP]: Array<Item = T>,
+    [usize; IDX_CAP]: Array<Item = usize>,
+    [usize; CHILD_CAP]: Array<Item = usize>,
+{
+    arena: &'a RadixTree<T, SEG_CAP, IDX_CAP, CHILD_CAP>,
+    heap: BinaryHeap<MergeNode<'a, T>>,
+    last_yielded: Option<&'a T>,
+}
+
+impl<'a, T: Ord, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP: usize> Iterator
+    for UniqueValuesIter<'a, T, SEG_CAP, IDX_CAP, CHILD_CAP>
+where
+    [T; SEG_CAP]: Array<Item = T>,
+    [usize; IDX_CAP]: Array<Item = usize>,
+    [usize; CHILD_CAP]: Array<Item = usize>,
+{
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(MergeNode {
+            val,
+            node_idx,
+            item_idx,
+        }) = self.heap.pop()
+        {
+            let next_item_idx = item_idx + 1;
+            let segment = &self.arena.nodes[node_idx].segment;
+
+            if next_item_idx < segment.len() {
+                // 1. The segment continues. Push the next item in this segment to the heap.
+                self.heap.push(MergeNode {
+                    val: &segment[next_item_idx],
+                    node_idx,
+                    item_idx: next_item_idx,
+                });
+            } else {
+                // 2. The segment is exhausted. "Branch out" by pushing the first
+                //    element of all children into the K-way merge.
+                for &child_idx in &self.arena.nodes[node_idx].children {
+                    let child_segment = &self.arena.nodes[child_idx].segment;
+
+                    // Enforce the structural invariant: children must never be empty!
+                    debug_assert!(
+                        !child_segment.is_empty(),
+                        "FATAL: Radix tree invariant violated! Node {} has an empty child segment.",
+                        child_idx
+                    );
+
+                    self.heap.push(MergeNode {
+                        val: &child_segment[0],
+                        node_idx: child_idx,
+                        item_idx: 0,
+                    });
+                }
+            }
+
+            // 3. Deduplication: Only return if this value is different from the last yielded one.
+            //    Because it's a Min-Heap, duplicates are guaranteed to pop sequentially!
+            let is_unique = match self.last_yielded {
+                Some(last) => val != last,
+                None => true,
+            };
+
+            if is_unique {
+                self.last_yielded = Some(val);
+                return Some(val);
+            }
+            // If it wasn't unique, the loop continues and pops the next min value
         }
         None
     }
@@ -459,5 +598,23 @@ mod tests {
             unique_in_tree += 1;
         }
         assert_eq!(unique_in_map, unique_in_tree);
+    }
+
+    #[test]
+    fn test_k_way_unique_values() {
+        let mut tree = CharArena::new();
+
+        // Remember: The guarantee is that the sequences THEMSELVES are sorted!
+        tree.insert(vec!['a', 'm', 'z'].into_iter(), 0);
+        tree.insert(vec!['a', 'c', 'f'].into_iter(), 1);
+        tree.insert(vec!['b', 'c', 'x'].into_iter(), 2);
+        tree.insert(vec!['b', 'c', 'x'].into_iter(), 3); // Duplicate sequence
+
+        // The unique values across all elements should be perfectly sorted:
+        // 'a', 'b', 'c', 'f', 'm', 'x', 'z'
+
+        let unique_vals: Vec<char> = tree.unique_values().cloned().collect();
+
+        assert_eq!(unique_vals, vec!['a', 'b', 'c', 'f', 'm', 'x', 'z']);
     }
 }
