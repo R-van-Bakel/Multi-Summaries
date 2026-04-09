@@ -234,22 +234,26 @@ impl DataEdgeCounter {
     fn new() -> Self {
         DataEdgeCounter {
             condensed_counts: vec![0],
-            uncondensed_counts: vec![0]
+            uncondensed_counts: vec![0],
         }
     }
 
     fn increment_by_interval(&mut self, start_level: u64, end_level: u64) {
         let mut uncondensed_offset = 1;
-        for i in (start_level as usize) ..= (end_level as usize) {
+        for i in (start_level as usize)..self.condensed_counts.len() {
             self.condensed_counts[i] += 1;
             self.uncondensed_counts[i] += uncondensed_offset;
-            uncondensed_offset += 1;
+            if i < end_level as usize {
+                uncondensed_offset += 1;
+            }
         }
     }
 
-    fn add_level (&mut self) {
-        self.condensed_counts.push(0);
-        self.uncondensed_counts.push(0);
+    fn add_level(&mut self) {
+        self.condensed_counts
+            .push(*self.condensed_counts.last().unwrap());
+        self.uncondensed_counts
+            .push(*self.uncondensed_counts.last().unwrap());
     }
 }
 
@@ -269,7 +273,10 @@ pub struct SharedBisimulationState {
 }
 
 impl SharedBisimulationState {
-    fn new(bisimulation_outcome: &KBisimulationOutcome, output_dir: impl AsRef<Path>) -> Result<Self> {
+    fn new(
+        bisimulation_outcome: &KBisimulationOutcome,
+        output_dir: impl AsRef<Path>,
+    ) -> Result<Self> {
         let i = 1; // TODO NB the current code sets this to 0u64 initially
 
         // Track the living blocks
@@ -332,7 +339,7 @@ impl SharedBisimulationState {
             previous_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
             new_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
             data_edge_writer,
-            data_edge_counter
+            data_edge_counter,
         })
     }
 
@@ -346,7 +353,9 @@ impl SharedBisimulationState {
 
         self.i += 1;
 
-        let refine_path = self.output_directory.join(format!("refines/refines_{}", self.i));
+        let refine_path = self
+            .output_directory
+            .join(format!("refines/refines_{}", self.i));
         let file = File::create(refine_path)?;
         self.refines_writer = BufWriter::new(file);
 
@@ -635,11 +644,12 @@ impl SharedBisimulationState {
     ) -> Result<()> {
         // println!("{} -{}-> {}", subject, predicate, object);
         let end_level_or_fixed_point = if end_level == 0 {
-            self.i  // NB: we use 0 as a stand-in for infinity. We assume self.i is currently equal to the fixed point
+            self.i // NB: we use 0 as a stand-in for infinity. We assume self.i is currently equal to the fixed point
         } else {
             end_level
         };
-        self.data_edge_counter.increment_by_interval(start_level, end_level_or_fixed_point);
+        self.data_edge_counter
+            .increment_by_interval(start_level, end_level_or_fixed_point);
         self.data_edge_writer.write_all(&subject.to_be_bytes())?;
         self.data_edge_writer.write_all(&predicate.to_be_bytes())?;
         self.data_edge_writer.write_all(&object.to_be_bytes())?;
@@ -664,7 +674,10 @@ pub struct FullBisimulationState {
 }
 
 impl FullBisimulationState {
-    pub fn new(bisimulation_outcome: KBisimulationOutcome, output_dir: impl AsRef<Path>) -> Result<Self> {
+    pub fn new(
+        bisimulation_outcome: KBisimulationOutcome,
+        output_dir: impl AsRef<Path>,
+    ) -> Result<Self> {
         Ok(Self {
             shared_state: SharedBisimulationState::new(&bisimulation_outcome, output_dir)?,
             current_outcome: bisimulation_outcome,

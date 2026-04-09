@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
 
 use multi_summaries::bisimulator::{
-    BlockAssignment, DataEdgeCounter, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel, LevelIndex, get_0_bisimulation, get_i_bisimulation, get_typed_0_bisimulation
+    BlockAssignment, DataEdgeCounter, FullBisimulationState, GlobalBlockIndex,
+    GlobalBlockIndexAndLevel, LevelIndex, get_0_bisimulation, get_i_bisimulation,
+    get_typed_0_bisimulation,
 };
 
 #[derive(Parser, Debug)]
@@ -66,7 +68,7 @@ impl BisimulationStatistics {
             refines_edges_condensed: Vec::new(),
             data_edges_quotient: Vec::new(),
             data_edges_condensed: Vec::new(),
-            data_edges_uncondensed: Vec::new()
+            data_edges_uncondensed: Vec::new(),
         }
     }
 }
@@ -100,7 +102,10 @@ fn main() -> Result<()> {
     let input_file = &args.input;
     let output_dir = &args.output;
     if args.output.is_dir() {
-        return Err(Error::new(ErrorKind::AlreadyExists, format!("Output directory '{}' already exist", args.output.display())));
+        return Err(Error::new(
+            ErrorKind::AlreadyExists,
+            format!("Output directory '{}' already exist", args.output.display()),
+        ));
     }
     fs::create_dir_all(output_dir)?;
     let type_id = match (&args.type_relation_id, &args.rel_to_id_file) {
@@ -162,12 +167,24 @@ pub fn compute_bisimulation(
         total_blocks_uncondensed += bisimulation_state.current_outcome.total_blocks();
         refines_edges_condensed += bisimulation_state.shared_state.refines_edge_count();
 
-        bisimulation_statistics.singletons_condensed.push(bisimulation_state.current_outcome.singletons());
-        bisimulation_statistics.singletons_uncondensed.push(singletons_uncondensed);
-        bisimulation_statistics.blocks_condensed.push(bisimulation_state.current_outcome.total_blocks());
-        bisimulation_statistics.blocks_condensed.push(total_blocks_condensed);
-        bisimulation_statistics.blocks_uncondensed.push(total_blocks_uncondensed);
-        bisimulation_statistics.refines_edges_condensed.push(refines_edges_condensed);
+        bisimulation_statistics
+            .singletons_condensed
+            .push(bisimulation_state.current_outcome.singletons());
+        bisimulation_statistics
+            .singletons_uncondensed
+            .push(singletons_uncondensed);
+        bisimulation_statistics
+            .blocks_quotient
+            .push(bisimulation_state.current_outcome.total_blocks());
+        bisimulation_statistics
+            .blocks_condensed
+            .push(total_blocks_condensed);
+        bisimulation_statistics
+            .blocks_uncondensed
+            .push(total_blocks_uncondensed);
+        bisimulation_statistics
+            .refines_edges_condensed
+            .push(refines_edges_condensed);
 
         println!(
             "After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
@@ -199,7 +216,7 @@ pub fn compute_bisimulation(
                 println!("Running extra iteration to emit data edges that end at the fixed point");
                 bisimulation_state =
                     get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?;
-                bisimulation_state.shared_state.update_level()?; // TODO this call might not be needed
+                // bisimulation_state.shared_state.update_level()?; // TODO this call might not be needed
             }
             println!("Bisimulation stabilized at k = {}", fixed_point);
             break;
@@ -306,7 +323,10 @@ pub fn compute_bisimulation(
     final_state.refines_writer.flush()?;
 
     // Get the data edge statistics
-    let DataEdgeCounter {condensed_counts: data_edges_condensed, uncondensed_counts: data_edges_uncondensed} = final_state.data_edge_counter();
+    let DataEdgeCounter {
+        condensed_counts: data_edges_condensed,
+        uncondensed_counts: data_edges_uncondensed,
+    } = final_state.data_edge_counter();
     bisimulation_statistics.data_edges_condensed = data_edges_condensed;
     bisimulation_statistics.data_edges_uncondensed = data_edges_uncondensed;
 
