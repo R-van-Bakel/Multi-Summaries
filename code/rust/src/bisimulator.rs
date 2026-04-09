@@ -1,9 +1,9 @@
 use fxhash::FxBuildHasher;
+use itertools::Itertools;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
-use std::cmp::Reverse;
 // Assuming graph.rs is a module
-use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use std::fmt::{self, Display};
 use std::fs::{self, File};
@@ -525,51 +525,24 @@ impl SharedBisimulationState {
             (piece.0, target)
         };
 
-        let mut iters: Vec<_> = sig_keys.into_iter().map(|v| v.into_iter()).collect();
-        let mut pq: BinaryHeap<(Reverse<&(u32, BlockAssignment)>, usize)> =
-            BinaryHeap::with_capacity(iters.len());
+        let iters = sig_keys.into_iter().map(|v| v.iter()).kmerge().dedup();
 
-        for (i, iter) in iters.iter_mut().enumerate() {
-            if let Some(first) = iter.next() {
-                pq.push((Reverse(first), i));
-            }
-        }
         let mut signature_pieces_union = Vec::new();
 
         let mut refined_targets = Vec::new();
 
-        let mut last_seen: Option<(u32, BlockAssignment)> = None;
-        while let Some((Reverse(x), idx)) = pq.pop() {
-            let possibly_new_piece = x;
+        for possibly_new_piece in iters {
             let (pred, mapped_target) = map_piece(possibly_new_piece);
-            let (global_id, level) = match mapped_target {
+            match mapped_target {
                 DataEdgeTarget::Refined(GlobalBlockIndexAndLevel { global_id, level }) => {
                     refined_targets.push((pred, global_id, level));
-                    if let Some(next) = iters[idx].next() {
-                        pq.push((Reverse(next), idx));
-                    }
-                    continue; // You can thank Rust's "never" type :D
                 }
                 DataEdgeTarget::Invariant(GlobalBlockIndexAndLevel { global_id, level }) => {
-                    (global_id, level)
+                    signature_pieces_union.push((pred, global_id, level));
                 }
             };
-            if last_seen
-                .as_ref()
-                .is_some_and(|ls| ls == possibly_new_piece)
-            {
-                if let Some(next) = iters[idx].next() {
-                    pq.push((Reverse(next), idx));
-                }
-                continue;
-            }
-            last_seen = Some(possibly_new_piece.clone());
-            signature_pieces_union.push((pred, global_id, level));
-
-            if let Some(next) = iters[idx].next() {
-                pq.push((Reverse(next), idx));
-            }
         }
+
         refined_targets.sort();
         refined_targets.dedup();
         signature_pieces_union.extend(refined_targets);
@@ -743,8 +716,16 @@ pub fn get_i_bisimulation(
         //     BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id])  // Create new singleton block to own
         // };
 
-        let block_nodes: std::borrow::Cow<'_, Vec<usize>> = match semi_dirty_idx {
-            BlockAssignment::Block(_) => continue, // TODO implement this arm for non-singletons below the mininam support. We are sure this block must exist, so we can unwrap and borrow
+        let block_nodes: std::borrow::Cow<'_, [usize]> = match semi_dirty_idx {
+            BlockAssignment::Block(_) => {
+                if min_support > 1 {
+                    todo!(
+                        "Incomplete implementation for non-singletons below the mininam support."
+                    );
+                    // We are sure this block must exist, so we can unwrap and borrow
+                }
+                continue;
+            } // TODO
             BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id]), // Create new singleton block to own
         };
 

@@ -83,13 +83,13 @@ fn parse_rel_to_id(rel_to_id_path: impl AsRef<Path>) -> Result<Option<u32>> {
         let line = line?;
         let mut parts = line.split_whitespace();
 
-        if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
-            if k == RDF_TYPE_RELATION_STRING {
-                if let Ok(num) = v.parse::<u32>() {
-                    return Ok(Some(num));
-                }
-                return Err(Error::new(ErrorKind::InvalidData, "Invalid number"));
+        if let (Some(k), Some(v)) = (parts.next(), parts.next())
+            && k == RDF_TYPE_RELATION_STRING
+        {
+            if let Ok(num) = v.parse::<u32>() {
+                return Ok(Some(num));
             }
+            return Err(Error::new(ErrorKind::InvalidData, "Invalid number"));
         }
     }
 
@@ -121,7 +121,7 @@ fn main() -> Result<()> {
     let max_k = args.max_k;
 
     // Create graph
-    let mut g = Graph::new(1_000_000);
+    let mut g = Graph::new(1_000_000_000);
     g.read_graph_parallel_memmmap(input_file, false)?;
 
     // Run bisimulation

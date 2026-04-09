@@ -344,18 +344,27 @@ impl Graph {
                 self.resize(max_entity + 1);
             }
 
-            for (s, p, o) in triple_block {
-                // Add the edge
-                //    for (p, o) in pos {
-                self.nodes[s].edges.push(Edge {
-                    label: p,
-                    target: o,
-                });
-                //}
-                if line_counter > 0 && line_counter.is_multiple_of(100_000_000) {
+            for same_subject in triple_block.chunk_by(|(s1, _, _), (s2, _, _)| s1 == s2) {
+                let subject = same_subject[0].0;
+                let edges = &mut self.nodes[subject].edges;
+
+                let count_with_same_subject = same_subject.len();
+
+                edges.reserve(count_with_same_subject);
+
+                for (_, p, o) in same_subject {
+                    // Add the edge
+                    edges.push(Edge {
+                        label: *p,
+                        target: *o,
+                    });
+                }
+                // this counter is out of the tight loop for performace reasons
+                let old_line_counter = line_counter;
+                line_counter += count_with_same_subject as u64;
+                if line_counter / 100_000_000 > old_line_counter / 100_000_000 {
                     println!("Read {:10} triples", line_counter);
                 }
-                line_counter += 1;
             }
         }
         println!("Read {:10} triples", line_counter);
@@ -386,14 +395,18 @@ impl Graph {
                     self.resize(max_entity + 1);
                 }
 
-                for (s, p, o) in triple_block {
-                    // Add the edge
-                    //    for (p, o) in pos {
-                    self.nodes[s].edges.push(Edge {
-                        label: p,
-                        target: o,
-                    });
-                    //}
+                for same_subject in triple_block.chunk_by(|(s1, _, _), (s2, _, _)| s1 == s2) {
+                    let subject = same_subject[0].0;
+                    let edges = &mut self.nodes[subject].edges;
+                    edges.reserve(same_subject.len());
+
+                    for (_, p, o) in same_subject {
+                        // Add the edge
+                        edges.push(Edge {
+                            label: *p,
+                            target: *o,
+                        });
+                    }
                 }
             });
 
