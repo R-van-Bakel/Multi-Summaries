@@ -550,6 +550,7 @@ pub type Predecessors = Vec<Option<Vec<usize>>>;
 
 // A graph where all edges are in a large array, indexed with the numbers in the node array.
 // The edges for node i are edges[nodes[i-1]..nodes[i]]
+// Moreover, the edges for a node are lexicographically sorted
 pub struct FlatGraph {
     nodes: Vec<usize>,
     edges: Vec<Edge>,
