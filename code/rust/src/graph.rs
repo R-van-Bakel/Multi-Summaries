@@ -1,5 +1,6 @@
 use biterator::{Bit, Biterator};
 use core::panic;
+use fxhash::FxBuildHasher;
 use itertools::Itertools;
 use memmap2::MmapOptions;
 use rayon::prelude::*;
@@ -16,6 +17,8 @@ use std::path::Path;
 use std::sync::mpsc::{self, channel};
 use std::thread;
 use thiserror::Error;
+
+use crate::msd_radix_sort;
 
 // In Rust, 'usize' is the standard type for indexing arrays/vectors.
 // On 64-bit systems, this matches the 64-bit requirement.
@@ -273,9 +276,9 @@ impl Graph {
     }
 
     /// Reads a graph from a binary file.
-    pub fn read_graph_parallel_memmmap<P: AsRef<Path>>(
+    pub fn read_graph_parallel_memmmap(
         &mut self,
-        file_name: P,
+        file_name: impl AsRef<Path>,
         reverse_edges: bool,
     ) -> io::Result<()> {
         let path = file_name.as_ref();
@@ -344,18 +347,27 @@ impl Graph {
                 self.resize(max_entity + 1);
             }
 
-            for (s, p, o) in triple_block {
-                // Add the edge
-                //    for (p, o) in pos {
-                self.nodes[s].edges.push(Edge {
-                    label: p,
-                    target: o,
-                });
-                //}
-                if line_counter > 0 && line_counter.is_multiple_of(100_000_000) {
+            for same_subject in triple_block.chunk_by(|(s1, _, _), (s2, _, _)| s1 == s2) {
+                let subject = same_subject[0].0;
+                let edges = &mut self.nodes[subject].edges;
+
+                let count_with_same_subject = same_subject.len();
+
+                edges.reserve(count_with_same_subject);
+
+                for (_, p, o) in same_subject {
+                    // Add the edge
+                    edges.push(Edge {
+                        label: *p,
+                        target: *o,
+                    });
+                }
+                // this counter is out of the tight loop for performace reasons
+                let old_line_counter = line_counter;
+                line_counter += count_with_same_subject as u64;
+                if line_counter / 100_000_000 > old_line_counter / 100_000_000 {
                     println!("Read {:10} triples", line_counter);
                 }
-                line_counter += 1;
             }
         }
         println!("Read {:10} triples", line_counter);
@@ -386,14 +398,18 @@ impl Graph {
                     self.resize(max_entity + 1);
                 }
 
-                for (s, p, o) in triple_block {
-                    // Add the edge
-                    //    for (p, o) in pos {
-                    self.nodes[s].edges.push(Edge {
-                        label: p,
-                        target: o,
-                    });
-                    //}
+                for same_subject in triple_block.chunk_by(|(s1, _, _), (s2, _, _)| s1 == s2) {
+                    let subject = same_subject[0].0;
+                    let edges = &mut self.nodes[subject].edges;
+                    edges.reserve(same_subject.len());
+
+                    for (_, p, o) in same_subject {
+                        // Add the edge
+                        edges.push(Edge {
+                            label: *p,
+                            target: *o,
+                        });
+                    }
                 }
             });
 
@@ -536,12 +552,12 @@ impl Graph {
             }
         }
         // Sort and dedup each predecessor list
-        for maybe_p in preds.iter_mut() {
-            if let Some(p) = maybe_p {
-                p.sort_unstable();
-                p.dedup();
-            }
+        // flatten to skip None's.
+        for p in preds.iter_mut().flatten() {
+            p.sort_unstable();
+            p.dedup();
         }
+
         preds
     }
 }
@@ -550,7 +566,6 @@ pub type Predecessors = Vec<Option<Vec<usize>>>;
 
 // A graph where all edges are in a large array, indexed with the numbers in the node array.
 // The edges for node i are edges[nodes[i-1]..nodes[i]]
-// Moreover, the edges for a node are lexicographically sorted
 pub struct FlatGraph {
     nodes: Vec<usize>,
     edges: Vec<Edge>,
@@ -568,16 +583,6 @@ impl FlatGraph {
 
         let mut nodes: VecDeque<Node> = VecDeque::from(g.nodes);
 
-        // g.nodes
-        //     .into_iter().re
-        //     par_iter_mut()
-        //     //perform a quick check whether there is more than one element
-        //     .for_each(|node| {
-        //         node.edges
-        //             .sort_unstable_by(|a, b| (a.label, a.target).cmp(&(b.label, b.target)));
-        //         node.edges.dedup_by_key(|e| (e.label, e.target));
-        //     });
-        // SortedGraph { graph: g }
         while !nodes.is_empty() {
             let node: Node = nodes.pop_front().unwrap();
             let edges_in_this_node_count = node.edges.len();
@@ -586,11 +591,11 @@ impl FlatGraph {
             sg.edges.extend(node.edges.into_iter());
         }
 
-        return sg;
+        sg
     }
 
     pub fn get_size(&self) -> usize {
-        self.nodes.iter().len()
+        self.nodes.len()
     }
 
     pub fn get_node(&self, node_idx: usize) -> FlatGraphNode<'_> {
@@ -620,11 +625,10 @@ impl FlatGraph {
             }
         }
         // Sort and dedup each predecessor list
-        for maybe_p in preds.iter_mut() {
-            if let Some(p) = maybe_p {
-                p.sort_unstable();
-                p.dedup();
-            }
+        // flatten to skip None's.
+        for p in preds.iter_mut().flatten() {
+            p.sort_unstable();
+            p.dedup();
         }
         preds
     }
@@ -668,9 +672,7 @@ impl SortedGraph {
 
         if self_node_count < other_node_count {
             // we need to expand self to the size of other
-            self.graph
-                .nodes
-                .resize_with(other_node_count, || Node::new());
+            self.graph.nodes.resize_with(other_node_count, Node::new);
         }
 
         // We only need to iterate over the nodes of other
@@ -687,7 +689,7 @@ impl SortedGraph {
                 .get(i)
                 .expect("array resized above, element must exist")
                 .edges;
-            if b.len() == 0 {
+            if b.is_empty() {
                 // nothing to do
                 continue;
             }
@@ -900,10 +902,164 @@ pub fn get_graph_triple_count_from_binary_file<P: AsRef<Path>>(
 ) -> Result<usize, GraphValidationError> {
     let path = file.as_ref();
     let graph_binary_size = fs::metadata(path)?.len() as usize;
-    if graph_binary_size % BYTES_PER_TRIPLE != 0 {
+    if graph_binary_size.is_multiple_of(BYTES_PER_TRIPLE) {
         return Err(GraphValidationError::NotDivisible {
             num_bytes: (graph_binary_size),
         });
     }
     Ok(graph_binary_size / BYTES_PER_TRIPLE)
+}
+
+/// This function optimizes the ordering in the graph, by remapping the edge types, and sorting accordingly.
+/// Then, the nodes are sorted lexicographically, with respect to their edge set.
+/// All this, is aimed at making get_i_bisimulation faster and less memory consuming
+/// This would happen because
+/// 1. in the signature tree, there would be longer common prefixes, and
+/// 2. as nodes that have similar edges are close to each other, we get better locality in the signature tree
+/// 3. as nodes that have the same edge set are right next to each other, we might even be able to skip the signature calculation altogether;
+///  after the first one of its kind we only need to check whether the edge set is exactly the same which is very fast.
+pub fn optimize_graph_for_bisimulation(mut g: Graph, rel_count: EdgeType) -> FlatGraph {
+    remap_edge_types_ascending_frequency(&mut g, rel_count);
+    // All edges are now mapped, higher index means less frequent.
+
+    // Step 2: we want to sort all nodes lexicographicallly by their edge type set.
+    // however, because edge sets can be quite varying in size, and we expect little gain from the long tail
+    // we will only sort up to a certain lexicographic depth.
+
+    // We set this as a multiple of 32, hoping to get better cache alignment,
+    let lexicographic_depth = 4 * 32;
+
+    // The graph we have contains duplicates in its edge types, we will create a shadow array to get rid of these to speed up the sort
+    // as we now have a fixed number of things
+
+    let shadow_array = build_shadow_array(&mut g, lexicographic_depth);
+
+    let indices = msd_radix_sort::msd_radix_sort(
+        g.get_size(),
+        rel_count as usize,
+        5000, // This parameter was recommended by gemini, based on an L3 cache size of 256MB
+        lexicographic_depth,
+        &shadow_array,
+    );
+
+    // Now we will create the final FlatGraph with the sorted content.
+    // We can allocate all required memory upfront. This completely eliminates
+    // reallocation pauses during the loop.
+    // first we get the sizes to be allocated
+    let node_count = g.nodes.len();
+    let edge_count = g.get_total_edge_count();
+    let mut fg = FlatGraph {
+        nodes: Vec::with_capacity(node_count),
+        edges: Vec::with_capacity(edge_count),
+    };
+
+    for old_node_id in indices.iter() {
+        let node: &mut Node = &mut g.nodes[*old_node_id];
+        let edges_in_this_node_count = node.edges.len();
+        fg.nodes.push(fg.edges.len() + edges_in_this_node_count);
+        fg.edges.extend(node.edges.drain(..));
+    }
+
+    // Invert the sorted indices into a "ranks" array to map the targets
+    let mut ranks = vec![0; indices.len()];
+    for (sorted_position, original_id) in indices.into_iter().enumerate() {
+        ranks[original_id] = sorted_position;
+    }
+
+    for edge in fg.edges.iter_mut() {
+        edge.target = ranks[edge.target];
+    }
+
+    fg
+}
+
+/// Builds a dense, fixed-width shadow array for fast MSD Radix Sorting.
+///
+/// * `flat`: Your original CSR-like data structure.
+/// * `k`: The maximum depth to truncate the sorting prefix (e.g., 16).
+fn build_shadow_array(g: &Graph, k: usize) -> Vec<u32> {
+    // A standard offset table has num_sets + 1 entries.
+
+    // Pre-allocate the entire array with the sentinel value.
+    // This perfectly handles the padding for sets shorter than `k` upfront.
+    let mut shadow_array = vec![msd_radix_sort::EOS_SENTINEL; g.get_size() * k];
+
+    for (node_idx, node) in g.nodes.iter().enumerate() {
+        // let start = flat.n[set_id];
+        // let end = flat.n[set_id + 1];
+
+        let mut unique_count = 0;
+        let mut last_val: Option<u32> = None;
+
+        // Calculate the starting index for this set in the 1D shadow array
+        let shadow_base_idx = node_idx * k;
+
+        // Iterate through the original set elements
+        for edge in &node.edges {
+            // Stop if we have hit the prefix truncation limit
+            if unique_count >= k {
+                break;
+            }
+
+            let val = edge.label;
+
+            // Deduplication: Only write if it differs from the last written value
+            if Some(val) != last_val {
+                shadow_array[shadow_base_idx + unique_count] = val;
+                last_val = Some(val);
+                unique_count += 1;
+            }
+        }
+        // Any remaining slots in the `k`-block are already correctly
+        // filled with EOS_SENTINEL from the initial vector allocation.
+    }
+
+    shadow_array
+}
+
+fn remap_edge_types_ascending_frequency(g: &mut Graph, rel_count: EdgeType) {
+    // Step1: we remap the edge types by global frequency, most frequent type first
+    // compute global frequencies of edge types
+    let mut absolute_frequencies: HashMap<EdgeType, u64, _> =
+        HashMap::with_hasher(FxBuildHasher::new());
+    g.nodes.iter().flat_map(|n| &n.edges).for_each(|edge| {
+        absolute_frequencies
+            .entry(edge.label)
+            .and_modify(|e| *e += 1)
+            .or_insert(1);
+    });
+
+    let mut types_by_descending_frequency: Vec<EdgeType> = (0..rel_count).collect();
+    types_by_descending_frequency.sort_unstable_by(|t1: &EdgeType, t2: &EdgeType| {
+        absolute_frequencies
+            .get(t1)
+            .unwrap_or(&0) // This happens if an edge type is not actually used in the graph
+            .cmp(
+                absolute_frequencies.get(t2).unwrap_or(&0), // This happens if an edge type is not actually used in the graph
+            )
+            .reverse()
+    });
+
+    drop(absolute_frequencies);
+
+    let mut types_by_descending_frequency_mapping: Vec<EdgeType> = (0..rel_count).collect();
+    for (idx, rel) in types_by_descending_frequency.iter().enumerate() {
+        types_by_descending_frequency_mapping[*rel as usize] = idx as u32;
+    }
+
+    for edge in g.nodes.iter_mut().flat_map(|n| &mut n.edges) {
+        edge.label = types_by_descending_frequency_mapping[edge.label as usize];
+    }
+
+    // TODO: it might be that we return one of these, or give it to a callback se we can free up the memory. To be decided.
+    drop(types_by_descending_frequency);
+    drop(types_by_descending_frequency_mapping);
+
+    // Now that all are mapped, we sort them with natural ordering
+    // We do a lexicographic ordering with the edge target, this might help a bit if we want to later figure out that two nodes have exactly the same set of edges
+    // It might be even better to do the sorting of the targets by in-degree, but we do nto have that at this point.
+    for node in g.nodes.iter_mut() {
+        node.edges
+            .sort_unstable_by(|n1, n2| n1.label.cmp(&n2.label).then(n1.target.cmp(&n2.target)));
+    }
 }
