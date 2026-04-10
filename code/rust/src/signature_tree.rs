@@ -76,8 +76,30 @@ impl<T: Ord + Clone, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP
         idx
     }
 
-    // Insert something into the tree. The outer_index will be added to the set of usize associated with this sequence.
-    pub fn insert(&mut self, mut iter: impl Iterator<Item = T>, outer_index: usize) {
+    pub fn insert(&mut self, iter: impl Iterator<Item = T>, outer_index: usize)
+    where
+        T: PartialOrd + Clone, // Needed for the check
+    {
+        #[cfg(debug_assertions)]
+        let iter = {
+            let content: Vec<T> = iter.collect();
+            let is_sorted = content.windows(2).all(|w| w[0] <= w[1]);
+            if !is_sorted {
+                panic!("The sequences put into the signature tree must be sorted!");
+            }
+            // In debug, we return an iterator over the Vec
+            content.into_iter()
+        };
+
+        // The logic continues here.
+        // In Release: `iter` is the original generic iterator.
+        // In Debug: `iter` is a `std::vec::IntoIter<T>`.
+
+        // To make this work with the type system the logic is moved into a helper function.
+        self.process_insert(iter, outer_index);
+    }
+
+    fn process_insert(&mut self, mut iter: impl Iterator<Item = T>, outer_index: usize) {
         let mut current_idx = 0; // Start at root
         let mut current_item = iter.next();
 
