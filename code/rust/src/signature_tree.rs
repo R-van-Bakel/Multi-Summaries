@@ -214,15 +214,15 @@ impl<T: Ord + Clone, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP
             if !node.indices.is_empty() {
                 count += 1;
                 if count > 1 {
-                    return UniqueSignatureCount::MORE;
+                    return UniqueSignatureCount::MoreThanOne;
                 }
             }
         }
 
         match count {
-            0 => UniqueSignatureCount::ZERO,
-            1 => UniqueSignatureCount::ONE,
-            _ => UniqueSignatureCount::MORE, // Handled by the short-circuit, but satisfies the compiler
+            0 => UniqueSignatureCount::Zero,
+            1 => UniqueSignatureCount::One,
+            _ => UniqueSignatureCount::MoreThanOne, // Handled by the short-circuit, but satisfies the compiler
         }
     }
 
@@ -257,9 +257,9 @@ impl<T: Ord + Clone, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UniqueSignatureCount {
-    ZERO,
-    ONE,
-    MORE,
+    Zero,
+    One,
+    MoreThanOne,
 }
 
 pub struct RadixTreeArenaIter<
@@ -434,7 +434,7 @@ mod tests {
         let tree = CharArena::new();
         assert_eq!(
             tree.get_unique_signature_count(),
-            UniqueSignatureCount::ZERO
+            UniqueSignatureCount::Zero
         );
     }
 
@@ -443,7 +443,7 @@ mod tests {
         let mut tree = CharArena::new();
         tree.insert(vec!['a', 'p', 'p', 'l', 'e'].into_iter(), 0);
 
-        assert_eq!(tree.get_unique_signature_count(), UniqueSignatureCount::ONE);
+        assert_eq!(tree.get_unique_signature_count(), UniqueSignatureCount::One);
     }
 
     #[test]
@@ -457,7 +457,7 @@ mod tests {
         tree.insert(seq.clone().into_iter(), 2);
 
         // Should still only be ONE unique signature
-        assert_eq!(tree.get_unique_signature_count(), UniqueSignatureCount::ONE);
+        assert_eq!(tree.get_unique_signature_count(), UniqueSignatureCount::One);
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
 
         assert_eq!(
             tree.get_unique_signature_count(),
-            UniqueSignatureCount::MORE
+            UniqueSignatureCount::MoreThanOne
         );
     }
 
@@ -482,7 +482,7 @@ mod tests {
 
         assert_eq!(
             tree.get_unique_signature_count(),
-            UniqueSignatureCount::MORE
+            UniqueSignatureCount::MoreThanOne
         );
     }
 
@@ -492,7 +492,7 @@ mod tests {
         // Inserting an empty iterator
         tree.insert(std::iter::empty(), 0);
 
-        assert_eq!(tree.get_unique_signature_count(), UniqueSignatureCount::ONE);
+        assert_eq!(tree.get_unique_signature_count(), UniqueSignatureCount::One);
     }
 
     #[test]
