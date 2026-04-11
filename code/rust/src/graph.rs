@@ -1,12 +1,11 @@
 use biterator::{Bit, Biterator};
 use core::panic;
-use fxhash::FxBuildHasher;
+use fxhash::FxHashMap;
 use itertools::Itertools;
 use memmap2::MmapOptions;
 use rayon::prelude::*;
 use std::cmp::max;
 use std::cmp::min;
-use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fs;
@@ -145,8 +144,8 @@ impl Graph {
         self.nodes.iter().map(|n| n.edges.len()).sum()
     }
 
-    pub fn get_degree_histogram(&self) -> HashMap<usize, u64> {
-        let mut counts: HashMap<usize, u64> = HashMap::new();
+    pub fn get_degree_histogram(&self) -> FxHashMap<usize, u64> {
+        let mut counts: FxHashMap<usize, u64> = FxHashMap::default();
         for node in self.nodes.iter() {
             counts
                 .entry(node.edges.len())
@@ -160,8 +159,8 @@ impl Graph {
     // 1. the number of triples using that relations,
     // 2. the lowest and highest entity in its subject position and
     // 3. the lowest and highest entity in its object position and
-    pub fn get_relation_distribution(&self) -> HashMap<EdgeType, RelStat> {
-        let mut counts: HashMap<EdgeType, RelStat> = HashMap::new();
+    pub fn get_relation_distribution(&self) -> FxHashMap<EdgeType, RelStat> {
+        let mut counts: FxHashMap<EdgeType, RelStat> = FxHashMap::default();
         let node_enumeration = self.nodes.iter().enumerate();
         let edge_enumeration =
             node_enumeration.flat_map(|(index, n)| repeat(index).zip(n.edges.iter()));
@@ -917,7 +916,7 @@ pub fn get_graph_triple_count_from_binary_file<P: AsRef<Path>>(
 /// 1. in the signature tree, there would be longer common prefixes, and
 /// 2. as nodes that have similar edges are close to each other, we get better locality in the signature tree
 /// 3. as nodes that have the same edge set are right next to each other, we might even be able to skip the signature calculation altogether;
-///  after the first one of its kind we only need to check whether the edge set is exactly the same which is very fast.
+///    after the first one of its kind we only need to check whether the edge set is exactly the same which is very fast.
 pub fn optimize_graph_for_bisimulation(mut g: Graph, rel_count: EdgeType) -> FlatGraph {
     remap_edge_types_ascending_frequency(&mut g, rel_count);
     // All edges are now mapped, higher index means less frequent.
@@ -932,7 +931,7 @@ pub fn optimize_graph_for_bisimulation(mut g: Graph, rel_count: EdgeType) -> Fla
     // The graph we have contains duplicates in its edge types, we will create a shadow array to get rid of these to speed up the sort
     // as we now have a fixed number of things
 
-    let shadow_array = build_shadow_array(&mut g, lexicographic_depth);
+    let shadow_array = build_shadow_array(&g, lexicographic_depth);
 
     let indices = msd_radix_sort::msd_radix_sort(
         g.get_size(),
@@ -957,7 +956,7 @@ pub fn optimize_graph_for_bisimulation(mut g: Graph, rel_count: EdgeType) -> Fla
         let node: &mut Node = &mut g.nodes[*old_node_id];
         let edges_in_this_node_count = node.edges.len();
         fg.nodes.push(fg.edges.len() + edges_in_this_node_count);
-        fg.edges.extend(node.edges.drain(..));
+        fg.edges.append(&mut node.edges);
     }
 
     // Invert the sorted indices into a "ranks" array to map the targets
@@ -1020,8 +1019,7 @@ fn build_shadow_array(g: &Graph, k: usize) -> Vec<u32> {
 fn remap_edge_types_ascending_frequency(g: &mut Graph, rel_count: EdgeType) {
     // Step1: we remap the edge types by global frequency, most frequent type first
     // compute global frequencies of edge types
-    let mut absolute_frequencies: HashMap<EdgeType, u64, _> =
-        HashMap::with_hasher(FxBuildHasher::new());
+    let mut absolute_frequencies: FxHashMap<EdgeType, u64> = FxHashMap::default();
     g.nodes.iter().flat_map(|n| &n.edges).for_each(|edge| {
         absolute_frequencies
             .entry(edge.label)
