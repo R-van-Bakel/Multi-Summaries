@@ -1,7 +1,6 @@
 use clap::{ArgGroup, Parser};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
@@ -269,7 +268,9 @@ pub fn compute_bisimulation(
             sorted_inners.push(inner_data_edges);
         }
 
-        let outer_data_edges = k_way_merge(sorted_inners);
+        // Use a k-way merge to get the (deduplicated) union of the inner data edges
+        let outer_data_edges: Vec<_> = sorted_inners.into_iter().kmerge().dedup().collect();
+
         for DataEdgeAndInterval {
             data_edge,
             interval,
@@ -334,35 +335,6 @@ pub fn compute_bisimulation(
     serde_json::to_writer_pretty(statistics_file, &bisimulation_statistics)?;
 
     Ok(())
-}
-
-// TODO: double check if this is correct
-pub fn k_way_merge<T: Ord + Clone>(lists: Vec<Vec<T>>) -> Vec<T> {
-    let mut iters: Vec<_> = lists.into_iter().map(|v| v.into_iter()).collect();
-    let mut heap: BinaryHeap<(Reverse<T>, usize)> = BinaryHeap::with_capacity(iters.len());
-
-    // Seed heap with first element of each iterator
-    for (i, iter) in iters.iter_mut().enumerate() {
-        if let Some(first) = iter.next() {
-            heap.push((Reverse(first), i));
-        }
-    }
-
-    let mut result = Vec::new();
-    let mut last_seen = None;
-
-    while let Some((Reverse(value), idx)) = heap.pop() {
-        if last_seen.as_ref().is_none_or(|ls| ls != &value) {
-            last_seen = Some(value.clone());
-            result.push(value);
-        }
-
-        if let Some(next) = iters[idx].next() {
-            heap.push((Reverse(next), idx));
-        }
-    }
-
-    result
 }
 
 #[derive(Clone)]
