@@ -70,6 +70,76 @@ impl BisimulationStatistics {
             data_edges_uncondensed: Vec::new(),
         }
     }
+
+    fn add_level(&mut self, bisimulation_state: &FullBisimulationState) {
+        let last_singletons_uncondensed = self.singletons_uncondensed.last().copied().unwrap_or(0);
+        let last_blocks_condensed = self
+            .blocks_condensed
+            .last()
+            .copied()
+            .unwrap_or(bisimulation_state.current_outcome.total_blocks());
+        let last_blocks_uncondensed = self.blocks_uncondensed.last().copied().unwrap_or(0);
+        let refines_edges_condensed = self.refines_edges_condensed.last().copied().unwrap_or(0);
+
+        self.singletons_uncondensed
+            .push(last_singletons_uncondensed + bisimulation_state.current_outcome.singletons());
+        self.blocks_condensed
+            .push(last_blocks_condensed + bisimulation_state.shared_state.refines_edge_count());
+        self.blocks_uncondensed
+            .push(last_blocks_uncondensed + bisimulation_state.current_outcome.total_blocks());
+        self.refines_edges_condensed
+            .push(refines_edges_condensed + bisimulation_state.shared_state.refines_edge_count());
+
+        self.singletons_condensed
+            .push(bisimulation_state.current_outcome.singletons());
+        self.blocks_quotient
+            .push(bisimulation_state.current_outcome.total_blocks());
+
+        println!(
+            "After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
+            bisimulation_state.shared_state.i - 1,
+            bisimulation_state.current_outcome.dirty_blocks.len(),
+            self.singletons_condensed.last().unwrap(),
+            self.blocks_quotient.last().unwrap(),
+            self.blocks_condensed.last().unwrap(),
+            self.singletons_uncondensed.last().unwrap(),
+            self.blocks_uncondensed.last().unwrap(),
+            self.refines_edges_condensed.last().unwrap(),
+        );
+    }
+
+    fn add_aggregate_data_edges(&mut self, aggregate_counter: DataEdgeCounter) {
+        assert!(self.data_edges_condensed.is_empty() && self.data_edges_uncondensed.is_empty());
+        self.data_edges_condensed = aggregate_counter.condensed_counts;
+        self.data_edges_uncondensed = aggregate_counter.uncondensed_counts
+    }
+}
+
+#[derive(Clone)]
+struct DataEdgeAndInterval {
+    pub data_edge: (GlobalBlockIndex, EdgeType, GlobalBlockIndex),
+    pub interval: (LevelIndex, LevelIndex),
+}
+
+// Data edges are uniquely identified by their triples, so we can ignore the intervals for the purposes of equality and ordering
+impl PartialEq for DataEdgeAndInterval {
+    fn eq(&self, other: &Self) -> bool {
+        self.data_edge == other.data_edge
+    }
+}
+
+impl Eq for DataEdgeAndInterval {}
+
+impl PartialOrd for DataEdgeAndInterval {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DataEdgeAndInterval {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.data_edge.cmp(&other.data_edge)
+    }
 }
 
 // TODO this function could also be extended to work on "rel2ID.meta.json" files
@@ -150,52 +220,13 @@ pub fn compute_bisimulation(
     let output_path_buf = output_dir.as_ref().to_path_buf();
     let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_path_buf.clone())?;
 
-    let mut singletons_uncondensed = 0;
-    let mut total_blocks_condensed = bisimulation_state.current_outcome.total_blocks();
-    let mut total_blocks_uncondensed = 0;
-    let mut refines_edges_condensed = 0;
-
     let mut bisimulation_statistics = BisimulationStatistics::new();
     let statistics_path = output_path_buf.join("statistics.json");
     let statistics_file = File::create(statistics_path)?;
 
     // 3. Iterative Refinement
     loop {
-        singletons_uncondensed += bisimulation_state.current_outcome.singletons();
-        total_blocks_condensed += bisimulation_state.shared_state.refines_edge_count();
-        total_blocks_uncondensed += bisimulation_state.current_outcome.total_blocks();
-        refines_edges_condensed += bisimulation_state.shared_state.refines_edge_count();
-
-        bisimulation_statistics
-            .singletons_condensed
-            .push(bisimulation_state.current_outcome.singletons());
-        bisimulation_statistics
-            .singletons_uncondensed
-            .push(singletons_uncondensed);
-        bisimulation_statistics
-            .blocks_quotient
-            .push(bisimulation_state.current_outcome.total_blocks());
-        bisimulation_statistics
-            .blocks_condensed
-            .push(total_blocks_condensed);
-        bisimulation_statistics
-            .blocks_uncondensed
-            .push(total_blocks_uncondensed);
-        bisimulation_statistics
-            .refines_edges_condensed
-            .push(refines_edges_condensed);
-
-        println!(
-            "After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
-            bisimulation_state.shared_state.i - 1,
-            bisimulation_state.current_outcome.dirty_blocks.len(),
-            bisimulation_state.current_outcome.singletons(),
-            bisimulation_state.current_outcome.total_blocks(),
-            total_blocks_condensed,
-            singletons_uncondensed,
-            total_blocks_uncondensed,
-            refines_edges_condensed,
-        );
+        bisimulation_statistics.add_level(&bisimulation_state);
 
         // Break if we've reached a user-defined depth limit
         if let Some(limit) = max_k
@@ -324,42 +355,11 @@ pub fn compute_bisimulation(
     final_state.refines_writer.flush()?;
 
     // Get the data edge statistics
-    let DataEdgeCounter {
-        condensed_counts: data_edges_condensed,
-        uncondensed_counts: data_edges_uncondensed,
-    } = final_state.data_edge_counter();
-    bisimulation_statistics.data_edges_condensed = data_edges_condensed;
-    bisimulation_statistics.data_edges_uncondensed = data_edges_uncondensed;
+    let data_edge_counts = final_state.data_edge_counter();
+    bisimulation_statistics.add_aggregate_data_edges(data_edge_counts);
 
     // Serialize the bisimulation statistics
     serde_json::to_writer_pretty(statistics_file, &bisimulation_statistics)?;
 
     Ok(())
-}
-
-#[derive(Clone)]
-struct DataEdgeAndInterval {
-    pub data_edge: (GlobalBlockIndex, EdgeType, GlobalBlockIndex),
-    pub interval: (LevelIndex, LevelIndex),
-}
-
-// Data edges are uniquely identified by their triples, so we can ignore the intervals for the purposes of equality and ordering
-impl PartialEq for DataEdgeAndInterval {
-    fn eq(&self, other: &Self) -> bool {
-        self.data_edge == other.data_edge
-    }
-}
-
-impl Eq for DataEdgeAndInterval {}
-
-impl PartialOrd for DataEdgeAndInterval {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DataEdgeAndInterval {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.data_edge.cmp(&other.data_edge)
-    }
 }
