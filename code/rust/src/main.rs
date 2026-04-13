@@ -261,6 +261,7 @@ pub fn compute_bisimulation(
     }
 
     // 4. Emit the data edges for the remaining (non-singleton) blocks
+    println!("Emitting data edges for final (non-singleton) blocks...");
     let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
     let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
     let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
@@ -312,6 +313,7 @@ pub fn compute_bisimulation(
     }
 
     // 5. Emit the data edges for the remaining singleton blocks
+    println!("Emitting data edges for final singletons...");
     for (
         node_idx,
         GlobalBlockIndexAndLevel {

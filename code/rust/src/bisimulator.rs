@@ -297,25 +297,23 @@ impl SharedBisimulationState {
         }
 
         // Track the singletons
-        let mut next_id = bisimulation_outcome.blocks.len();
+        let mut global_largest_block_id = bisimulation_outcome.blocks.len() - 1;
         let mut singleton_mapping = FxHashMap::default();
         for block in &bisimulation_outcome.node_to_block.mapping {
             match block {
                 BlockAssignment::Block(_) => continue,
                 BlockAssignment::Singleton(node_idx) => {
+                    global_largest_block_id += 1;
                     singleton_mapping.insert(
                         *node_idx,
                         GlobalBlockIndexAndLevel {
-                            global_id: next_id,
+                            global_id: global_largest_block_id,
                             level: 0,
                         },
                     );
-                    next_id += 1;
                 }
             }
         }
-
-        let global_largest_block_id = (bisimulation_outcome.blocks.len() - 1) as BlockIndex;
 
         let output_directory = output_dir.as_ref().to_path_buf();
 
