@@ -1,9 +1,8 @@
-use fxhash::FxBuildHasher;
+use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
-// Assuming graph.rs is a module
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 
 use std::fmt::{self, Display};
 use std::fs::{self, File};
@@ -77,16 +76,16 @@ struct InternalNode2BlockMapper {
     // mapping[i] >= 0 is BlockIndex, < 0 is Singleton
 
     // The new_mapping is taking precedence over what is in the old mapping.
-    new_mapping: HashMap<usize, BlockAssignment, FxBuildHasher>,
+    new_mapping: FxHashMap<usize, BlockAssignment>,
     old_mapping: Vec<BlockAssignment>,
     singleton_count: usize,
 }
 
 impl InternalNode2BlockMapper {
     pub fn new_all_zero(max_nodes: usize) -> Self {
-        // NB: BlockAssignment::Block(0) it technically semantically incorrect if there is only a singel vertex in the graph (then block Assignment::Singleton(0) would be better)
+        // NB: BlockAssignment::Block(0) it technically semantically incorrect if there is only a single vertex in the graph (then block Assignment::Singleton(0) would be better)
         Self {
-            new_mapping: HashMap::with_hasher(FxBuildHasher::default()), //HashMap::new(),
+            new_mapping: FxHashMap::default(),
             old_mapping: vec![BlockAssignment::Block(0); max_nodes],
             singleton_count: 0,
         }
@@ -94,7 +93,7 @@ impl InternalNode2BlockMapper {
 
     pub fn new_from_previous(previous: Node2Block) -> Self {
         Self {
-            new_mapping: HashMap::with_hasher(FxBuildHasher::default()),
+            new_mapping: FxHashMap::default(),
             old_mapping: previous.mapping,
             singleton_count: previous.singleton_count,
         }
@@ -147,13 +146,19 @@ impl InternalNode2BlockMapper {
     }
 }
 
+///
 pub struct KBisimulationOutcome {
+    /// The current partitioning of the nodes
     pub blocks: Vec<Option<Block>>,
-    // A list of all blocks in blocks that are None.
+    /// A list of all blocks in blocks that are None in blocks
     pub freeblock_indices: Vec<BlockIndex>,
-    pub dirty_blocks: Vec<BlockIndex>,
-    pub semi_dirty_blocks: Vec<BlockAssignment>,
+    /// A reverse index of blocks,for each node, it maps to the block in which the node is
     pub node_to_block: Node2Block,
+    /// Blocks that might split in the next partition refinement iteration
+    pub dirty_blocks: Vec<BlockIndex>,
+    /// blocks that have outgoing data edges to blocks that got split, but are not marked dirty because we know they won't split
+    /// (either by virtue of being singletons or because they are below the min support).
+    pub semi_dirty_blocks: Vec<BlockAssignment>,
 }
 
 impl KBisimulationOutcome {
@@ -260,14 +265,14 @@ impl DataEdgeCounter {
 pub struct SharedBisimulationState {
     pub i: LevelIndex,
     global_largest_block_id: BlockIndex,
-    pub previous_block_mapping: HashMap<BlockIndex, GlobalBlockIndexAndLevel, FxBuildHasher>,
-    pub singleton_mapping: HashMap<NodeIndex, GlobalBlockIndexAndLevel, FxBuildHasher>,
+    pub previous_block_mapping: FxHashMap<BlockIndex, GlobalBlockIndexAndLevel>,
+    pub singleton_mapping: FxHashMap<NodeIndex, GlobalBlockIndexAndLevel>,
     output_directory: PathBuf,
     pub refines_writer: BufWriter<File>,
-    new_mappings: HashMap<NodeIndex, GlobalBlockIndexAndLevel, FxBuildHasher>,
-    to_be_removed_local_ids: HashSet<BlockIndex>,
-    previous_refines_map: HashMap<BlockAssignment, GlobalBlockIndexAndLevel, FxBuildHasher>,
-    new_refines_map: HashMap<BlockAssignment, GlobalBlockIndexAndLevel, FxBuildHasher>,
+    new_mappings: FxHashMap<NodeIndex, GlobalBlockIndexAndLevel>,
+    to_be_removed_local_ids: FxHashSet<BlockIndex>,
+    previous_refines_map: FxHashMap<BlockAssignment, GlobalBlockIndexAndLevel>,
+    new_refines_map: FxHashMap<BlockAssignment, GlobalBlockIndexAndLevel>,
     pub data_edge_writer: BufWriter<File>,
     data_edge_counter: DataEdgeCounter,
 }
@@ -280,7 +285,7 @@ impl SharedBisimulationState {
         let i = 1; // TODO NB the current code sets this to 0u64 initially
 
         // Track the living blocks
-        let mut previous_block_mapping = HashMap::with_hasher(FxBuildHasher::default());
+        let mut previous_block_mapping = FxHashMap::default();
         for new_id in 0..bisimulation_outcome.blocks.len() {
             previous_block_mapping.insert(
                 new_id,
@@ -292,25 +297,23 @@ impl SharedBisimulationState {
         }
 
         // Track the singletons
-        let mut next_id = bisimulation_outcome.blocks.len();
-        let mut singleton_mapping = HashMap::with_hasher(FxBuildHasher::default());
+        let mut global_largest_block_id = bisimulation_outcome.blocks.len() - 1;
+        let mut singleton_mapping = FxHashMap::default();
         for block in &bisimulation_outcome.node_to_block.mapping {
             match block {
                 BlockAssignment::Block(_) => continue,
                 BlockAssignment::Singleton(node_idx) => {
+                    global_largest_block_id += 1;
                     singleton_mapping.insert(
                         *node_idx,
                         GlobalBlockIndexAndLevel {
-                            global_id: next_id,
+                            global_id: global_largest_block_id,
                             level: 0,
                         },
                     );
-                    next_id += 1;
                 }
             }
         }
-
-        let global_largest_block_id = (bisimulation_outcome.blocks.len() - 1) as BlockIndex;
 
         let output_directory = output_dir.as_ref().to_path_buf();
 
@@ -334,10 +337,10 @@ impl SharedBisimulationState {
             singleton_mapping,
             output_directory,
             refines_writer,
-            new_mappings: HashMap::with_hasher(FxBuildHasher::default()),
-            to_be_removed_local_ids: HashSet::new(),
-            previous_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
-            new_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
+            new_mappings: FxHashMap::default(),
+            to_be_removed_local_ids: FxHashSet::default(),
+            previous_refines_map: FxHashMap::default(),
+            new_refines_map: FxHashMap::default(),
             data_edge_writer,
             data_edge_counter,
         })
@@ -355,7 +358,8 @@ impl SharedBisimulationState {
 
         let refine_path = self
             .output_directory
-            .join(format!("refines/refines_{}", self.i));
+            .join("refines")
+            .join(format!("refines_{}", self.i));
         let file = File::create(refine_path)?;
         self.refines_writer = BufWriter::new(file);
 
@@ -719,9 +723,7 @@ pub fn get_i_bisimulation(
         let block_nodes: std::borrow::Cow<'_, [usize]> = match semi_dirty_idx {
             BlockAssignment::Block(_) => {
                 if min_support > 1 {
-                    todo!(
-                        "Incomplete implementation for non-singletons below the mininam support."
-                    );
+                    todo!("Incomplete implementation for non-singletons below the min_support.");
                     // We are sure this block must exist, so we can unwrap and borrow
                 }
                 continue;
@@ -803,8 +805,8 @@ pub fn get_i_bisimulation(
         // }
 
         // signature_t: Map of (EdgeLabel, TargetBlockID) -> Nodes
-        let mut signatures: HashMap<Vec<(EdgeType, BlockAssignment)>, Vec<NodeIndex>> =
-            HashMap::new();
+        let mut signatures: FxHashMap<Vec<(EdgeType, BlockAssignment)>, Vec<NodeIndex>> =
+            FxHashMap::default();
 
         for &v in block_ref.nodes.iter() {
             // We use a BtreeSet instead of using unique and then sorted on the iterator.
@@ -1002,8 +1004,7 @@ pub fn get_i_bisimulation(
 }
 
 pub fn get_typed_0_bisimulation(graph: &FlatGraph, rdf_type_id: EdgeType) -> KBisimulationOutcome {
-    let mut partition_map: HashMap<Vec<NodeIndex>, Vec<NodeIndex>, _> =
-        HashMap::with_hasher(FxBuildHasher::default());
+    let mut partition_map: FxHashMap<Vec<NodeIndex>, Vec<NodeIndex>> = FxHashMap::default();
 
     //HashMap::new();
 
@@ -1084,8 +1085,8 @@ mod tests {
 
     // --- Mock Setup Helper ---
     fn setup_mock_state(i: LevelIndex) -> SharedBisimulationState {
-        let mut previous_refines_map = HashMap::with_hasher(FxBuildHasher::default());
-        let mut previous_block_mapping = HashMap::with_hasher(FxBuildHasher::default());
+        let mut previous_refines_map = FxHashMap::default();
+        let mut previous_block_mapping = FxHashMap::default();
 
         // Seed the map for the "Refined" path test.
         // If the block is 10, it maps to global ID 100, level 5.
@@ -1119,13 +1120,13 @@ mod tests {
             i,
             global_largest_block_id: 0,
             previous_block_mapping,
-            singleton_mapping: HashMap::with_hasher(FxBuildHasher::default()),
+            singleton_mapping: FxHashMap::default(),
             output_directory: dummy_output.into(),
             refines_writer: BufWriter::new(temp_file_1),
-            new_mappings: HashMap::with_hasher(FxBuildHasher::default()),
-            to_be_removed_local_ids: HashSet::new(),
+            new_mappings: FxHashMap::default(),
+            to_be_removed_local_ids: FxHashSet::default(),
             previous_refines_map,
-            new_refines_map: HashMap::with_hasher(FxBuildHasher::default()),
+            new_refines_map: FxHashMap::default(),
             data_edge_writer: BufWriter::new(temp_file_2),
             data_edge_counter: DataEdgeCounter::new(),
         }
