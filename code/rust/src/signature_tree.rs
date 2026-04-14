@@ -41,7 +41,7 @@ pub struct RadixTree<
     nodes: Vec<RadixNode<T, SEG_CAP, IDX_CAP, CHILD_CAP>>,
 }
 
-impl<T: Ord + Clone, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP: usize>
+impl<T: Ord, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP: usize>
     RadixTree<T, SEG_CAP, IDX_CAP, CHILD_CAP>
 {
     /// Make a new RadixTree without any memory pre-allocated.
