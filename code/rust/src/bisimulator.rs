@@ -1,4 +1,5 @@
 use fxhash::{FxHashMap, FxHashSet};
+use itertools::Itertools;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
 use crate::signature_tree::{self, RadixTree};
@@ -788,15 +789,31 @@ pub fn get_i_bisimulation(
             signature_tree.reset();
 
             for &v in block_ref.nodes.iter() {
-                signature_tree.insert(
-                    graph.get_node(v).edges.iter().map(|e| {
+                // because the graph was optimized for insertion, the edges are partially sorted.
+                // in particular, the edge types are already remapped by frequency
+                // we still need to sort the block ids
+
+                let mut copy_to_sort = graph
+                    .get_node(v)
+                    .edges
+                    .iter()
+                    .map(|e| {
                         (
                             e.label,
                             this_level_mapper.get_previous_level_block_idx(e.target),
                         )
-                    }),
-                    v,
-                );
+                    })
+                    .collect_vec();
+
+                copy_to_sort
+                    .chunk_by_mut(|a, b| a.0 == b.0)
+                    .for_each(|slice| {
+                        // Sort in-place by the second element
+                        // Use sort_unstable_by_key for maximum performance since we do not need stability
+                        slice.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+                    });
+
+                signature_tree.insert(copy_to_sort.into_iter(), v);
             }
 
             // let mut target_candidates: Vec<(u32, u64)> = signatures_to_unique_signature_parts(&signatures).into_iter().map(f);
