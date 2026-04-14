@@ -1,5 +1,7 @@
 use clap::{ArgGroup, Parser};
 use itertools::Itertools;
+// instrument!() is used by default via #[macro_export]
+use multi_summaries::instrumentation::{Stats, collector};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
