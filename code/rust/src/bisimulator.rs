@@ -457,12 +457,13 @@ impl SharedBisimulationState {
     // This function is for the dirty blocks that did not split
     // Because these blocks did not split, we only have to check for the objects/targets of their outgoing data edges to is whether they changed and if so, (later) emit the respective data edges
     // This means we only have to consider data edges with blocks that are keys in self.previous_refines_map
+    // As an argument it takes an iteator over all of the parts in the different signatures
     fn refined_signatures_to_unique_signature_parts<'a, I>(
         &mut self,
         sig_keys: I,
     ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>>
     where
-        I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>>,
+        I: IntoIterator<Item = &'a (EdgeType, BlockAssignment)>,
     {
         // Return early when the level is 0 or 1, because at those levels there is not enough information to emit any data edges
         if self.i <= 1 {
@@ -471,7 +472,7 @@ impl SharedBisimulationState {
 
         let mut signature_pieces_union = Vec::new();
 
-        for (edge_type, block) in sig_keys.into_iter().flatten() {
+        for (edge_type, block) in sig_keys {
             let Some(GlobalBlockIndexAndLevel { global_id, level }) =
                 self.previous_refines_map.get(block)
             else {
@@ -713,96 +714,69 @@ pub fn get_i_bisimulation(
     let mut refined_block_set: Vec<Block> = Vec::new();
 
     let mut semi_dirty_blocks = prev_outcome.semi_dirty_blocks;
+    {
+        // This joint_signature is reused many times in the next for loop.
+        let mut joint_signature = FxHashSet::default();
 
-    for semi_dirty_idx in semi_dirty_blocks.drain(..) {
-        // let block_nodes = match semi_dirty_idx {
-        //     BlockAssignment::Block(block_id) => std::borrow::Cow::Borrowed(&k_blocks[block_id].as_ref().unwrap().nodes),  // We are sure this block must exist, so we can unwrap and borrow
-        //     BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id])  // Create new singleton block to own
-        // };
+        for semi_dirty_idx in semi_dirty_blocks.drain(..) {
+            // let block_nodes = match semi_dirty_idx {
+            //     BlockAssignment::Block(block_id) => std::borrow::Cow::Borrowed(&k_blocks[block_id].as_ref().unwrap().nodes),  // We are sure this block must exist, so we can unwrap and borrow
+            //     BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id])  // Create new singleton block to own
+            // };
 
-        let block_nodes: std::borrow::Cow<'_, [usize]> = match semi_dirty_idx {
-            BlockAssignment::Block(_) => {
-                if min_support > 1 {
-                    todo!("Incomplete implementation for non-singletons below the min_support.");
-                    // We are sure this block must exist, so we can unwrap and borrow
-                }
-                continue;
-            } // TODO
-            BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id]), // Create new singleton block to own
-        };
+            joint_signature.clear();
 
-        let mut joint_signature = Vec::new();
+            let block_nodes: std::borrow::Cow<'_, [usize]> = match semi_dirty_idx {
+                BlockAssignment::Block(_) => {
+                    if min_support > 1 {
+                        todo!(
+                            "Incomplete implementation for non-singletons below the min_support."
+                        );
+                        // We are sure this block must exist, so we can unwrap and borrow
+                    }
+                    continue;
+                } // TODO
+                BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id]), // Create new singleton block to own
+            };
 
-        for &v in block_nodes.iter() {
-            // We use a BtreeSet instead of using unique and then sorted on the iterator.
-            // This reduced runtime by 10-20% in experiments with the lubm dataset.
-            let btsig: BTreeSet<_> = graph
-                .get_node(v)
-                .edges
-                .iter()
-                .map(|e| {
-                    (
+            for &v in block_nodes.iter() {
+                graph.get_node(v).edges.iter().for_each(|e| {
+                    joint_signature.insert((
                         e.label,
                         this_level_mapper.get_previous_level_block_idx(e.target),
-                    )
-                })
-                .collect();
+                    ));
+                });
+            }
 
-            joint_signature.extend(btsig);
-        }
-
-        if min_support > 1 {
-            joint_signature.sort();
-            joint_signature.dedup();
-        }
-
-        // let mut sig_set = HashSet::with_hasher(FxBuildHasher::default());
-        // for &v in block_nodes.iter() {
-        //     let x = graph
-        //         .get_node(v)
-        //         .edges
-        //         .iter()
-        //         .map(|e| {
-        //             (
-        //                 e.label,
-        //                 this_level_mapper.get_previous_level_block_idx(e.target),
-        //             )
-        //         });
-        //     sig_set.insert(x);
-        // }
-        // let joint_signature = sig_set.into_iter().collect();
-
-        // Because we already know the block doesn't split, we use `refined_signatures_to_unique_signature_parts()`
-        let targets = partial_bisimulation_state
-            .shared_state
-            .refined_signatures_to_unique_signature_parts(std::iter::once(&joint_signature))
-            .unwrap_or_default();
-        let GlobalBlockIndexAndLevel {
-            global_id: global_subject,
-            level: subject_level,
-        } = *partial_bisimulation_state
-            .shared_state
-            .get_global_id(&semi_dirty_idx);
-        for (edge_type, global_target, target_level) in targets {
-            let start_level = std::cmp::max(subject_level, target_level + 1);
-            let end_level = partial_bisimulation_state.shared_state.i - 1;
-            // println!("DEBUG s-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-            partial_bisimulation_state.shared_state.data_edge_callback(
-                (global_subject, edge_type, global_target),
-                (start_level, end_level),
-            )?;
+            // Because we already know the block doesn't split, we use `refined_signatures_to_unique_signature_parts()`
+            let targets = partial_bisimulation_state
+                .shared_state
+                .refined_signatures_to_unique_signature_parts(joint_signature.iter())
+                .unwrap_or_default();
+            let GlobalBlockIndexAndLevel {
+                global_id: global_subject,
+                level: subject_level,
+            } = *partial_bisimulation_state
+                .shared_state
+                .get_global_id(&semi_dirty_idx);
+            for (edge_type, global_target, target_level) in targets {
+                let start_level = std::cmp::max(subject_level, target_level + 1);
+                let end_level = partial_bisimulation_state.shared_state.i - 1;
+                // println!("DEBUG s-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
+                partial_bisimulation_state.shared_state.data_edge_callback(
+                    (global_subject, edge_type, global_target),
+                    (start_level, end_level),
+                )?;
+            }
         }
     }
-
     // Iterate through dirty blocks from the previous step
     for dirty_idx in dirty_blocks.drain(..) {
         // we are sure this block must exist, so we can unwrap
         let block_ref = k_blocks[dirty_idx].as_ref().unwrap();
 
-        // We don't even mark blocks below the min_support as dirty, so we can skip this check
-        // if block_ref.nodes.len() <= min_support {
-        //     continue;
-        // }
+        // We don't even mark blocks below the min_support as dirty, so they must not exist
+        debug_assert!(block_ref.nodes.len() > min_support);
 
         // signature_t: Map of (EdgeLabel, TargetBlockID) -> Nodes
         let mut signatures: FxHashMap<Vec<(EdgeType, BlockAssignment)>, Vec<NodeIndex>> =
@@ -834,7 +808,9 @@ pub fn get_i_bisimulation(
             // TODO clean this up (perhaps move the map through previous_refines_map to the signatures_to_unique_signature_parts function itself)
             let targets = partial_bisimulation_state
                 .shared_state
-                .refined_signatures_to_unique_signature_parts(signatures.keys())
+                .refined_signatures_to_unique_signature_parts(
+                    signatures.keys().into_iter().flatten(),
+                )
                 .unwrap_or_default();
             let GlobalBlockIndexAndLevel {
                 global_id: global_subject,
