@@ -2,6 +2,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
+use crate::signature_tree::{self, RadixTree};
 use std::collections::BTreeSet;
 
 use std::fmt::{self, Display};
@@ -55,6 +56,8 @@ pub struct Block {
     // The earliest level at which this block was encountered
     pub f: LevelIndex,
 }
+
+type SignatureRadixTree = RadixTree<(u32, BlockAssignment), 2, 4, 2>;
 
 pub struct Node2Block {
     pub mapping: Vec<BlockAssignment>,
@@ -500,13 +503,10 @@ impl SharedBisimulationState {
     }
 
     // // This function is for finding all outgoing data edges for splitting blocks, so the can be emitted later
-    fn signatures_to_unique_signature_parts<'a, I>(
+    fn signatures_to_unique_signature_parts<'a>(
         &mut self,
-        sig_keys: I,
-    ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>>
-    where
-        I: IntoIterator<Item = &'a Vec<(EdgeType, BlockAssignment)>>,
-    {
+        sig_keys: &SignatureRadixTree,
+    ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>> {
         // Return early when the level is 0 or 1, because at those levels there is not enough information to emit any data edges
         if self.i <= 1 {
             return None;
@@ -530,7 +530,7 @@ impl SharedBisimulationState {
             (piece.0, target)
         };
 
-        let iters = sig_keys.into_iter().kmerge().dedup();
+        let iters = sig_keys.unique_values();
 
         let mut signature_pieces_union = Vec::new();
 
@@ -770,47 +770,91 @@ pub fn get_i_bisimulation(
             }
         }
     }
-    // Iterate through dirty blocks from the previous step
-    for dirty_idx in dirty_blocks.drain(..) {
-        // we are sure this block must exist, so we can unwrap
-        let block_ref = k_blocks[dirty_idx].as_ref().unwrap();
 
-        // We don't even mark blocks below the min_support as dirty, so they must not exist
-        debug_assert!(block_ref.nodes.len() > min_support);
-
+    {
         // signature_t: Map of (EdgeLabel, TargetBlockID) -> Nodes
-        let mut signatures: FxHashMap<Vec<(EdgeType, BlockAssignment)>, Vec<NodeIndex>> =
-            FxHashMap::default();
+        // let mut signatures: FxHashMap<Vec<(EdgeType, BlockAssignment)>, Vec<NodeIndex>> =
+        //     FxHashMap::default();
 
-        for &v in block_ref.nodes.iter() {
-            // We use a BtreeSet instead of using unique and then sorted on the iterator.
-            // This reduced runtime by 10-20% in experiments with the lubm dataset.
-            let btsig: BTreeSet<_> = graph
-                .get_node(v)
-                .edges
-                .iter()
-                .map(|e| {
-                    (
-                        e.label,
-                        this_level_mapper.get_previous_level_block_idx(e.target),
+        let mut signature_tree: SignatureRadixTree = RadixTree::with_capacity(10000);
+
+        // Iterate through dirty blocks from the previous step
+        for dirty_idx in dirty_blocks.drain(..) {
+            // we are sure this block must exist, so we can unwrap
+            let block_ref = k_blocks[dirty_idx].as_ref().unwrap();
+
+            // We don't even mark blocks below the min_support as dirty, so they must not exist
+            debug_assert!(block_ref.nodes.len() > min_support);
+
+            signature_tree.reset();
+
+            for &v in block_ref.nodes.iter() {
+                // because the graph was optimized for insertion, the edges are partially sorted.
+                // in particular, the edge types are already remapped by frequency
+                // we still need to sort the block ids
+
+                let mut copy_to_sort = graph
+                    .get_node(v)
+                    .edges
+                    .iter()
+                    .map(|e| {
+                        (
+                            e.label,
+                            this_level_mapper.get_previous_level_block_idx(e.target),
+                        )
+                    })
+                    .collect_vec();
+
+                copy_to_sort
+                    .chunk_by_mut(|a, b| a.0 == b.0)
+                    .for_each(|slice| {
+                        // Sort in-place by the second element
+                        // Use sort_unstable_by_key for maximum performance since we do not need stability
+                        slice.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+                    });
+
+                signature_tree.insert(copy_to_sort.into_iter(), v);
+            }
+
+            // let mut target_candidates: Vec<(u32, u64)> = signatures_to_unique_signature_parts(&signatures).into_iter().map(f);
+
+            if signature_tree.get_unique_signature_count()
+                != signature_tree::UniqueSignatureCount::MoreThanOne
+            {
+                //if signatures.len() <= 1 {
+                // Check for any data edges that need to be persisted
+                // TODO clean this up (perhaps move the map through previous_refines_map to the signatures_to_unique_signature_parts function itself)
+                let targets = partial_bisimulation_state
+                    .shared_state
+                    .refined_signatures_to_unique_signature_parts(
+                        signature_tree.unique_values(), //signatures.keys().into_iter().flatten(),
                     )
-                })
-                .collect();
-            let sig: Vec<(EdgeType, BlockAssignment)> = btsig.into_iter().collect();
+                    .unwrap_or_default();
+                let GlobalBlockIndexAndLevel {
+                    global_id: global_subject,
+                    level: subject_level,
+                } = *partial_bisimulation_state
+                    .shared_state
+                    .get_global_id(&BlockAssignment::Block(dirty_idx));
+                for (edge_type, global_target, target_level) in targets {
+                    let start_level = std::cmp::max(subject_level, target_level + 1);
+                    let end_level = partial_bisimulation_state.shared_state.i - 1;
+                    // println!("DEBUG f-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
+                    partial_bisimulation_state.shared_state.data_edge_callback(
+                        (global_subject, edge_type, global_target),
+                        (start_level, end_level),
+                    )?;
+                }
 
-            signatures.entry(sig).or_default().push(v);
-        }
+                continue;
+            } // No split occurred
 
-        // let mut target_candidates: Vec<(u32, u64)> = signatures_to_unique_signature_parts(&signatures).into_iter().map(f);
-
-        if signatures.len() <= 1 {
-            // Check for any data edges that need to be persisted
+            // Persist outgoing data edges
             // TODO clean this up (perhaps move the map through previous_refines_map to the signatures_to_unique_signature_parts function itself)
+            // TODO add a function to get the global id and
             let targets = partial_bisimulation_state
                 .shared_state
-                .refined_signatures_to_unique_signature_parts(
-                    signatures.keys().into_iter().flatten(),
-                )
+                .signatures_to_unique_signature_parts(&signature_tree)
                 .unwrap_or_default();
             let GlobalBlockIndexAndLevel {
                 global_id: global_subject,
@@ -818,94 +862,69 @@ pub fn get_i_bisimulation(
             } = *partial_bisimulation_state
                 .shared_state
                 .get_global_id(&BlockAssignment::Block(dirty_idx));
-            for (edge_type, global_target, target_level) in targets {
+            for (edge_type, global_target, target_level) in targets.into_iter() {
                 let start_level = std::cmp::max(subject_level, target_level + 1);
                 let end_level = partial_bisimulation_state.shared_state.i - 1;
-                // println!("DEBUG f-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
+                // println!("DEBUG f-out: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
                 partial_bisimulation_state.shared_state.data_edge_callback(
                     (global_subject, edge_type, global_target),
                     (start_level, end_level),
                 )?;
             }
 
-            continue;
-        } // No split occurred
+            // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
 
-        // Persist outgoing data edges
-        // TODO clean this up (perhaps move the map through previous_refines_map to the signatures_to_unique_signature_parts function itself)
-        // TODO add a function to get the global id and
-        let targets = partial_bisimulation_state
-            .shared_state
-            .signatures_to_unique_signature_parts(signatures.keys())
-            .unwrap_or_default();
-        let GlobalBlockIndexAndLevel {
-            global_id: global_subject,
-            level: subject_level,
-        } = *partial_bisimulation_state
-            .shared_state
-            .get_global_id(&BlockAssignment::Block(dirty_idx));
-        for (edge_type, global_target, target_level) in targets.into_iter() {
-            let start_level = std::cmp::max(subject_level, target_level + 1);
-            let end_level = partial_bisimulation_state.shared_state.i - 1;
-            // println!("DEBUG f-out: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-            partial_bisimulation_state.shared_state.data_edge_callback(
-                (global_subject, edge_type, global_target),
-                (start_level, end_level),
-            )?;
-        }
+            let block = k_blocks[dirty_idx].take().unwrap();
+            freeblock_indices.push(dirty_idx);
 
-        // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
+            let refines_object: BlockAssignment = BlockAssignment::Block(dirty_idx);
 
-        let block = k_blocks[dirty_idx].take().unwrap();
-        freeblock_indices.push(dirty_idx);
+            let mut only_singletons = true;
 
-        let refines_object: BlockAssignment = BlockAssignment::Block(dirty_idx);
-
-        let mut only_singletons = true;
-
-        for (_, nodes) in signatures.into_iter() {
-            if nodes.len() == 1 {
-                let refines_subject: BlockAssignment = BlockAssignment::Singleton(nodes[0]);
-                partial_bisimulation_state
-                    .shared_state
-                    .refine_callback(&refines_subject, &refines_object)?;
-                // this_level_mapper.put_into_singleton(global_id);
-                this_level_mapper.overwrite_mapping(nodes[0], refines_subject);
-            } else {
-                only_singletons = false;
-                let new_block = Some(Block {
-                    nodes,
-                    f: partial_bisimulation_state.shared_state.i,
-                });
-
-                let target_idx = if let Some(free_idx) = freeblock_indices.pop() {
-                    k_blocks[free_idx] = new_block;
-                    free_idx
+            for (_, nodes) in signature_tree.iter() {
+                // signatures.into_iter() {
+                if nodes.len() == 1 {
+                    let refines_subject: BlockAssignment = BlockAssignment::Singleton(nodes[0]);
+                    partial_bisimulation_state
+                        .shared_state
+                        .refine_callback(&refines_subject, &refines_object)?;
+                    // this_level_mapper.put_into_singleton(global_id);
+                    this_level_mapper.overwrite_mapping(nodes[0], refines_subject);
                 } else {
-                    k_blocks.push(new_block);
-                    k_blocks.len() - 1
-                };
+                    only_singletons = false;
+                    let new_block = Some(Block {
+                        nodes: nodes.to_vec(),
+                        f: partial_bisimulation_state.shared_state.i,
+                    });
 
-                let refines_subject = BlockAssignment::Block(target_idx);
-                partial_bisimulation_state
-                    .shared_state
-                    .refine_callback(&refines_subject, &refines_object)?;
+                    let target_idx = if let Some(free_idx) = freeblock_indices.pop() {
+                        k_blocks[free_idx] = new_block;
+                        free_idx
+                    } else {
+                        k_blocks.push(new_block);
+                        k_blocks.len() - 1
+                    };
 
-                // we just inserted it, so it must exist.
-                for &node in k_blocks[target_idx].as_ref().unwrap().nodes.iter() {
-                    this_level_mapper.overwrite_mapping(node, refines_subject.clone());
+                    let refines_subject = BlockAssignment::Block(target_idx);
+                    partial_bisimulation_state
+                        .shared_state
+                        .refine_callback(&refines_subject, &refines_object)?;
+
+                    // we just inserted it, so it must exist.
+                    for &node in k_blocks[target_idx].as_ref().unwrap().nodes.iter() {
+                        this_level_mapper.overwrite_mapping(node, refines_subject.clone());
+                    }
                 }
             }
-        }
-        if only_singletons {
-            partial_bisimulation_state
-                .shared_state
-                .refine_target_can_be_freed(&dirty_idx)?;
-        }
+            if only_singletons {
+                partial_bisimulation_state
+                    .shared_state
+                    .refine_target_can_be_freed(&dirty_idx)?;
+            }
 
-        refined_block_set.push(block);
+            refined_block_set.push(block);
+        }
     }
-
     // --- Dirty Block Propagation, we reuse the old dirty blocks memory ---
     // dirty_blocks.clear();  // TODO removed this because the above loop can just drain
 

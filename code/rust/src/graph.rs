@@ -917,8 +917,8 @@ pub fn get_graph_triple_count_from_binary_file<P: AsRef<Path>>(
 /// 2. as nodes that have similar edges are close to each other, we get better locality in the signature tree
 /// 3. as nodes that have the same edge set are right next to each other, we might even be able to skip the signature calculation altogether;
 ///    after the first one of its kind we only need to check whether the edge set is exactly the same which is very fast.
-pub fn optimize_graph_for_bisimulation(mut g: Graph, rel_count: EdgeType) -> FlatGraph {
-    remap_edge_types_ascending_frequency(&mut g, rel_count);
+pub fn optimize_graph_for_bisimulation(mut g: Graph) -> FlatGraph {
+    let rel_count = remap_edge_types_ascending_frequency(&mut g);
     // All edges are now mapped, higher index means less frequent.
 
     // Step 2: we want to sort all nodes lexicographicallly by their edge type set.
@@ -1016,16 +1016,19 @@ fn build_shadow_array(g: &Graph, k: usize) -> Vec<u32> {
     shadow_array
 }
 
-fn remap_edge_types_ascending_frequency(g: &mut Graph, rel_count: EdgeType) {
+fn remap_edge_types_ascending_frequency(g: &mut Graph) -> u32 {
     // Step1: we remap the edge types by global frequency, most frequent type first
     // compute global frequencies of edge types
     let mut absolute_frequencies: FxHashMap<EdgeType, u64> = FxHashMap::default();
+    let mut rel_count = 0;
     g.nodes.iter().flat_map(|n| &n.edges).for_each(|edge| {
         absolute_frequencies
             .entry(edge.label)
             .and_modify(|e| *e += 1)
             .or_insert(1);
+        rel_count = max(rel_count, edge.label + 1);
     });
+    print!("REL = {rel_count} ");
 
     let mut types_by_descending_frequency: Vec<EdgeType> = (0..rel_count).collect();
     types_by_descending_frequency.sort_unstable_by(|t1: &EdgeType, t2: &EdgeType| {
@@ -1060,4 +1063,5 @@ fn remap_edge_types_ascending_frequency(g: &mut Graph, rel_count: EdgeType) {
         node.edges
             .sort_unstable_by(|n1, n2| n1.label.cmp(&n2.label).then(n1.target.cmp(&n2.target)));
     }
+    rel_count
 }

@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
 
 // use itertools::Itertools;
-use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
+use multi_summaries::graph::{EdgeType, FlatGraph, Graph, optimize_graph_for_bisimulation};
 
 use multi_summaries::bisimulator::{
     BlockAssignment, DataEdgeCounter, FullBisimulationState, GlobalBlockIndex,
@@ -195,8 +195,9 @@ fn main() -> Result<()> {
     let mut g = Graph::new(1_000_000_000);
     g.read_graph_parallel_memmmap(input_file, false)?;
 
+    let flatg = optimize_graph_for_bisimulation(g);
     // Run bisimulation
-    compute_bisimulation(&FlatGraph::new(g), output_dir, min_support, type_id, max_k)?;
+    compute_bisimulation(&flatg, output_dir, min_support, type_id, max_k)?;
 
     Ok(())
 }
