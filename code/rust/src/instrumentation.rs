@@ -45,7 +45,7 @@ where
 
 // Disabled version
 #[cfg(not(feature = "instrument"))]
-pub fn print_format_last<S: AsRef<str>>(prepend_message: S) {}
+pub fn print_format_last<S1, S2>(prepend_message: S1, append_message: S2) {}
 
 #[derive(Debug)]
 pub struct Stats {
