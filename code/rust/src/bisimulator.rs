@@ -1,5 +1,4 @@
 use fxhash::{FxHashMap, FxHashSet};
-use itertools::Itertools;
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
 use crate::signature_tree::{self, RadixTree};
@@ -790,29 +789,47 @@ pub fn get_i_bisimulation(
             for &v in block_ref.nodes.iter() {
                 // because the graph was optimized for insertion, the edges are partially sorted.
                 // in particular, the edge types are already remapped by frequency
-                // we still need to sort the block ids
+                // we still need to sort the block ids AND deduplicate
 
-                let mut copy_to_sort = graph
+                // let signature: BTreeSet<_> = graph
+                //     .get_node(v)
+                //     .edges
+                //     .iter()
+                //     .map(|e| {
+                //         (
+                //             e.label,
+                //             this_level_mapper.get_previous_level_block_idx(e.target),
+                //         )
+                //     })
+                //     .collect();
+
+                //                This is an alternative version that assumes the edges of the graph are sorted.
+                let signature = graph
                     .get_node(v)
                     .edges
-                    .iter()
-                    .map(|e| {
-                        (
-                            e.label,
-                            this_level_mapper.get_previous_level_block_idx(e.target),
-                        )
-                    })
-                    .collect_vec();
+                    .chunk_by(|a, b| a.label == b.label)
+                    .flat_map(|chunk| {
+                        let chunk_label = chunk[0].label;
 
-                copy_to_sort
-                    .chunk_by_mut(|a, b| a.0 == b.0)
-                    .for_each(|slice| {
-                        // Sort in-place by the second element
-                        // Use sort_unstable_by_key for maximum performance since we do not need stability
-                        slice.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+                        // Map and collect into a small local buffer
+                        let mut local_group: Vec<_> = chunk
+                            .iter()
+                            .map(|e| this_level_mapper.get_previous_level_block_idx(e.target))
+                            .collect();
+
+                        // Sort and dedup locally only, since the label is constant for this chunk
+                        local_group.sort_unstable();
+                        local_group.dedup();
+
+                        // Return an iterator of (label, previous_level_block_idx)
+                        local_group
+                            .into_iter()
+                            .map(move |previous_level_block_idx| {
+                                (chunk_label, previous_level_block_idx)
+                            })
                     });
 
-                signature_tree.insert(copy_to_sort.into_iter(), v);
+                signature_tree.insert(signature.into_iter(), v);
             }
 
             // let mut target_candidates: Vec<(u32, u64)> = signatures_to_unique_signature_parts(&signatures).into_iter().map(f);
