@@ -31,8 +31,8 @@ where
     let mem_string = format!(
         "{} - Memory after (MiB) --> Current RSS: {:<10.2}, Peak RSS: {:<10.2}",
         now,
-        current_rss_bytes as f64 / (1024 * 2) as f64,
-        peak_rss_bytes as f64 / (1024 * 2) as f64
+        current_rss_bytes as f64 / 1024_u64.pow(2) as f64,
+        peak_rss_bytes as f64 / 1024_u64.pow(2) as f64
     );
     println!(
         "{}{}\n{}{}",
