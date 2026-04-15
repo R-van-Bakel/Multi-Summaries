@@ -1,6 +1,6 @@
 use clap::{ArgGroup, Parser};
 use fxhash::FxHashSet;
-// instrument!() is used by default via #[macro_export]
+use multi_summaries::instrument;
 use multi_summaries::instrumentation::{Stats, collector};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};

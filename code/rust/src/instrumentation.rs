@@ -6,27 +6,34 @@ pub fn collector() -> &'static Mutex<Vec<Stats>> {
 
 #[derive(Debug)]
 pub struct Stats {
-    pub uptime_secs_before: u64,
-    pub user_cpu_secs_before: f64,
-    pub system_cpu_secs_before: f64,
-    pub uptime_secs_after: u64,
-    pub user_cpu_secs_after: f64,
-    pub system_cpu_secs_after: f64,
-    pub current_rss_bytes_after: u64,
-    pub peak_rss_bytes_after: u64,
+    pub times_before: TimeStats,
+    pub times_after: TimeStats,
+    pub mem_after: MemStats,
+}
+
+#[derive(Debug)]
+pub struct TimeStats {
+    pub uptime_secs: f64,
+    pub user_cpu_secs: f64,
+    pub system_cpu_secs: f64,
+}
+
+#[derive(Debug)]
+pub struct MemStats {
+    pub current_rss_bytes: u64,
+    pub peak_rss_bytes: u64,
 }
 
 pub mod internals {
-    use crate::instrumentation::Stats;
+    use crate::instrumentation::{MemStats, Stats, TimeStats};
+    use procfs::Current;
     use procfs::process::Process;
-    use procfs::{CurrentSI, KernelStats};
     use std::sync::{Mutex, OnceLock};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     pub static _COLLECTOR: OnceLock<Mutex<Vec<Stats>>> = OnceLock::new();
 
     #[cfg(feature = "instrument")]
-    pub fn _get_mem_stats() -> (u64, u64) {
+    pub fn _get_mem_stats() -> MemStats {
         // Get the current process
         let me = Process::myself().expect("procfs could not get the current process");
 
@@ -45,33 +52,31 @@ pub mod internals {
             .expect("procfs could not access status for the current process");
         let peak_rss_bytes = status.vmhwm.unwrap_or(0) * 1024;
 
-        (current_rss_bytes, peak_rss_bytes)
+        MemStats {
+            current_rss_bytes,
+            peak_rss_bytes,
+        }
     }
 
     #[cfg(feature = "instrument")]
-    pub fn _get_time_stats() -> (u64, f64, f64) {
+    pub fn _get_time_stats() -> TimeStats {
         let me = Process::myself().unwrap();
         let stat = me.stat().unwrap();
 
-        let kstats = KernelStats::current().expect("procfs: could not read kernel stats");
-        let btime = kstats.btime;
-
         let ticks = procfs::ticks_per_second() as f64;
 
-        let start_secs = stat.starttime / ticks as u64;
-        let start_timestamp = btime + start_secs;
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        let uptime_secs = now - start_timestamp;
+        let start_secs = stat.starttime as f64 / ticks;
+        let uptime = procfs::Uptime::current().unwrap().uptime;
+        let uptime_secs = uptime - start_secs;
 
         let user_cpu_secs = stat.utime as f64 / ticks;
         let system_cpu_secs = stat.stime as f64 / ticks;
 
-        (uptime_secs, user_cpu_secs, system_cpu_secs)
+        TimeStats {
+            uptime_secs,
+            user_cpu_secs,
+            system_cpu_secs,
+        }
     }
 }
 
@@ -80,28 +85,20 @@ pub mod internals {
 #[macro_export]
 macro_rules! instrument {
     ($e:expr) => {{
-        let (uptime_secs_before, user_cpu_secs_before, system_cpu_secs_before) =
-            $crate::instrumentation::internals::_get_time_stats();
+        let times_before = $crate::instrumentation::internals::_get_time_stats();
 
         let result = $e;
 
-        let (uptime_secs_after, user_cpu_secs_after, system_cpu_secs_after) =
-            $crate::instrumentation::internals::_get_time_stats();
-        let (current_rss_bytes_after, peak_rss_bytes_after) =
-            $crate::instrumentation::internals::_get_mem_stats();
+        let times_after = $crate::instrumentation::internals::_get_time_stats();
+        let mem_after = $crate::instrumentation::internals::_get_mem_stats();
 
         $crate::instrumentation::collector()
             .lock()
             .unwrap()
             .push($crate::instrumentation::Stats {
-                uptime_secs_before,
-                user_cpu_secs_before,
-                system_cpu_secs_before,
-                uptime_secs_after,
-                user_cpu_secs_after,
-                system_cpu_secs_after,
-                current_rss_bytes_after,
-                peak_rss_bytes_after,
+                times_before,
+                times_after,
+                mem_after,
             });
 
         result
