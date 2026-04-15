@@ -11,7 +11,7 @@
 // We use this property here too. A fast iterator that makes use of the sortedness was created with the following prompt (and some manual modification to remove an unnecessary check).
 // "Given the implementation I shared. I would need a new functionality. I need to get all unique T values. I happen to know that all sequences I am inserting are already sorted. Can I implement this with a K-way merge iterator? How?"
 
-use std::{cmp::Ordering, collections::BinaryHeap, usize};
+use std::{cmp::Ordering, collections::BinaryHeap};
 
 use smallvec::{Array, SmallVec};
 
@@ -252,6 +252,14 @@ impl<T: Ord, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP: usize>
             heap,
             last_yielded: None,
         }
+    }
+}
+
+impl<T: Ord, const SEG_CAP: usize, const IDX_CAP: usize, const CHILD_CAP: usize> Default
+    for RadixTree<T, SEG_CAP, IDX_CAP, CHILD_CAP>
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
 

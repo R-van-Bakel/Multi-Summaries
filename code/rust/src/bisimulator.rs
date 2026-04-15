@@ -149,7 +149,6 @@ impl InternalNode2BlockMapper {
     }
 }
 
-///
 pub struct KBisimulationOutcome {
     /// The current partitioning of the nodes
     pub blocks: Vec<Option<Block>>,
@@ -503,7 +502,7 @@ impl SharedBisimulationState {
     }
 
     // // This function is for finding all outgoing data edges for splitting blocks, so the can be emitted later
-    fn signatures_to_unique_signature_parts<'a>(
+    fn signatures_to_unique_signature_parts(
         &mut self,
         sig_keys: &SignatureRadixTree,
     ) -> Option<Vec<(u32, GlobalBlockIndex, LevelIndex)>> {
