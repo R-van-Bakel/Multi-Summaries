@@ -58,7 +58,7 @@ pub mod internals {
 
         let ticks = procfs::ticks_per_second() as f64;
 
-        let start_secs = stat.starttime as u64 / ticks as u64;
+        let start_secs = stat.starttime / ticks as u64;
         let start_timestamp = btime + start_secs;
 
         let now = SystemTime::now()

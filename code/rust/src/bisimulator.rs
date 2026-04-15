@@ -146,7 +146,6 @@ impl InternalNode2BlockMapper {
     }
 }
 
-///
 pub struct KBisimulationOutcome {
     /// The current partitioning of the nodes
     pub blocks: Vec<Option<Block>>,
@@ -808,9 +807,7 @@ pub fn get_i_bisimulation(
             // TODO clean this up (perhaps move the map through previous_refines_map to the signatures_to_unique_signature_parts function itself)
             let targets = partial_bisimulation_state
                 .shared_state
-                .refined_signatures_to_unique_signature_parts(
-                    signatures.keys().into_iter().flatten(),
-                )
+                .refined_signatures_to_unique_signature_parts(signatures.keys().flatten())
                 .unwrap_or_default();
             let GlobalBlockIndexAndLevel {
                 global_id: global_subject,

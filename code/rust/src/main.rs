@@ -1,9 +1,10 @@
 use clap::{ArgGroup, Parser};
-use itertools::Itertools;
+use fxhash::FxHashSet;
 // instrument!() is used by default via #[macro_export]
 use multi_summaries::instrumentation::{Stats, collector};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
+use std::hash::Hash;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
 
@@ -121,6 +122,14 @@ impl BisimulationStatistics {
 struct DataEdgeAndInterval {
     pub data_edge: (GlobalBlockIndex, EdgeType, GlobalBlockIndex),
     pub interval: (LevelIndex, LevelIndex),
+}
+
+impl Hash for DataEdgeAndInterval {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(self.data_edge.0);
+        state.write_u32(self.data_edge.1);
+        state.write_usize(self.data_edge.2);
+    }
 }
 
 // Data edges are uniquely identified by their triples, so we can ignore the intervals for the purposes of equality and ordering
@@ -267,50 +276,49 @@ pub fn compute_bisimulation(
     let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
     let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
     let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
-    for (block_idx, block) in std::mem::take(&mut final_outcome.blocks)
-        .into_iter()
-        .enumerate()
-        .filter_map(|(block_idx, maybe_block)| maybe_block.map(|block| (block_idx, block)))
     {
-        let GlobalBlockIndexAndLevel {
-            global_id: global_subject,
-            level: subject_level,
-        } = block_mapping.get(&block_idx).unwrap();
-        let mut sorted_inners = Vec::new();
-        for node_idx in block.nodes.iter() {
-            let mut inner_data_edges = Vec::new();
-            for edge in graph.get_node(*node_idx).edges.iter() {
-                let edge_type = edge.label;
-                let GlobalBlockIndexAndLevel {
-                    global_id: global_target,
-                    level: target_level,
-                } = match &final_outcome.node_to_block.mapping[edge.target] {
-                    BlockAssignment::Block(block_id) => block_mapping.get(block_id).unwrap(),
-                    BlockAssignment::Singleton(singleton_id) => {
-                        singleton_mapping.get(singleton_id).unwrap()
-                    }
-                };
-                let start_time = std::cmp::max(*subject_level, target_level + 1);
-                let end_time = 0; // NB: we are using 0 to encode for infinity
-                inner_data_edges.push(DataEdgeAndInterval {
-                    data_edge: (*global_subject, edge_type, *global_target),
-                    interval: (start_time, end_time),
-                });
-            }
-            inner_data_edges.sort();
-            inner_data_edges.dedup();
-            sorted_inners.push(inner_data_edges);
-        }
+        // This hashset it reused many times in the next for loop
+        let mut outer_data_edges: FxHashSet<DataEdgeAndInterval> = FxHashSet::default();
 
-        // Use a k-way merge to get the (deduplicated) union of the inner data edges
-        let outer_data_edges: Vec<_> = sorted_inners.into_iter().kmerge().dedup().collect();
-
-        for DataEdgeAndInterval {
-            data_edge,
-            interval,
-        } in outer_data_edges.into_iter()
+        for (block_idx, block) in std::mem::take(&mut final_outcome.blocks)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(block_idx, maybe_block)| maybe_block.map(|block| (block_idx, block)))
         {
-            final_state.data_edge_callback(data_edge, interval)?;
+            let GlobalBlockIndexAndLevel {
+                global_id: global_subject,
+                level: subject_level,
+            } = block_mapping.get(&block_idx).unwrap();
+
+            outer_data_edges.clear();
+            for node_idx in block.nodes.iter() {
+                for edge in graph.get_node(*node_idx).edges.iter() {
+                    let edge_type = edge.label;
+                    let GlobalBlockIndexAndLevel {
+                        global_id: global_target,
+                        level: target_level,
+                    } = match &final_outcome.node_to_block.mapping[edge.target] {
+                        BlockAssignment::Block(block_id) => block_mapping.get(block_id).unwrap(),
+                        BlockAssignment::Singleton(singleton_id) => {
+                            singleton_mapping.get(singleton_id).unwrap()
+                        }
+                    };
+                    let start_time = std::cmp::max(*subject_level, target_level + 1);
+                    let end_time = 0; // NB: we are using 0 to encode for infinity
+                    outer_data_edges.insert(DataEdgeAndInterval {
+                        data_edge: (*global_subject, edge_type, *global_target),
+                        interval: (start_time, end_time),
+                    });
+                }
+            }
+
+            for DataEdgeAndInterval {
+                data_edge,
+                interval,
+            } in outer_data_edges.iter()
+            {
+                final_state.data_edge_callback(*data_edge, *interval)?;
+            }
         }
     }
 
