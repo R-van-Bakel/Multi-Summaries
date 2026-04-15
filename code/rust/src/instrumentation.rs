@@ -1,8 +1,51 @@
-use std::sync::Mutex;
+use std::{ops::Sub, sync::Mutex};
+use time::OffsetDateTime;
 
-pub fn collector() -> &'static Mutex<Vec<Stats>> {
+pub fn stats_collector() -> &'static Mutex<Vec<Stats>> {
     crate::instrumentation::internals::_COLLECTOR.get_or_init(|| Mutex::new(Vec::new()))
 }
+
+// Enabled version
+#[cfg(feature = "instrument")]
+pub fn print_format_last<S1, S2>(prepend_message: S1, append_message: S2)
+where
+    S1: AsRef<str>,
+    S2: AsRef<str>,
+{
+    let collected_stats = stats_collector().lock().unwrap();
+    let last_stats = collected_stats.last().unwrap();
+    let TimeStats {
+        uptime_secs,
+        user_cpu_secs,
+        system_cpu_secs,
+    } = last_stats.durations();
+    let MemStats {
+        current_rss_bytes,
+        peak_rss_bytes,
+    } = last_stats.mem_after.clone();
+    let now = OffsetDateTime::now_local().expect("time could not get the local time");
+    let time_string = format!(
+        "{} - Duration (seconds) --> Uptime: {:<15.2}, User: {:<14.2}, System: {:<10.2}",
+        now, uptime_secs, user_cpu_secs, system_cpu_secs
+    );
+    let mem_string = format!(
+        "{} - Memory after (MiB) --> Current RSS: {:<10.2}, Peak RSS: {:<10.2}",
+        now,
+        current_rss_bytes as f64 / (1024 * 2) as f64,
+        peak_rss_bytes as f64 / (1024 * 2) as f64
+    );
+    println!(
+        "{}{}\n{}{}",
+        prepend_message.as_ref(),
+        time_string,
+        mem_string,
+        append_message.as_ref(),
+    );
+}
+
+// Disabled version
+#[cfg(not(feature = "instrument"))]
+pub fn print_format_last<S: AsRef<str>>(prepend_message: S) {}
 
 #[derive(Debug)]
 pub struct Stats {
@@ -11,14 +54,32 @@ pub struct Stats {
     pub mem_after: MemStats,
 }
 
-#[derive(Debug)]
+impl Stats {
+    pub fn durations(&self) -> TimeStats {
+        self.times_after.clone() - self.times_before.clone()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TimeStats {
     pub uptime_secs: f64,
     pub user_cpu_secs: f64,
     pub system_cpu_secs: f64,
 }
 
-#[derive(Debug)]
+impl Sub for TimeStats {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            uptime_secs: self.uptime_secs - rhs.uptime_secs,
+            user_cpu_secs: self.user_cpu_secs - rhs.user_cpu_secs,
+            system_cpu_secs: self.system_cpu_secs - rhs.system_cpu_secs,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct MemStats {
     pub current_rss_bytes: u64,
     pub peak_rss_bytes: u64,
@@ -92,7 +153,7 @@ macro_rules! instrument {
         let times_after = $crate::instrumentation::internals::_get_time_stats();
         let mem_after = $crate::instrumentation::internals::_get_mem_stats();
 
-        $crate::instrumentation::collector()
+        $crate::instrumentation::stats_collector()
             .lock()
             .unwrap()
             .push($crate::instrumentation::Stats {

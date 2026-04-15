@@ -1,7 +1,7 @@
 use clap::{ArgGroup, Parser};
 use fxhash::FxHashSet;
 use multi_summaries::instrument;
-use multi_summaries::instrumentation::{Stats, collector};
+use multi_summaries::instrumentation::{Stats, stats_collector, print_format_last};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::hash::Hash;
@@ -202,7 +202,8 @@ fn main() -> Result<()> {
 
     // Create graph
     let mut g = Graph::new(1_000_000_000);
-    g.read_graph_parallel_memmmap(input_file, false)?;
+    instrument!(g.read_graph_parallel_memmmap(input_file, false)?);
+    print_format_last("After loading graph:\n", "\n");
 
     // Run bisimulation
     compute_bisimulation(&FlatGraph::new(g), output_dir, min_support, type_id, max_k)?;
@@ -224,10 +225,11 @@ pub fn compute_bisimulation(
     // 2. Initial Partition: Level 0 (All nodes in one block)
     println!("Computing 0-bisimulation...");
 
-    let zero_outcome = match type_id {
+    let zero_outcome = instrument!(match type_id {
         Some(edge_type) => get_typed_0_bisimulation(graph, edge_type),
         None => get_0_bisimulation(graph),
-    };
+    });
+
     let output_path_buf = output_dir.as_ref().to_path_buf();
     let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_path_buf.clone())?;
 
@@ -238,6 +240,7 @@ pub fn compute_bisimulation(
     // 3. Iterative Refinement
     loop {
         bisimulation_statistics.add_level(&bisimulation_state);
+        print_format_last("", "\n");
 
         // Break if we've reached a user-defined depth limit
         if let Some(limit) = max_k
@@ -265,7 +268,7 @@ pub fn compute_bisimulation(
 
         // Perform the refinement step
         bisimulation_state =
-            get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?;
+            instrument!(get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?);
 
         // Update state
         bisimulation_state.shared_state.update_level()?;
@@ -276,7 +279,7 @@ pub fn compute_bisimulation(
     let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
     let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
     let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
-    {
+    instrument!({
         // This hashset it reused many times in the next for loop
         let mut outer_data_edges: FxHashSet<DataEdgeAndInterval> = FxHashSet::default();
 
@@ -320,11 +323,12 @@ pub fn compute_bisimulation(
                 final_state.data_edge_callback(*data_edge, *interval)?;
             }
         }
-    }
+    });
+    print_format_last("After emitting final blocks:\n", "\n");
 
     // 5. Emit the data edges for the remaining singleton blocks
     println!("Emitting data edges for final singletons...");
-    for (
+    instrument!(for (
         node_idx,
         GlobalBlockIndexAndLevel {
             global_id: global_subject,
@@ -360,7 +364,8 @@ pub fn compute_bisimulation(
         {
             final_state.data_edge_callback(data_edge, interval)?;
         }
-    }
+    });
+    print_format_last("After emitting final singletons:\n", "\n");
 
     // Explicit flush is good practice, though it happens automatically on drop
     final_state.data_edge_writer.flush()?;
