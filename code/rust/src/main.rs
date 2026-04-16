@@ -1,7 +1,9 @@
 use clap::{ArgGroup, Parser};
 use fxhash::FxHashSet;
 use multi_summaries::instrument;
-use multi_summaries::instrumentation::{Stats, stats_collector, print_format_last};
+use multi_summaries::instrumentation::{
+    Stats, print_format_last, serialize_stats, stats_collector,
+};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::hash::Hash;
@@ -202,11 +204,16 @@ fn main() -> Result<()> {
 
     // Create graph
     let mut g = Graph::new(1_000_000_000);
-    instrument!(g.read_graph_parallel_memmmap(input_file, false)?);
-    print_format_last("After loading graph:\n", "\n");
+    instrument!(
+        "Loading Graph",
+        g.read_graph_parallel_memmmap(input_file, false)?
+    );
+    print_format_last("\n", "\n");
 
     // Run bisimulation
-    compute_bisimulation(&FlatGraph::new(g), output_dir, min_support, type_id, max_k)?;
+    let flat_graph = instrument!("Converting Graph", FlatGraph::new(g));
+    print_format_last("", "\n");
+    compute_bisimulation(&flat_graph, output_dir, min_support, type_id, max_k)?;
 
     Ok(())
 }
@@ -225,10 +232,13 @@ pub fn compute_bisimulation(
     // 2. Initial Partition: Level 0 (All nodes in one block)
     println!("Computing 0-bisimulation...");
 
-    let zero_outcome = instrument!(match type_id {
-        Some(edge_type) => get_typed_0_bisimulation(graph, edge_type),
-        None => get_0_bisimulation(graph),
-    });
+    let zero_outcome = instrument!(
+        "0-Bisimulation",
+        match type_id {
+            Some(edge_type) => get_typed_0_bisimulation(graph, edge_type),
+            None => get_0_bisimulation(graph),
+        }
+    );
 
     let output_path_buf = output_dir.as_ref().to_path_buf();
     let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_path_buf.clone())?;
@@ -258,17 +268,23 @@ pub fn compute_bisimulation(
                 .is_empty()
             {
                 println!("Running extra iteration to emit data edges that end at the fixed point");
-                bisimulation_state =
-                    get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?;
-                // bisimulation_state.shared_state.update_level()?; // TODO this call might not be needed
+                instrument!(
+                    "Extra Iteration",
+                    bisimulation_state =
+                        get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?
+                );
+                print_format_last("", "\n")
             }
             println!("Bisimulation stabilized at k = {}", fixed_point);
             break;
         }
 
         // Perform the refinement step
-        bisimulation_state =
-            instrument!(get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?);
+        instrument!(
+            format!("{}-Bisimulation", bisimulation_state.shared_state.i.clone()),
+            bisimulation_state =
+                get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?
+        );
 
         // Update state
         bisimulation_state.shared_state.update_level()?;
@@ -279,7 +295,7 @@ pub fn compute_bisimulation(
     let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
     let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
     let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
-    instrument!({
+    instrument!("Emit Final Blocks", {
         // This hashset it reused many times in the next for loop
         let mut outer_data_edges: FxHashSet<DataEdgeAndInterval> = FxHashSet::default();
 
@@ -324,48 +340,53 @@ pub fn compute_bisimulation(
             }
         }
     });
-    print_format_last("After emitting final blocks:\n", "\n");
+    print_format_last("\n", "\n");
 
     // 5. Emit the data edges for the remaining singleton blocks
     println!("Emitting data edges for final singletons...");
-    instrument!(for (
-        node_idx,
-        GlobalBlockIndexAndLevel {
-            global_id: global_subject,
-            level: subject_level,
-        },
-    ) in singleton_mapping.iter()
-    {
-        let mut inner_data_edges = Vec::new();
-        for edge in graph.get_node(*node_idx).edges.iter() {
-            let edge_type = edge.label;
-            let GlobalBlockIndexAndLevel {
-                global_id: global_target,
-                level: target_level,
-            } = match &final_outcome.node_to_block.mapping[edge.target] {
-                BlockAssignment::Block(block_id) => block_mapping.get(block_id).copied().unwrap(),
-                BlockAssignment::Singleton(singleton_id) => {
-                    singleton_mapping.get(singleton_id).copied().unwrap()
-                }
-            };
-            let start_time = std::cmp::max(*subject_level, target_level + 1);
-            let end_time = 0; // final_state.i-1;
-            inner_data_edges.push(DataEdgeAndInterval {
-                data_edge: (*global_subject, edge_type, global_target),
-                interval: (start_time, end_time),
-            });
-        }
-        inner_data_edges.sort();
-        inner_data_edges.dedup();
-        for DataEdgeAndInterval {
-            data_edge,
-            interval,
-        } in inner_data_edges.into_iter()
+    instrument!(
+        "Emit Final Singletons",
+        for (
+            node_idx,
+            GlobalBlockIndexAndLevel {
+                global_id: global_subject,
+                level: subject_level,
+            },
+        ) in singleton_mapping.iter()
         {
-            final_state.data_edge_callback(data_edge, interval)?;
+            let mut inner_data_edges = Vec::new();
+            for edge in graph.get_node(*node_idx).edges.iter() {
+                let edge_type = edge.label;
+                let GlobalBlockIndexAndLevel {
+                    global_id: global_target,
+                    level: target_level,
+                } = match &final_outcome.node_to_block.mapping[edge.target] {
+                    BlockAssignment::Block(block_id) => {
+                        block_mapping.get(block_id).copied().unwrap()
+                    }
+                    BlockAssignment::Singleton(singleton_id) => {
+                        singleton_mapping.get(singleton_id).copied().unwrap()
+                    }
+                };
+                let start_time = std::cmp::max(*subject_level, target_level + 1);
+                let end_time = 0; // final_state.i-1;
+                inner_data_edges.push(DataEdgeAndInterval {
+                    data_edge: (*global_subject, edge_type, global_target),
+                    interval: (start_time, end_time),
+                });
+            }
+            inner_data_edges.sort();
+            inner_data_edges.dedup();
+            for DataEdgeAndInterval {
+                data_edge,
+                interval,
+            } in inner_data_edges.into_iter()
+            {
+                final_state.data_edge_callback(data_edge, interval)?;
+            }
         }
-    });
-    print_format_last("After emitting final singletons:\n", "\n");
+    );
+    print_format_last("", "\n");
 
     // Explicit flush is good practice, though it happens automatically on drop
     final_state.data_edge_writer.flush()?;
@@ -377,6 +398,9 @@ pub fn compute_bisimulation(
 
     // Serialize the bisimulation statistics
     serde_json::to_writer_pretty(statistics_file, &bisimulation_statistics)?;
+
+    // Serialize the instrumentation statistics
+    serialize_stats(output_path_buf.join("instrumentation.json"))?;
 
     Ok(())
 }

@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+use std::{fs::File, path::Path};
 use std::{ops::Sub, sync::Mutex};
 use time::OffsetDateTime;
 
 pub fn stats_collector() -> &'static Mutex<Vec<Stats>> {
-    crate::instrumentation::internals::_COLLECTOR.get_or_init(|| Mutex::new(Vec::new()))
+    crate::instrumentation::internal::_COLLECTOR.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 // Enabled version
@@ -35,8 +37,9 @@ where
         peak_rss_bytes as f64 / 1024_u64.pow(2) as f64
     );
     println!(
-        "{}{}\n{}{}",
+        "{}Statistics for \"{}\":\n{}\n{}{}",
         prepend_message.as_ref(),
+        last_stats.label,
         time_string,
         mem_string,
         append_message.as_ref(),
@@ -45,10 +48,27 @@ where
 
 // Disabled version
 #[cfg(not(feature = "instrument"))]
-pub fn print_format_last<S1, S2>(prepend_message: S1, append_message: S2) {}
+pub fn print_format_last<S1, S2>(_prepend_message: S1, _append_message: S2) {}
 
-#[derive(Debug)]
+// Enabled version
+#[cfg(feature = "instrument")]
+pub fn serialize_stats(output_path: impl AsRef<Path>) -> std::io::Result<()> {
+    let output_file = File::create(output_path)?;
+
+    let collected_stats = (*stats_collector().lock().unwrap()).clone();
+    serde_json::to_writer_pretty(output_file, &collected_stats)?;
+    Ok(())
+}
+
+// Disabled version
+#[cfg(not(feature = "instrument"))]
+pub fn serialize_stats(_output_path: impl AsRef<Path>) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stats {
+    pub label: String,
     pub times_before: TimeStats,
     pub times_after: TimeStats,
     pub mem_after: MemStats,
@@ -60,7 +80,7 @@ impl Stats {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeStats {
     pub uptime_secs: f64,
     pub user_cpu_secs: f64,
@@ -79,21 +99,23 @@ impl Sub for TimeStats {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemStats {
     pub current_rss_bytes: u64,
     pub peak_rss_bytes: u64,
 }
 
-pub mod internals {
+pub mod internal {
     use crate::instrumentation::{MemStats, Stats, TimeStats};
     use procfs::Current;
     use procfs::process::Process;
     use std::sync::{Mutex, OnceLock};
 
+    #[doc(hidden)]
     pub static _COLLECTOR: OnceLock<Mutex<Vec<Stats>>> = OnceLock::new();
 
     #[cfg(feature = "instrument")]
+    #[doc(hidden)]
     pub fn _get_mem_stats() -> MemStats {
         // Get the current process
         let me = Process::myself().expect("procfs could not get the current process");
@@ -120,6 +142,7 @@ pub mod internals {
     }
 
     #[cfg(feature = "instrument")]
+    #[doc(hidden)]
     pub fn _get_time_stats() -> TimeStats {
         let me = Process::myself().unwrap();
         let stat = me.stat().unwrap();
@@ -139,24 +162,30 @@ pub mod internals {
             system_cpu_secs,
         }
     }
+
+    #[doc(hidden)]
+    pub fn _assert_string<T: AsRef<str>>(_: &T) {}
 }
 
 // Enabled version
 #[cfg(feature = "instrument")]
 #[macro_export]
 macro_rules! instrument {
-    ($e:expr) => {{
-        let times_before = $crate::instrumentation::internals::_get_time_stats();
+    ($label:expr, $e:expr) => {{
+        $crate::instrumentation::internal::_assert_string(&$label);
+
+        let times_before = $crate::instrumentation::internal::_get_time_stats();
 
         let result = $e;
 
-        let times_after = $crate::instrumentation::internals::_get_time_stats();
-        let mem_after = $crate::instrumentation::internals::_get_mem_stats();
+        let times_after = $crate::instrumentation::internal::_get_time_stats();
+        let mem_after = $crate::instrumentation::internal::_get_mem_stats();
 
         $crate::instrumentation::stats_collector()
             .lock()
             .unwrap()
             .push($crate::instrumentation::Stats {
+                label: $label.into(),
                 times_before,
                 times_after,
                 mem_after,
@@ -170,5 +199,8 @@ macro_rules! instrument {
 #[cfg(not(feature = "instrument"))]
 #[macro_export]
 macro_rules! instrument {
-    ($e:expr) => {{ $e }};
+    ($label:expr, $e:expr) => {{
+        $crate::instrumentation::internal::_assert_string(&$label);
+        $e
+    }};
 }
