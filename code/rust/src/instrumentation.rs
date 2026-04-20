@@ -1,7 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::Path};
 use std::{ops::Sub, sync::Mutex};
-use time::OffsetDateTime;
+use time::{
+    OffsetDateTime, format_description::StaticFormatDescription, macros::format_description,
+};
+
+static FMT: StaticFormatDescription = format_description!(
+    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3] [offset_hour sign:mandatory]:[offset_minute]:[offset_second]"
+);
 
 pub fn stats_collector() -> &'static Mutex<Vec<Stats>> {
     crate::instrumentation::internal::_COLLECTOR.get_or_init(|| Mutex::new(Vec::new()))
@@ -25,7 +31,10 @@ where
         current_rss_bytes,
         peak_rss_bytes,
     } = last_stats.mem_after.clone();
-    let now = OffsetDateTime::now_local().expect("time could not get the local time");
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
     let time_string = format!(
         "{} - Duration (seconds) --> Uptime: {:<15.2}, User: {:<14.2}, System: {:<10.2}",
         now, uptime_secs, user_cpu_secs, system_cpu_secs

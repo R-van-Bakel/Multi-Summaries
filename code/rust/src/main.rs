@@ -1,14 +1,16 @@
 use clap::{ArgGroup, Parser};
 use fxhash::FxHashSet;
 use multi_summaries::instrument;
-use multi_summaries::instrumentation::{
-    Stats, print_format_last, serialize_stats, stats_collector,
-};
+use multi_summaries::instrumentation::{print_format_last, serialize_stats};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::fs::{self, File};
 use std::hash::Hash;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
+use time::{
+    OffsetDateTime, format_description::StaticFormatDescription, macros::format_description,
+};
 
 // use itertools::Itertools;
 use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
@@ -48,6 +50,11 @@ struct Cli {
     #[arg(long)]
     max_k: Option<u64>,
 }
+
+static FMT: StaticFormatDescription = format_description!(
+    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3] [offset_hour sign:mandatory]:[offset_minute]:[offset_second]"
+);
+
 #[derive(Serialize, Deserialize)]
 struct BisimulationStatistics {
     singletons_condensed: Vec<usize>,
@@ -77,6 +84,11 @@ impl BisimulationStatistics {
     }
 
     fn add_level(&mut self, bisimulation_state: &FullBisimulationState) {
+        let now = OffsetDateTime::now_local()
+            .expect("time could not get the local time")
+            .format(&FMT)
+            .unwrap();
+
         let last_singletons_uncondensed = self.singletons_uncondensed.last().copied().unwrap_or(0);
         let last_blocks_condensed = self
             .blocks_condensed
@@ -101,7 +113,8 @@ impl BisimulationStatistics {
             .push(bisimulation_state.current_outcome.total_blocks());
 
         println!(
-            "After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
+            "{} - After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
+            now,
             bisimulation_state.shared_state.i - 1,
             bisimulation_state.current_outcome.dirty_blocks.len(),
             self.singletons_condensed.last().unwrap(),
@@ -204,6 +217,11 @@ fn main() -> Result<()> {
 
     // Create graph
     let mut g = Graph::new(1_000_000_000);
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
+    println!("{} - Loading Graph...", now);
     instrument!(
         "Loading Graph",
         g.read_graph_parallel_memmmap(input_file, false)?
@@ -211,10 +229,20 @@ fn main() -> Result<()> {
     print_format_last("\n", "\n");
 
     // Run bisimulation
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
+    println!("{} - Converting Graph...", now);
     let flat_graph = instrument!("Converting Graph", FlatGraph::new(g));
     print_format_last("", "\n");
     compute_bisimulation(&flat_graph, output_dir, min_support, type_id, max_k)?;
 
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
+    println!("{} - Bisimulation Complete!", now);
     Ok(())
 }
 
@@ -226,11 +254,19 @@ pub fn compute_bisimulation(
     max_k: Option<u64>,
 ) -> Result<()> {
     // 1. Prepare the Graph: Build the reverse index needed for dirty propagation
-    println!("Building predecessor index...");
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
+    println!("{} - Building predecessor index...", now);
     let predecessors = graph.build_predecessors();
 
     // 2. Initial Partition: Level 0 (All nodes in one block)
-    println!("Computing 0-bisimulation...");
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
+    println!("{} - Computing 0-bisimulation...", now);
 
     let zero_outcome = instrument!(
         "0-Bisimulation",
@@ -267,7 +303,11 @@ pub fn compute_bisimulation(
                 .semi_dirty_blocks
                 .is_empty()
             {
-                println!("Running extra iteration to emit data edges that end at the fixed point");
+                let now = OffsetDateTime::now_local()
+                    .expect("time could not get the local time")
+                    .format(&FMT)
+                    .unwrap();
+                println!("{} - Running extra iteration to emit data edges that end at the fixed point", now);
                 instrument!(
                     "Extra Iteration",
                     bisimulation_state =
@@ -275,7 +315,11 @@ pub fn compute_bisimulation(
                 );
                 print_format_last("", "\n")
             }
-            println!("Bisimulation stabilized at k = {}", fixed_point);
+            let now = OffsetDateTime::now_local()
+                .expect("time could not get the local time")
+                .format(&FMT)
+                .unwrap();
+            println!("{} - Bisimulation stabilized at k = {}", now, fixed_point);
             break;
         }
 
@@ -291,7 +335,14 @@ pub fn compute_bisimulation(
     }
 
     // 4. Emit the data edges for the remaining (non-singleton) blocks
-    println!("Emitting data edges for final (non-singleton) blocks...");
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
+    println!(
+        "{} - Emitting data edges for final (non-singleton) blocks...",
+        now
+    );
     let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
     let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
     let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
@@ -343,7 +394,11 @@ pub fn compute_bisimulation(
     print_format_last("\n", "\n");
 
     // 5. Emit the data edges for the remaining singleton blocks
-    println!("Emitting data edges for final singletons...");
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
+    println!("{} - Emitting data edges for final singletons...", now);
     instrument!(
         "Emit Final Singletons",
         for (
