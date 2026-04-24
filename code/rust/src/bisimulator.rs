@@ -1,7 +1,7 @@
 use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools;
 
-use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
+use crate::graph::{EdgeType, FlatGraph, NodeIndex};
 use std::collections::BTreeSet;
 
 use std::fmt::{self, Display};
@@ -153,11 +153,12 @@ pub struct KBisimulationOutcome {
     pub freeblock_indices: Vec<BlockIndex>,
     /// A reverse index of blocks,for each node, it maps to the block in which the node is
     pub node_to_block: Node2Block,
-    /// Blocks that might split in the next partition refinement iteration
-    pub dirty_blocks: Vec<BlockIndex>,
-    /// blocks that have outgoing data edges to blocks that got split, but are not marked dirty because we know they won't split
-    /// (either by virtue of being singletons or because they are below the min support).
-    pub semi_dirty_blocks: Vec<BlockAssignment>,
+    // /// Blocks that might split in the next partition refinement iteration
+    // pub dirty_blocks: Vec<BlockIndex>,
+    // /// blocks that have outgoing data edges to blocks that got split, but are not marked dirty because we know they won't split
+    // /// (either by virtue of being singletons or because they are below the min support).
+    // pub semi_dirty_blocks: Vec<BlockAssignment>,
+    pub some_block_split: bool,
 }
 
 impl KBisimulationOutcome {
@@ -694,7 +695,7 @@ impl PartialBisimulationState {
 
 pub fn get_i_bisimulation(
     graph: &FlatGraph,
-    predecessors: &Predecessors, // the predecessors computed with graph.build_predecessors()
+    // predecessors: &Predecessors, // the predecessors computed with graph.build_predecessors()
     // We take ownership of the previous outcome and will reuse parts of this for the current outcome
     bisimulation_state: FullBisimulationState,
     min_support: usize,
@@ -703,7 +704,7 @@ pub fn get_i_bisimulation(
     // We take the parts out of the previous_outcome for reuse
     let mut k_blocks = prev_outcome.blocks;
 
-    let mut dirty_blocks = prev_outcome.dirty_blocks;
+    // let mut dirty_blocks = prev_outcome.dirty_blocks;
 
     let mut this_level_mapper =
         InternalNode2BlockMapper::new_from_previous(prev_outcome.node_to_block);
@@ -712,67 +713,85 @@ pub fn get_i_bisimulation(
 
     let mut refined_block_set: Vec<Block> = Vec::new();
 
-    let mut semi_dirty_blocks = prev_outcome.semi_dirty_blocks;
-    {
-        // This joint_signature is reused many times in the next for loop.
-        let mut joint_signature = FxHashSet::default();
+    // let mut semi_dirty_blocks = prev_outcome.semi_dirty_blocks;
+    // {
+    //     // This joint_signature is reused many times in the next for loop.
+    //     let mut joint_signature = FxHashSet::default();
 
-        for semi_dirty_idx in semi_dirty_blocks.drain(..) {
-            // let block_nodes = match semi_dirty_idx {
-            //     BlockAssignment::Block(block_id) => std::borrow::Cow::Borrowed(&k_blocks[block_id].as_ref().unwrap().nodes),  // We are sure this block must exist, so we can unwrap and borrow
-            //     BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id])  // Create new singleton block to own
-            // };
+    //     for semi_dirty_idx in semi_dirty_blocks.drain(..) {
+    //         // let block_nodes = match semi_dirty_idx {
+    //         //     BlockAssignment::Block(block_id) => std::borrow::Cow::Borrowed(&k_blocks[block_id].as_ref().unwrap().nodes),  // We are sure this block must exist, so we can unwrap and borrow
+    //         //     BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id])  // Create new singleton block to own
+    //         // };
 
-            joint_signature.clear();
+    //         joint_signature.clear();
 
-            let block_nodes: std::borrow::Cow<'_, [usize]> = match semi_dirty_idx {
-                BlockAssignment::Block(_) => {
-                    if min_support > 1 {
-                        todo!(
-                            "Incomplete implementation for non-singletons below the min_support."
-                        );
-                        // We are sure this block must exist, so we can unwrap and borrow
-                    }
-                    continue;
-                } // TODO
-                BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id]), // Create new singleton block to own
-            };
+    //         let block_nodes: std::borrow::Cow<'_, [usize]> = match semi_dirty_idx {
+    //             BlockAssignment::Block(_) => {
+    //                 if min_support > 1 {
+    //                     todo!(
+    //                         "Incomplete implementation for non-singletons below the min_support."
+    //                     );
+    //                     // We are sure this block must exist, so we can unwrap and borrow
+    //                 }
+    //                 continue;
+    //             } // TODO
+    //             BlockAssignment::Singleton(node_id) => std::borrow::Cow::Owned(vec![node_id]), // Create new singleton block to own
+    //         };
 
-            for &v in block_nodes.iter() {
-                graph.get_node(v).edges.iter().for_each(|e| {
-                    joint_signature.insert((
-                        e.label,
-                        this_level_mapper.get_previous_level_block_idx(e.target),
-                    ));
-                });
-            }
+    //         for &v in block_nodes.iter() {
+    //             graph.get_node(v).edges.iter().for_each(|e| {
+    //                 joint_signature.insert((
+    //                     e.label,
+    //                     this_level_mapper.get_previous_level_block_idx(e.target),
+    //                 ));
+    //             });
+    //         }
 
-            // Because we already know the block doesn't split, we use `refined_signatures_to_unique_signature_parts()`
-            let targets = partial_bisimulation_state
-                .shared_state
-                .refined_signatures_to_unique_signature_parts(joint_signature.iter())
-                .unwrap_or_default();
-            let GlobalBlockIndexAndLevel {
-                global_id: global_subject,
-                level: subject_level,
-            } = *partial_bisimulation_state
-                .shared_state
-                .get_global_id(&semi_dirty_idx);
-            for (edge_type, global_target, target_level) in targets {
-                let start_level = std::cmp::max(subject_level, target_level + 1);
-                let end_level = partial_bisimulation_state.shared_state.i - 1;
-                // println!("DEBUG s-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
-                partial_bisimulation_state.shared_state.data_edge_callback(
-                    (global_subject, edge_type, global_target),
-                    (start_level, end_level),
-                )?;
-            }
-        }
-    }
+    //         // Because we already know the block doesn't split, we use `refined_signatures_to_unique_signature_parts()`
+    //         let targets = partial_bisimulation_state
+    //             .shared_state
+    //             .refined_signatures_to_unique_signature_parts(joint_signature.iter())
+    //             .unwrap_or_default();
+    //         let GlobalBlockIndexAndLevel {
+    //             global_id: global_subject,
+    //             level: subject_level,
+    //         } = *partial_bisimulation_state
+    //             .shared_state
+    //             .get_global_id(&semi_dirty_idx);
+    //         for (edge_type, global_target, target_level) in targets {
+    //             let start_level = std::cmp::max(subject_level, target_level + 1);
+    //             let end_level = partial_bisimulation_state.shared_state.i - 1;
+    //             // println!("DEBUG s-inc: ({}, {}, {}) [{}, {}]", global_subject, edge_type, global_target, start_time, end_time);
+    //             partial_bisimulation_state.shared_state.data_edge_callback(
+    //                 (global_subject, edge_type, global_target),
+    //                 (start_level, end_level),
+    //             )?;
+    //         }
+    //     }
+    // }
+
     // Iterate through dirty blocks from the previous step
-    for dirty_idx in dirty_blocks.drain(..) {
+
+    let mut overwritten = FxHashSet::default();
+
+    let mut some_block_split = false;
+
+    todo!("Iterate over all blocks AND singletons instead. Maybe think of COW");
+    for dirty_idx in 0..k_blocks.len() {
+        //    for (dirty_idx, block_ref_opt) in k_blocks.iter().enumerate() {
+        // dirty_blocks.drain(..) {
         // we are sure this block must exist, so we can unwrap
-        let block_ref = k_blocks[dirty_idx].as_ref().unwrap();
+        // let block_ref = k_blocks[dirty_idx].as_ref().unwrap();
+
+        let block_ref = match &k_blocks[dirty_idx] {
+            Some(a) => a,
+            None => continue,
+        };
+
+        if overwritten.contains(&dirty_idx) {
+            continue;
+        }
 
         // We don't even mark blocks below the min_support as dirty, so they must not exist
         debug_assert!(block_ref.nodes.len() > min_support);
@@ -828,6 +847,8 @@ pub fn get_i_bisimulation(
             continue;
         } // No split occurred
 
+        some_block_split = true;
+
         // Persist outgoing data edges
         // TODO clean this up (perhaps move the map through previous_refines_map to the signatures_to_unique_signature_parts function itself)
         // TODO add a function to get the global id and
@@ -854,6 +875,7 @@ pub fn get_i_bisimulation(
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
 
         let block = k_blocks[dirty_idx].take().unwrap();
+
         freeblock_indices.push(dirty_idx);
 
         let refines_object: BlockAssignment = BlockAssignment::Block(dirty_idx);
@@ -882,7 +904,9 @@ pub fn get_i_bisimulation(
                     k_blocks.push(new_block);
                     k_blocks.len() - 1
                 };
-
+                if dirty_idx < target_idx {
+                    overwritten.insert(target_idx);
+                }
                 let refines_subject = BlockAssignment::Block(target_idx);
                 partial_bisimulation_state
                     .shared_state
@@ -906,71 +930,72 @@ pub fn get_i_bisimulation(
     // --- Dirty Block Propagation, we reuse the old dirty blocks memory ---
     // dirty_blocks.clear();  // TODO removed this because the above loop can just drain
 
-    // Mark blocks as dirty if they point to nodes that were part of a split
-    for refined_block in refined_block_set {
-        for target in refined_block.nodes.iter() {
-            // there must be a predecessor list, it might be None
-            let maybe_preds = predecessors.get(*target).unwrap();
-            match maybe_preds {
-                None => {
-                    continue;
-                }
-                Some(preds) => {
-                    for &source in preds {
-                        let dirty_block_id = this_level_mapper.get_block_idx(source);
+    // // Mark blocks as dirty if they point to nodes that were part of a split
+    // for refined_block in refined_block_set {
+    //     for target in refined_block.nodes.iter() {
+    //         // there must be a predecessor list, it might be None
+    //         let maybe_preds = predecessors.get(*target).unwrap();
+    //         match maybe_preds {
+    //             None => {
+    //                 continue;
+    //             }
+    //             Some(preds) => {
+    //                 for &source in preds {
+    //                     let dirty_block_id = this_level_mapper.get_block_idx(source);
 
-                        let block_idx = match dirty_block_id {
-                            BlockAssignment::Singleton(_) => {
-                                // If it is a singleton, it can never split, so no need to mark dirty
-                                semi_dirty_blocks.push(dirty_block_id);
-                                continue;
-                            }
-                            BlockAssignment::Block(block_idx) => block_idx,
-                        };
+    //                     let block_idx = match dirty_block_id {
+    //                         BlockAssignment::Singleton(_) => {
+    //                             // If it is a singleton, it can never split, so no need to mark dirty
+    //                             semi_dirty_blocks.push(dirty_block_id);
+    //                             continue;
+    //                         }
+    //                         BlockAssignment::Block(block_idx) => block_idx,
+    //                     };
 
-                        // let block_idx = dirty_block_id;
+    //                     // let block_idx = dirty_block_id;
 
-                        // Only mark if the block size meets the min_support requirement
-                        if k_blocks[block_idx].as_ref().unwrap().nodes.len() >= min_support {
-                            // only add it if it is not a duplicate, this is a heuristic saving by checking whether it is the same as the previous
-                            if let Some(last) = dirty_blocks.last()
-                                && *last == block_idx
-                            {
-                                continue;
-                            }
-                            dirty_blocks.push(block_idx);
-                        } else {
-                            if let Some(last) = semi_dirty_blocks.last()
-                                && *last == dirty_block_id
-                            {
-                                continue;
-                            }
+    //                     // Only mark if the block size meets the min_support requirement
+    //                     if k_blocks[block_idx].as_ref().unwrap().nodes.len() >= min_support {
+    //                         // only add it if it is not a duplicate, this is a heuristic saving by checking whether it is the same as the previous
+    //                         if let Some(last) = dirty_blocks.last()
+    //                             && *last == block_idx
+    //                         {
+    //                             continue;
+    //                         }
+    //                         dirty_blocks.push(block_idx);
+    //                     } else {
+    //                         if let Some(last) = semi_dirty_blocks.last()
+    //                             && *last == dirty_block_id
+    //                         {
+    //                             continue;
+    //                         }
 
-                            semi_dirty_blocks.push(dirty_block_id);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    //                         semi_dirty_blocks.push(dirty_block_id);
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
-    dirty_blocks.sort();
-    dirty_blocks.dedup();
-    // it is likely that each next level dirty block vector has fewer elements, hence shrinking
-    dirty_blocks.shrink_to_fit();
+    // dirty_blocks.sort();
+    // dirty_blocks.dedup();
+    // // it is likely that each next level dirty block vector has fewer elements, hence shrinking
+    // dirty_blocks.shrink_to_fit();
 
-    semi_dirty_blocks.sort();
-    semi_dirty_blocks.dedup();
-    // it is likely that each next level semi-dirty block vector has fewer elements, hence shrinking
-    semi_dirty_blocks.shrink_to_fit();
+    // semi_dirty_blocks.sort();
+    // semi_dirty_blocks.dedup();
+    // // it is likely that each next level semi-dirty block vector has fewer elements, hence shrinking
+    // semi_dirty_blocks.shrink_to_fit();
 
     let full_bisimulation_state =
         partial_bisimulation_state.restore_outcome(KBisimulationOutcome {
             blocks: k_blocks,
-            dirty_blocks,
-            semi_dirty_blocks,
+            //  dirty_blocks,
+            // semi_dirty_blocks,
             node_to_block: this_level_mapper.commit_new_mapping(),
             freeblock_indices,
+            some_block_split,
         });
 
     Ok(full_bisimulation_state)
@@ -1012,10 +1037,11 @@ pub fn get_typed_0_bisimulation(graph: &FlatGraph, rdf_type_id: EdgeType) -> KBi
 
     KBisimulationOutcome {
         blocks: new_blocks,
-        dirty_blocks: dirty,
-        semi_dirty_blocks: Vec::new(), // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
+        //dirty_blocks: dirty,
+        //semi_dirty_blocks: Vec::new(), // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
         node_to_block: mapper.commit_new_mapping(),
         freeblock_indices: Vec::new(),
+        some_block_split: true,
     }
 }
 
@@ -1044,10 +1070,11 @@ pub fn get_0_bisimulation(graph: &FlatGraph) -> KBisimulationOutcome {
 
     KBisimulationOutcome {
         blocks,
-        dirty_blocks,
-        semi_dirty_blocks: Vec::new(), // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
+        //dirty_blocks,
+        //semi_dirty_blocks: Vec::new(), // We don't use semi-dirty blocks at i < 2, so it is safe to mark as empty for now
         node_to_block: mapper,
         freeblock_indices: Vec::new(),
+        some_block_split: true,
     }
 }
 

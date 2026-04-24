@@ -113,10 +113,10 @@ impl BisimulationStatistics {
             .push(bisimulation_state.current_outcome.total_blocks());
 
         println!(
-            "{} - After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
+            "{} - After computing {:>4}-bisimulation --> Dirty blocks: ---, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
             now,
             bisimulation_state.shared_state.i - 1,
-            bisimulation_state.current_outcome.dirty_blocks.len(),
+            // bisimulation_state.current_outcome.dirty_blocks.len(),
             self.singletons_condensed.last().unwrap(),
             self.blocks_quotient.last().unwrap(),
             self.blocks_condensed.last().unwrap(),
@@ -259,7 +259,7 @@ pub fn compute_bisimulation(
         .format(&FMT)
         .unwrap();
     println!("{} - Building predecessor index...", now);
-    let predecessors = graph.build_predecessors();
+    // let predecessors = graph.build_predecessors();
 
     // 2. Initial Partition: Level 0 (All nodes in one block)
     let now = OffsetDateTime::now_local()
@@ -284,7 +284,7 @@ pub fn compute_bisimulation(
     let statistics_file = File::create(statistics_path)?;
 
     // 3. Iterative Refinement
-    loop {
+    while bisimulation_state.current_outcome.some_block_split {
         bisimulation_statistics.add_level(&bisimulation_state);
         print_format_last("", "\n");
 
@@ -296,38 +296,45 @@ pub fn compute_bisimulation(
         }
 
         // If no blocks are dirty, the partition is stable, but if semi_dirty_blocks is not empty, we still need to emit some of there associated data edges
-        if bisimulation_state.current_outcome.dirty_blocks.is_empty() {
-            let fixed_point = bisimulation_state.shared_state.i - 1;
-            if !bisimulation_state
-                .current_outcome
-                .semi_dirty_blocks
-                .is_empty()
-            {
-                let now = OffsetDateTime::now_local()
-                    .expect("time could not get the local time")
-                    .format(&FMT)
-                    .unwrap();
-                println!("{} - Running extra iteration to emit data edges that end at the fixed point", now);
-                instrument!(
-                    "Extra Iteration",
-                    bisimulation_state =
-                        get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?
-                );
-                print_format_last("", "\n")
-            }
-            let now = OffsetDateTime::now_local()
-                .expect("time could not get the local time")
-                .format(&FMT)
-                .unwrap();
-            println!("{} - Bisimulation stabilized at k = {}", now, fixed_point);
-            break;
-        }
+        // // if !bisimulation_state.current_outcome.some_block_split {
+        // let fixed_point = bisimulation_state.shared_state.i - 1;
+        // if !bisimulation_state
+        //     .current_outcome
+        //     .semi_dirty_blocks
+        //     .is_empty()
+        // {
+        //     let now = OffsetDateTime::now_local()
+        //         .expect("time could not get the local time")
+        //         .format(&FMT)
+        //         .unwrap();
+        //     println!(
+        //         "{} - Running extra iteration to emit data edges that end at the fixed point",
+        //         now
+        //     );
+        //     instrument!(
+        //         "Extra Iteration",
+        //         bisimulation_state =
+        //             get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?
+        //     );
+        //     print_format_last("", "\n")
+        // }
+        // let now = OffsetDateTime::now_local()
+        //     .expect("time could not get the local time")
+        //     .format(&FMT)
+        //     .unwrap();
+        // println!("{} - Bisimulation stabilized at k = {}", now, fixed_point);
+        // break;
+        // // }
 
         // Perform the refinement step
         instrument!(
             format!("{}-Bisimulation", bisimulation_state.shared_state.i.clone()),
-            bisimulation_state =
-                get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?
+            bisimulation_state = get_i_bisimulation(
+                graph,
+                //&predecessors,
+                bisimulation_state,
+                min_support
+            )?
         );
 
         // Update state
