@@ -1,5 +1,5 @@
 use fxhash::{FxHashMap, FxHashSet};
-use itertools::Itertools;
+use itertools::{Itertools, enumerate};
 
 use crate::graph::{EdgeType, FlatGraph, NodeIndex};
 use std::collections::BTreeSet;
@@ -123,6 +123,32 @@ impl InternalNode2BlockMapper {
         } else {
             self.old_mapping[node].clone()
         }
+    }
+
+    pub fn get_singletons_ids(&self) -> Vec<BlockAssignment> {
+        // Get the singletons from the new map
+        let mut singleton_ids: Vec<BlockAssignment> = self
+            .new_mapping
+            .values()
+            .filter(|id| matches!(id, BlockAssignment::Singleton(_)))
+            .cloned()
+            .collect();
+        singleton_ids.extend(
+            self.old_mapping
+                .iter()
+                .filter(|id| matches!(id, BlockAssignment::Singleton(_)))
+                .cloned(),
+        );
+        // Check that there are no duplicate singleton ids
+        debug_assert!(
+            {
+                let mut seen = FxHashSet::default();
+                singleton_ids.iter().all(|x| seen.insert(x))
+            },
+            "Duplicate enum values found: {:?}",
+            singleton_ids
+        );
+        singleton_ids
     }
 
     // pub fn put_into_singleton(&mut self, node: NodeIndex) {
@@ -777,21 +803,62 @@ pub fn get_i_bisimulation(
 
     let mut some_block_split = false;
 
-    todo!("Iterate over all blocks AND singletons instead. Maybe think of COW");
-    for dirty_idx in 0..k_blocks.len() {
+    // for possible_index in 0..k_blocks.len() {
+    //     let block_ref = match &k_blocks[possible_index] {
+    //         Some(a) => a,
+    //         None => continue,
+    //     };
+    // }
+
+    let block_ids: Vec<BlockAssignment> = k_blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(block_id, possible_block)| {
+            possible_block.as_ref()?;
+            Some(BlockAssignment::Block(block_id))
+        })
+        .collect();
+    let singleton_ids = this_level_mapper.get_singletons_ids();
+    let block_and_singleton_iter = block_ids.iter().chain(singleton_ids.iter());
+
+    // We reuse the singleton_block to turn singletons into blocks
+    let mut singleton_block = Block {
+        nodes: vec![0],
+        f: 0,  //  NB: we never use the `f` field in `block_ref` later, so this field can safely be set to any dummy value
+    };
+
+    for dirty_idx in block_and_singleton_iter {
         //    for (dirty_idx, block_ref_opt) in k_blocks.iter().enumerate() {
         // dirty_blocks.drain(..) {
         // we are sure this block must exist, so we can unwrap
         // let block_ref = k_blocks[dirty_idx].as_ref().unwrap();
 
-        let block_ref = match &k_blocks[dirty_idx] {
-            Some(a) => a,
-            None => continue,
+        let mut maybe_dirty_block_idx = None;
+        let block_ref = match *dirty_idx {
+            BlockAssignment::Block(block_id) => {
+                let Some(block) = &k_blocks[block_id] else {
+                    continue;
+                };
+                if overwritten.contains(&block_id) {
+                    continue;
+                }
+                maybe_dirty_block_idx = Some(block_id);
+                block
+            }
+            BlockAssignment::Singleton(node_id) => {
+                singleton_block.nodes[0] = node_id;
+                &singleton_block
+            }
         };
 
-        if overwritten.contains(&dirty_idx) {
-            continue;
-        }
+        // let block_ref = match &k_blocks[dirty_idx] {
+        //     Some(a) => a,
+        //     None => continue,
+        // };
+
+        // if overwritten.contains(&dirty_idx) {
+        //     continue;
+        // }
 
         // We don't even mark blocks below the min_support as dirty, so they must not exist
         debug_assert!(block_ref.nodes.len() > min_support);
@@ -833,7 +900,7 @@ pub fn get_i_bisimulation(
                 level: subject_level,
             } = *partial_bisimulation_state
                 .shared_state
-                .get_global_id(&BlockAssignment::Block(dirty_idx));
+                .get_global_id(&dirty_idx);
             for (edge_type, global_target, target_level) in targets {
                 let start_level = std::cmp::max(subject_level, target_level + 1);
                 let end_level = partial_bisimulation_state.shared_state.i - 1;
@@ -846,6 +913,9 @@ pub fn get_i_bisimulation(
 
             continue;
         } // No split occurred
+
+        // For singletons splits never occur, so they are captured by the block above. Consequently we can savely unwrap dirty_block_idx at this point.
+        let dirty_block_idx = maybe_dirty_block_idx.expect("Tried to unwrap maybe_dirty_block_idx while it was set to None. THIS SHOULD NOT BE POSSIBLE");
 
         some_block_split = true;
 
@@ -861,7 +931,7 @@ pub fn get_i_bisimulation(
             level: subject_level,
         } = *partial_bisimulation_state
             .shared_state
-            .get_global_id(&BlockAssignment::Block(dirty_idx));
+            .get_global_id(&dirty_idx);
         for (edge_type, global_target, target_level) in targets.into_iter() {
             let start_level = std::cmp::max(subject_level, target_level + 1);
             let end_level = partial_bisimulation_state.shared_state.i - 1;
@@ -874,11 +944,11 @@ pub fn get_i_bisimulation(
 
         // We take ownership of the block and put a None at that spot in k_block, and mark that block as free
 
-        let block = k_blocks[dirty_idx].take().unwrap();
+        let block = k_blocks[dirty_block_idx].take().unwrap();
 
-        freeblock_indices.push(dirty_idx);
+        freeblock_indices.push(dirty_block_idx);
 
-        let refines_object: BlockAssignment = BlockAssignment::Block(dirty_idx);
+        let refines_object: BlockAssignment = BlockAssignment::Block(dirty_block_idx);
 
         let mut only_singletons = true;
 
@@ -904,7 +974,7 @@ pub fn get_i_bisimulation(
                     k_blocks.push(new_block);
                     k_blocks.len() - 1
                 };
-                if dirty_idx < target_idx {
+                if dirty_block_idx < target_idx {
                     overwritten.insert(target_idx);
                 }
                 let refines_subject = BlockAssignment::Block(target_idx);
@@ -921,7 +991,7 @@ pub fn get_i_bisimulation(
         if only_singletons {
             partial_bisimulation_state
                 .shared_state
-                .refine_target_can_be_freed(&dirty_idx)?;
+                .refine_target_can_be_freed(&dirty_block_idx)?;
         }
 
         refined_block_set.push(block);

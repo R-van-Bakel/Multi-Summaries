@@ -338,7 +338,9 @@ pub fn compute_bisimulation(
         );
 
         // Update state
-        bisimulation_state.shared_state.update_level()?;
+        if bisimulation_state.current_outcome.some_block_split {
+            bisimulation_state.shared_state.update_level()?;
+        }
     }
 
     // 4. Emit the data edges for the remaining (non-singleton) blocks
