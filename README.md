@@ -21,6 +21,5 @@
 1. Take any ntriples file (`.nt`) as input and optionally create an output directory
 2. Move to the project root
 3. Run `./code/bin/preprocessor <path/to/ntriples/file> <path/to/output>`
-4. Create a new empty output directory for Rust
-5. Run `./code/rust/target/x86_64-unknown-linux-gnu/release/multi_summaries --rel-to-id-file <path/to/output>/rel2ID.txt <path/to/output>/binary_encoding.bin <path/to/output>/rust_out`
+4. Run `./code/rust/target/x86_64-unknown-linux-gnu/release/multi_summaries --rel-to-id-file <path/to/output>/rel2ID.txt <path/to/output>/binary_encoding.bin <path/to/output>/rust_out`
     - Note that `./code/rust/src/main.rs` tries to allocate considerable memory via `Graph::new(1_000_000_000)`. If the program runs out of memory, try setting it to a lower number and recompile Rust.
