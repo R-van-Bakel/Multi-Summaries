@@ -1,15 +1,15 @@
 # Installation instructions
 
 ## C++ Setup
-1. **Make sure g++ (>= 13.0.0) is installed**
-2. ~~Choose a directory to install boost in~~
-3. ~~Download Boost: `https://archives.boost.io/release/1.90.0/source/boost_1_90_0.tar.gz`~~
-4. ~~Unpack boost: `tar -v --strip-components=1 -xf ./boost_1_90_0.tar.gz`~~
-5. ~~Set `boost_path` in `./setup/settings.config` to the chosen directory (e.g. `boost_path=../external/boost_1_90_0/`)~~
-6. ~~In the boost path run: `./bootstrap.sh --prefix=./ && ./b2 install --with-filesystem --with-program_options`~~
-7. ~~Choose a directory to install other dependencies in~~
-8. ~~Download json.hpp from nlohmann: https://github.com/nlohmann/json/releases/download/v3.12.0/json.hpp~~
-9. ~~Set `include_path` in `./setup/settings.config` to the chosen directory (e.g. `include_path=../external/include/`)~~
+1. Make sure g++ (>= 13.0.0) is installed
+2. Choose a directory to install boost in
+3. Download Boost: `https://archives.boost.io/release/1.90.0/source/boost_1_90_0.tar.gz`
+4. Unpack boost: `tar -v --strip-components=1 -xf ./boost_1_90_0.tar.gz`
+5. Set `boost_path` in `./setup/settings.config` to the chosen directory (e.g. `boost_path=../external/boost_1_90_0/`)
+6. In the chosen boost path run: `./bootstrap.sh --prefix=./ && ./b2 install --with-filesystem --with-program_options`
+7. Choose a directory to install other dependencies in
+8. Download json.hpp from nlohmann: https://github.com/nlohmann/json/releases/download/v3.12.0/json.hpp into the chosen directory
+9. Set `include_path` in `./setup/settings.config` to the chosen directory (e.g. `include_path=../external/include/`)
 10. From the project root run `(mkdir ./code/bin/ && cd ./setup/ && ./compile.sh ../code/src/preprocessor.cpp ../code/src/my_exception.cpp ../code/src/binary_io.cpp -o ../code/bin/preprocessor)`
 
 ## Rust setup
