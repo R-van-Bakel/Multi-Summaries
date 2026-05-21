@@ -9,7 +9,7 @@ This project contains ***Rust*** code for computing the condensed multi-level bi
 ### C++ Setup
 1. Make sure g++ (>= 13.0.0) is installed
 2. Move to `code/cpp/include/`. This is where we will install *boost* and *nlohmann*'s JSON for C++.
-    - If you already have valid boost and nlohmann JSON versions installed, then you can overwrite `include_path` and `boost_path` in `setup/settings.config` and skip to step 9.
+    - If you already have valid boost version installed, then you can overwrite `boost_path` in `setup/settings.config` and skip to step 9.
 3. Download Boost:
 ```bash
 wget https://archives.boost.io/release/1.90.0/source/boost_1_90_0.tar.gz
@@ -18,13 +18,7 @@ wget https://archives.boost.io/release/1.90.0/source/boost_1_90_0.tar.gz
 ```bash
 tar -v --strip-components=1 -xf ./boost_1_90_0.tar.gz
 ```
-5. Make a directory called `nlohmann/` and download nlohmann's json.hpp into it:
-```bash
-mkdir nlohmann
-cd nlohmann
-wget https://github.com/nlohmann/json/releases/download/v3.12.0/json.hpp
-```
-6. At this point, the file tree might look something like this:
+5. At this point, the file tree might look something like this:
 ```text
 Condensed-Summaries/
 ├─ code/cpp/include/
@@ -37,11 +31,11 @@ Condensed-Summaries/
 ├─ setup/
 └─ README.md
 ```
-7. In the unpacked boost directory (`code/cpp/include/boost_1_90_0/`) run:
+6. In the unpacked boost directory (`code/cpp/include/boost_1_90_0/`) run:
 ```bash
 ./bootstrap.sh --prefix=./ && ./b2 install --with-filesystem --with-program_options
 ```
-9. Finally, to compile the C++ preprocessor, run the following from the project root:
+7. Finally, to compile the C++ preprocessor, run the following from the project root:
 ```bash
 mkdir ./code/cpp/bin/
 cd ./setup/
