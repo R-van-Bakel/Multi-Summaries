@@ -45,7 +45,7 @@ Condensed-Summaries/
 ```bash
 mkdir ./code/cpp/bin/
 cd ./setup/
-./compile.sh ../code/src/preprocessor.cpp ../code/cpp/src/my_exception.cpp ../code/cpp/src/binary_io.cpp -o ../code/cpp/bin/preprocessor
+./compile.sh ../code/cpp/src/preprocessor.cpp ../code/cpp/src/my_exception.cpp ../code/cpp/src/binary_io.cpp -o ../code/cpp/bin/preprocessor
 ```
 
 ### Rust setup
