@@ -49,6 +49,10 @@ struct Cli {
     /// The maximum bisimulation depth to search
     #[arg(long)]
     max_k: Option<u64>,
+
+    /// Preallocation size
+    #[arg(long)]
+    preallocation_size: Option<usize>,
 }
 
 static FMT: StaticFormatDescription = format_description!(
@@ -214,9 +218,10 @@ fn main() -> Result<()> {
     };
     let min_support = args.min_support.unwrap_or(0);
     let max_k = args.max_k;
+    let preallocation_size = args.preallocation_size.unwrap_or(1_000_000_000);
 
     // Create graph
-    let mut g = Graph::new(1_000_000_000);
+    let mut g = Graph::new(preallocation_size);
     let now = OffsetDateTime::now_local()
         .expect("time could not get the local time")
         .format(&FMT)

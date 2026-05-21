@@ -31,6 +31,7 @@ Condensed-Summaries/
 │  ├─ boost_1_90_0/
 │  ├─ nlohmann/
 │  │  └─ json.hpp
+│  ├─ binary_io.hpp
 │  └─ my_exception.hpp
 ├─ data/
 ├─ setup/
@@ -57,6 +58,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```bash
 RUSTFLAGS="-C lto=thin -C embed-bitcode=yes -Clinker-plugin-lto" cargo build --target x86_64-unknown-linux-gnu --release
 ```
+This should create a compiled binary in `code/rust/target/x86_64-unknown-linux-gnu/release/multi_summaries`.
 
 ## Test the code
 1. Take any ntriples file (e.g. the provided `data/heterogeneous_hubs.nt`) as input and optionally create an output directory (e.g. `heterogeneous_hubs/`).
@@ -81,7 +83,6 @@ Condensed-Summaries/
 ```
 4. Finally, from the project root run the following to run the bisimulation:
 ```bash
-./code/rust/target/x86_64-unknown-linux-gnu/release/multi_summaries --rel-to-id-file <path/to/output>/rel2ID.txt <path/to/output>/binary_encoding.bin <path/to/output>/rust_out
+./code/rust/target/x86_64-unknown-linux-gnu/release/multi_summaries --rel-to-id-file <path/to/output>/rel2ID.txt --preallocation-size 1000000 <path/to/output>/binary_encoding.bin <path/to/output>/rust_out
 ```
 This should create a directory called `rust_out` in the specified output directory. The data edges are stored in `rust_out/data_edges` in a single file, whereas the refines edges are stored per bisimulation level in `rust_out/refines_edges/`. Both are stored in binary format. The output also contains statistics on the bisimulation in `rust_out/statistics.json`, as well as time and memory instrumentation in `rust_out/instrumentation.json`.
-- Note that `./code/rust/src/main.rs` tries to allocate considerable memory via `Graph::new(1_000_000_000)`. If the program runs out of memory, try setting it to a lower number and recompile Rust.
