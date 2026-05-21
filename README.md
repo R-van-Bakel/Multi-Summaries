@@ -9,7 +9,7 @@ This project contains ***Rust*** code for computing the condensed multi-level bi
 ### C++ Setup
 1. Make sure g++ (>= 13.0.0) is installed
 2. Move to `code/cpp/include/`. This is where we will install *boost* and *nlohmann*'s JSON for C++.
-    - If you already have valid boost version installed, then you can overwrite `boost_path` in `setup/settings.config` and skip to step 9.
+    - If you already have valid boost version installed, then you can overwrite `boost_path` in `setup/settings.config` and skip to step 7.
 3. Download Boost:
 ```bash
 wget https://archives.boost.io/release/1.90.0/source/boost_1_90_0.tar.gz
