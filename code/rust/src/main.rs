@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fs::{self, File};
 use std::hash::Hash;
-use std::io::{BufRead, BufReader, Error, ErrorKind, Result, Write};
+use std::io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
 use time::{
     OffsetDateTime, format_description::StaticFormatDescription, macros::format_description,
@@ -312,7 +312,10 @@ pub fn compute_bisimulation(
                     .expect("time could not get the local time")
                     .format(&FMT)
                     .unwrap();
-                println!("{} - Running extra iteration to emit data edges that end at the fixed point", now);
+                println!(
+                    "{} - Running extra iteration to emit data edges that end at the fixed point",
+                    now
+                );
                 instrument!(
                     "Extra Iteration",
                     bisimulation_state =
@@ -461,6 +464,20 @@ pub fn compute_bisimulation(
 
     // Serialize the instrumentation statistics
     serialize_stats(output_path_buf.join("instrumentation.json"))?;
+
+    // Emit the final outcome
+    let final_node_to_block_path = output_path_buf.join("final_node_to_block");
+    let final_node_to_block_file = File::create(final_node_to_block_path)?;
+    let mut final_node_to_block_writer = BufWriter::new(final_node_to_block_file);
+    for (node, local_block) in final_outcome.node_to_block.mapping.iter().enumerate() {
+        let global_block = match local_block {
+            BlockAssignment::Block(local_block_id) => block_mapping.get(local_block_id).unwrap(),
+            BlockAssignment::Singleton(node_id) => singleton_mapping.get(node_id).unwrap(),
+        };
+        final_node_to_block_writer.write_all(&node.to_be_bytes())?;
+        final_node_to_block_writer.write_all(&global_block.global_id.to_be_bytes())?;
+    }
+    final_node_to_block_writer.flush()?;
 
     Ok(())
 }

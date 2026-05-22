@@ -75,7 +75,8 @@ Condensed-Summaries/
 ├─ setup/
 └─ README.md
 ```
-4. Finally, from the project root run the following to run the bisimulation:
+4. Finally, from the project root run the command below to compute the bisimulation.
+    - The `--preallocation-size` parameter is used to pre-allocate a certain number of nodes for loading the graph into memory. Pre-allocating can speed up the initial loading process, by reducing the need for re-allocating at runtime.
 ```bash
 ./code/rust/target/x86_64-unknown-linux-gnu/release/multi_summaries --rel-to-id-file <path/to/output>/rel2ID.txt --preallocation-size 1000000 <path/to/output>/binary_encoding.bin <path/to/output>/rust_out
 ```
