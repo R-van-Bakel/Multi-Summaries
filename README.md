@@ -53,6 +53,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 RUSTFLAGS="-C lto=thin -C embed-bitcode=yes -Clinker-plugin-lto" cargo build --target x86_64-unknown-linux-gnu --release
 ```
 This should create a compiled binary in `code/rust/target/x86_64-unknown-linux-gnu/release/multi_summaries`.
+- This also creates an auxiliary binary `code/rust/target/x86_64-unknown-linux-gnu/release/figure_statistics`, coming from the code in `code/rust/src/bin/figure_statistics.rs`, for getting extra statistics on the bisimulation process.
 
 ## Test the code
 1. Take any ntriples file (e.g. the provided `data/heterogeneous_hubs.nt`) as input and optionally create an output directory (e.g. `heterogeneous_hubs/`).
@@ -81,3 +82,4 @@ Condensed-Summaries/
 ./code/rust/target/x86_64-unknown-linux-gnu/release/multi_summaries --rel-to-id-file <path/to/output>/rel2ID.txt --preallocation-size 1000000 <path/to/output>/binary_encoding.bin <path/to/output>/rust_out
 ```
 This should create a directory called `rust_out` in the specified output directory. The data edges are stored in `rust_out/data_edges` in a single file, whereas the refines edges are stored per bisimulation level in `rust_out/refines_edges/`. Both are stored in binary format. The output also contains statistics on the bisimulation in `rust_out/statistics.json`, as well as time and memory instrumentation in `rust_out/instrumentation.json`.
+- At this point `code/rust/target/x86_64-unknown-linux-gnu/release/figure_statistics <path/to/output>/rust_out` can be run to get the auxiliary statistics.
