@@ -133,48 +133,7 @@ impl BisimulationStatistics {
             self.refines_edges_condensed.last().unwrap(),
         );
     }
-
-    // fn add_aggregate_data_edges(&mut self, aggregate_counter: DataEdgeCounter) {
-    //     assert!(self.data_edges_condensed.is_empty() && self.data_edges_uncondensed.is_empty());
-    //     self.data_edges_condensed = aggregate_counter.condensed_counts;
-    //     self.data_edges_uncondensed = aggregate_counter.uncondensed_counts
-    // }
 }
-
-// #[derive(Clone)]
-// struct DataEdgeAndInterval {
-//     pub data_edge: (GlobalBlockIndex, EdgeType, GlobalBlockIndex),
-//     pub interval: (LevelIndex, LevelIndex),
-// }
-
-// impl Hash for DataEdgeAndInterval {
-//     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-//         state.write_usize(self.data_edge.0);
-//         state.write_u32(self.data_edge.1);
-//         state.write_usize(self.data_edge.2);
-//     }
-// }
-
-// // Data edges are uniquely identified by their triples, so we can ignore the intervals for the purposes of equality and ordering
-// impl PartialEq for DataEdgeAndInterval {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.data_edge == other.data_edge
-//     }
-// }
-
-// impl Eq for DataEdgeAndInterval {}
-
-// impl PartialOrd for DataEdgeAndInterval {
-//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
-
-// impl Ord for DataEdgeAndInterval {
-//     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-//         self.data_edge.cmp(&other.data_edge)
-//     }
-// }
 
 // TODO this function could also be extended to work on "rel2ID.meta.json" files
 fn parse_rel_to_id(rel_to_id_path: impl AsRef<Path>) -> Result<Option<u32>> {
@@ -465,125 +424,13 @@ pub fn compute_bisimulation(
     let (mut final_state, final_outcome) = bisimulation_state.into_parts();
     let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
     let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
-    // instrument!("Emit Final Blocks", {
-    //     // This hashset it reused many times in the next for loop
-    //     let mut outer_data_edges: FxHashSet<DataEdgeAndInterval> = FxHashSet::default();
-
-    //     for (block_idx, block) in std::mem::take(&mut final_outcome.blocks)
-    //         .into_iter()
-    //         .enumerate()
-    //         .filter_map(|(block_idx, maybe_block)| maybe_block.map(|block| (block_idx, block)))
-    //     {
-    //         let GlobalBlockIndexAndLevel {
-    //             global_id: global_subject,
-    //             level: subject_level,
-    //         } = block_mapping.get(&block_idx).unwrap();
-
-    //         outer_data_edges.clear();
-    //         for node_idx in block.nodes.iter() {
-    //             for edge in graph.get_node(*node_idx).edges.iter() {
-    //                 let edge_type = edge.label;
-    //                 let GlobalBlockIndexAndLevel {
-    //                     global_id: global_target,
-    //                     level: target_level,
-    //                 } = match &final_outcome.node_to_block.mapping[edge.target] {
-    //                     BlockAssignment::Block(block_id) => block_mapping.get(block_id).unwrap(),
-    //                     BlockAssignment::Singleton(singleton_id) => {
-    //                         singleton_mapping.get(singleton_id).unwrap()
-    //                     }
-    //                 };
-    //                 let start_time = std::cmp::max(*subject_level, target_level + 1);
-    //                 let end_time = 0; // NB: we are using 0 to encode for infinity
-    //                 outer_data_edges.insert(DataEdgeAndInterval {
-    //                     data_edge: (*global_subject, edge_type, *global_target),
-    //                     interval: (start_time, end_time),
-    //                 });
-    //             }
-    //         }
-
-    //         for DataEdgeAndInterval {
-    //             data_edge,
-    //             interval,
-    //         } in outer_data_edges.iter()
-    //         {
-    //             final_state.data_edge_callback(*data_edge, *interval)?;
-    //         }
-    //     }
-    // });
-    // print_format_last("\n", "\n");
-
-    // // 5. Emit the data edges for the remaining singleton blocks
-    // let now = OffsetDateTime::now_local()
-    //     .expect("time could not get the local time")
-    //     .format(&FMT)
-    //     .unwrap();
-    // println!("{} - Emitting data edges for final singletons...", now);
-    // instrument!(
-    //     "Emit Final Singletons",
-    //     for (
-    //         node_idx,
-    //         GlobalBlockIndexAndLevel {
-    //             global_id: global_subject,
-    //             level: subject_level,
-    //         },
-    //     ) in singleton_mapping.iter()
-    //     {
-    //         let mut inner_data_edges = Vec::new();
-    //         for edge in graph.get_node(*node_idx).edges.iter() {
-    //             let edge_type = edge.label;
-    //             let GlobalBlockIndexAndLevel {
-    //                 global_id: global_target,
-    //                 level: target_level,
-    //             } = match &final_outcome.node_to_block.mapping[edge.target] {
-    //                 BlockAssignment::Block(block_id) => {
-    //                     block_mapping.get(block_id).copied().unwrap()
-    //                 }
-    //                 BlockAssignment::Singleton(singleton_id) => {
-    //                     singleton_mapping.get(singleton_id).copied().unwrap()
-    //                 }
-    //             };
-    //             let start_time = std::cmp::max(*subject_level, target_level + 1);
-    //             let end_time = 0; // final_state.i-1;
-    //             inner_data_edges.push(DataEdgeAndInterval {
-    //                 data_edge: (*global_subject, edge_type, global_target),
-    //                 interval: (start_time, end_time),
-    //             });
-    //         }
-    //         inner_data_edges.sort();
-    //         inner_data_edges.dedup();
-    //         for DataEdgeAndInterval {
-    //             data_edge,
-    //             interval,
-    //         } in inner_data_edges.into_iter()
-    //         {
-    //             final_state.data_edge_callback(data_edge, interval)?;
-    //         }
-    //     }
-    // );
-    // print_format_last("", "\n");
-
-    // // Explicit flush is good practice, though it happens automatically on drop
-    // final_state.data_edge_writer.flush()?;
-    // final_state.refines_writer.flush()?;
-
-    // // Get the data edge statistics
-    // let data_edge_counts = final_state.data_edge_counter();
-    // bisimulation_statistics.add_aggregate_data_edges(data_edge_counts);
-
-    // // Serialize the bisimulation statistics
-    // serde_json::to_writer_pretty(statistics_file, &bisimulation_statistics)?;
-
-    // // Serialize the instrumentation statistics
-    // serialize_stats(output_path_buf.join("instrumentation.json"))?;
 
     // Emit the final outcome
     let final_node_to_block_path = output_path_buf.join("final_node_to_block");
     let final_node_to_block_file = File::create(final_node_to_block_path)?;
     let mut final_node_to_block_writer = BufWriter::new(final_node_to_block_file);
 
-    // let mut largest_block_id = 0;
     let mut node_to_block_ids = Vec::with_capacity(final_outcome.node_to_block.mapping.len());
-    // let mut num_nodes = 0;
     final_outcome
         .node_to_block
         .mapping
@@ -598,33 +445,17 @@ pub fn compute_bisimulation(
                 }
                 BlockAssignment::Singleton(node_id) => singleton_mapping.get(&node_id).unwrap(),
             };
-            // largest_block_id = max(largest_block_id, *global_id);
             node_to_block_ids.push(*global_id);
-            // num_nodes += 1;
         });
     let slice_partition = FixedDenseByteSlicePartition::from_node_to_ids(node_to_block_ids);
-    // let mut test_hash_set = HashSet::new();
-    // let mut num_blocks = 0;
-    // slice_partition.into_iter().for_each(|slice| {
-    //     for node in slice {
-    //         test_hash_set.insert(*node);
-    //     }
-    //     num_blocks += 1;
-    // });
-    // println!(
-    //     "Min: {}\nMax: {}\nLen: {}\nNum Nodes: {}\nLargest Block: {}\nNum Blocks: {}\n",
-    //     test_hash_set.iter().min().unwrap(),
-    //     test_hash_set.iter().max().unwrap(),
-    //     test_hash_set.len(),
-    //     num_nodes,
-    //     largest_block_id,
-    //     num_blocks,
-    // );
 
-    let wire_parts: Vec<PbPart> = slice_partition.into_iter().map(|block| PbPart {
-        nodes: block.into(),
-        hash: Vec::new(),
-    }).collect();
+    let wire_parts: Vec<PbPart> = slice_partition
+        .into_iter()
+        .map(|block| PbPart {
+            nodes: block.into(),
+            hash: Vec::new(),
+        })
+        .collect();
 
     let wire_struct = PbPartition { parts: wire_parts };
 
@@ -638,26 +469,4 @@ pub fn compute_bisimulation(
     final_node_to_block_writer.write_all(&buf)?;
     final_node_to_block_writer.flush()?;
     Ok(())
-
-    // for (node, local_block) in final_outcome.node_to_block.mapping.into_iter().enumerate() {
-    //     let global_block = match local_block {
-    //         BlockAssignment::Block(local_block_id) => block_mapping.get(&local_block_id).unwrap(),
-    //         BlockAssignment::Singleton(node_id) => singleton_mapping.get(&node_id).unwrap(),
-    //     };
-    //     final_node_to_block_writer.write_all(&node.to_be_bytes())?;
-    //     final_node_to_block_writer.write_all(&global_block.global_id.to_be_bytes())?;
-    // }
-
-    // for (node, local_block) in final_outcome.node_to_block.mapping.iter().enumerate() {
-    //     let global_block = match local_block {
-    //         BlockAssignment::Block(local_block_id) => block_mapping.get(local_block_id).unwrap(),
-    //         BlockAssignment::Singleton(node_id) => singleton_mapping.get(node_id).unwrap(),
-    //     };
-    //     final_node_to_block_writer.write_all(&node.to_be_bytes())?;
-    //     final_node_to_block_writer.write_all(&global_block.global_id.to_be_bytes())?;
-    // }
-
-    // final_node_to_block_writer.flush()?;
-
-    // Ok(())
 }
