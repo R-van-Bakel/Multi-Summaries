@@ -1,0 +1,32 @@
+
+syntax = "proto3";
+
+// option go_package = "github.com/miselico/lsh_bisimulation/internal/partitioner";
+option go_package = "internal/partitioner";
+
+
+message PBPart{
+    repeated int64 nodes = 1;
+    bytes hash = 2;
+}
+
+message PBPartition {
+    repeated PBPart parts = 1;
+}
+
+// A message that contains the partitions of a single node. 
+// This is much less compact because it contains the explicit nodeIDs and the block, but in this form we can stream information about one node at a time
+message PBStreamingPartition{
+    int64 nodeID = 1;
+    int64 block = 2;
+}
+
+// Intended to be used as a small batch of Partition updates.
+message PBStreamingPartitionBatch{
+    repeated PBStreamingPartition streamingParts = 1;
+}
+
+message PBStreamMultiPartition{
+    int64 nodeID = 1;
+    repeated int64 blocks = 2;
+}

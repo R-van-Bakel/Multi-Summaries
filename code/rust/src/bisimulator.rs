@@ -5,10 +5,11 @@ use crate::graph::{EdgeType, FlatGraph, NodeIndex, Predecessors};
 use std::collections::BTreeSet;
 
 use std::fmt::{self, Display};
-use std::fs::{self, File};
+// use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
-use std::io::{BufWriter, Result, Write};
-use std::path::{Path, PathBuf};
+use std::io::{Result, Write};
+// use std::io::{BufWriter, Result, Write};
+// use std::path::{Path, PathBuf};
 
 pub type BlockIndex = usize;
 pub type GlobalBlockIndex = usize;
@@ -261,25 +262,27 @@ impl DataEdgeCounter {
     }
 }
 
-pub struct SharedBisimulationState {
+pub struct SharedBisimulationState<W1: Write, W2: Write> {
     pub i: LevelIndex,
     global_largest_block_id: BlockIndex,
     pub previous_block_mapping: FxHashMap<BlockIndex, GlobalBlockIndexAndLevel>,
     pub singleton_mapping: FxHashMap<NodeIndex, GlobalBlockIndexAndLevel>,
-    output_directory: PathBuf,
-    pub refines_writer: BufWriter<File>,
+    // output_directory: PathBuf,
+    refines_writer: W1,
     new_mappings: FxHashMap<NodeIndex, GlobalBlockIndexAndLevel>,
     to_be_removed_local_ids: FxHashSet<BlockIndex>,
     previous_refines_map: FxHashMap<BlockAssignment, GlobalBlockIndexAndLevel>,
     new_refines_map: FxHashMap<BlockAssignment, GlobalBlockIndexAndLevel>,
-    pub data_edge_writer: BufWriter<File>,
+    data_edge_writer: W2,
     data_edge_counter: DataEdgeCounter,
 }
 
-impl SharedBisimulationState {
+impl<W1: Write, W2: Write> SharedBisimulationState<W1, W2> {
     fn new(
         bisimulation_outcome: &KBisimulationOutcome,
-        output_dir: impl AsRef<Path>,
+        // output_dir: impl AsRef<Path>,
+        refines_writer: W1,
+        data_edge_writer: W2,
     ) -> Result<Self> {
         let i = 1; // TODO NB the current code sets this to 0u64 initially
 
@@ -314,17 +317,17 @@ impl SharedBisimulationState {
             }
         }
 
-        let output_directory = output_dir.as_ref().to_path_buf();
+        // let output_directory = output_dir.as_ref().to_path_buf();
 
-        let refines_dir = output_directory.join("refines");
-        fs::create_dir(refines_dir.clone())?;
-        let refines_path = refines_dir.join(format!("refines_{}", i));
-        let refines_file = File::create(refines_path)?;
-        let refines_writer = BufWriter::new(refines_file);
+        // let refines_dir = output_directory.join("refines");
+        // fs::create_dir(refines_dir.clone())?;
+        // let refines_path = refines_dir.join(format!("refines_{}", i));
+        // let refines_file = File::create(refines_path)?;
+        // let refines_writer = BufWriter::new(refines_file);
 
-        let data_edge_path = output_directory.join("data_edges");
-        let data_edge_file = File::create(data_edge_path)?;
-        let data_edge_writer = BufWriter::new(data_edge_file);
+        // let data_edge_path = output_directory.join("data_edges");
+        // let data_edge_file = File::create(data_edge_path)?;
+        // let data_edge_writer = BufWriter::new(data_edge_file);
 
         let mut data_edge_counter = DataEdgeCounter::new();
         data_edge_counter.add_level();
@@ -334,7 +337,7 @@ impl SharedBisimulationState {
             global_largest_block_id,
             previous_block_mapping,
             singleton_mapping,
-            output_directory,
+            // output_directory,
             refines_writer,
             new_mappings: FxHashMap::default(),
             to_be_removed_local_ids: FxHashSet::default(),
@@ -343,6 +346,14 @@ impl SharedBisimulationState {
             data_edge_writer,
             data_edge_counter,
         })
+    }
+
+    pub fn refines_writer_mut(&mut self) -> &mut W1 {
+        &mut self.refines_writer
+    }
+
+    pub fn data_edge_writer_mut(&mut self) -> &mut W2 {
+        &mut self.data_edge_writer
     }
 
     pub fn update_level(&mut self) -> Result<()> {
@@ -355,12 +366,12 @@ impl SharedBisimulationState {
 
         self.i += 1;
 
-        let refine_path = self
-            .output_directory
-            .join("refines")
-            .join(format!("refines_{}", self.i));
-        let file = File::create(refine_path)?;
-        self.refines_writer = BufWriter::new(file);
+        // let refine_path = self
+        //     .output_directory
+        //     .join("refines")
+        //     .join(format!("refines_{}", self.i));
+        // let file = File::create(refine_path)?;
+        // self.refines_writer = BufWriter::new(file);
 
         self.data_edge_counter.add_level();
 
@@ -645,23 +656,25 @@ impl SharedBisimulationState {
     }
 }
 
-pub struct FullBisimulationState {
-    pub shared_state: SharedBisimulationState,
+pub struct FullBisimulationState<W1: Write, W2: Write> {
+    pub shared_state: SharedBisimulationState<W1, W2>,
     pub current_outcome: KBisimulationOutcome,
 }
 
-impl FullBisimulationState {
+impl<W1: Write, W2: Write> FullBisimulationState<W1, W2> {
     pub fn new(
         bisimulation_outcome: KBisimulationOutcome,
-        output_dir: impl AsRef<Path>,
+        // output_dir: impl AsRef<Path>,
+        refines_writer: W1,
+        data_edge_writer: W2,
     ) -> Result<Self> {
         Ok(Self {
-            shared_state: SharedBisimulationState::new(&bisimulation_outcome, output_dir)?,
+            shared_state: SharedBisimulationState::new(&bisimulation_outcome, refines_writer, data_edge_writer)?,
             current_outcome: bisimulation_outcome,
         })
     }
 
-    fn steal_outcome(self) -> (PartialBisimulationState, KBisimulationOutcome) {
+    fn steal_outcome(self) -> (PartialBisimulationState<W1, W2>, KBisimulationOutcome) {
         let FullBisimulationState {
             mut shared_state,
             current_outcome,
@@ -670,7 +683,7 @@ impl FullBisimulationState {
         (PartialBisimulationState { shared_state }, current_outcome)
     }
 
-    pub fn into_parts(self) -> (SharedBisimulationState, KBisimulationOutcome) {
+    pub fn into_parts(self) -> (SharedBisimulationState<W1, W2>, KBisimulationOutcome) {
         let FullBisimulationState {
             shared_state,
             current_outcome,
@@ -679,12 +692,12 @@ impl FullBisimulationState {
     }
 }
 
-struct PartialBisimulationState {
-    shared_state: SharedBisimulationState,
+struct PartialBisimulationState<W1: Write, W2: Write> {
+    shared_state: SharedBisimulationState<W1, W2>,
 }
 
-impl PartialBisimulationState {
-    fn restore_outcome(self, new_outcome: KBisimulationOutcome) -> FullBisimulationState {
+impl<W1: Write, W2: Write> PartialBisimulationState<W1, W2> {
+    fn restore_outcome(self, new_outcome: KBisimulationOutcome) -> FullBisimulationState<W1, W2> {
         FullBisimulationState {
             shared_state: self.shared_state,
             current_outcome: new_outcome,
@@ -692,13 +705,13 @@ impl PartialBisimulationState {
     }
 }
 
-pub fn get_i_bisimulation(
+pub fn get_i_bisimulation<W1: Write, W2: Write>(
     graph: &FlatGraph,
     predecessors: &Predecessors, // the predecessors computed with graph.build_predecessors()
     // We take ownership of the previous outcome and will reuse parts of this for the current outcome
-    bisimulation_state: FullBisimulationState,
+    bisimulation_state: FullBisimulationState<W1, W2>,
     min_support: usize,
-) -> Result<FullBisimulationState> {
+) -> Result<FullBisimulationState<W1, W2>> {
     let (mut partial_bisimulation_state, prev_outcome) = bisimulation_state.steal_outcome();
     // We take the parts out of the previous_outcome for reuse
     let mut k_blocks = prev_outcome.blocks;
@@ -1055,9 +1068,11 @@ pub fn get_0_bisimulation(graph: &FlatGraph) -> KBisimulationOutcome {
 mod tests {
     use super::*;
     use tempfile::tempfile;
+    use std::fs::File;
+    use std::io::BufWriter;
 
     // --- Mock Setup Helper ---
-    fn setup_mock_state(i: LevelIndex) -> SharedBisimulationState {
+    fn setup_mock_state(i: LevelIndex) -> SharedBisimulationState<BufWriter<File>, BufWriter<File>> {
         let mut previous_refines_map = FxHashMap::default();
         let mut previous_block_mapping = FxHashMap::default();
 
@@ -1082,8 +1097,8 @@ mod tests {
             },
         );
 
-        // Set a dummy output directory
-        let dummy_output = "dummy_output";
+        // // Set a dummy output directory
+        // let dummy_output = "dummy_output";
 
         // We use tempfile() so the files are created and destroyed cleanly in the OS temp directory
         let temp_file_1 = tempfile().expect("Failed to create temp file for refines_writer");
@@ -1094,7 +1109,7 @@ mod tests {
             global_largest_block_id: 0,
             previous_block_mapping,
             singleton_mapping: FxHashMap::default(),
-            output_directory: dummy_output.into(),
+            // output_directory: dummy_output.into(),
             refines_writer: BufWriter::new(temp_file_1),
             new_mappings: FxHashMap::default(),
             to_be_removed_local_ids: FxHashSet::default(),

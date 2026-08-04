@@ -2,6 +2,7 @@ use clap::{ArgGroup, Parser};
 use fxhash::FxHashSet;
 use multi_summaries::instrument;
 use multi_summaries::instrumentation::{print_format_last, serialize_stats};
+use multi_summaries::writers::{RotateBufWriter, RotateWrite};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fs::{self, File};
@@ -87,7 +88,7 @@ impl BisimulationStatistics {
         }
     }
 
-    fn add_level(&mut self, bisimulation_state: &FullBisimulationState) {
+    fn add_level(&mut self, bisimulation_state: &FullBisimulationState<impl Write, impl Write>) {
         let now = OffsetDateTime::now_local()
             .expect("time could not get the local time")
             .format(&FMT)
@@ -282,7 +283,11 @@ pub fn compute_bisimulation(
     );
 
     let output_path_buf = output_dir.as_ref().to_path_buf();
-    let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_path_buf.clone())?;
+    let mut bisimulation_state = {
+        let refines_writer = RotateBufWriter::new(output_path_buf.join("refines"), 1);
+        let data_edge_writer = BufWriter::new(File::create(output_path_buf.join("data_edges"))?);
+        FullBisimulationState::new(zero_outcome, refines_writer, data_edge_writer)?
+    };
 
     let mut bisimulation_statistics = BisimulationStatistics::new();
     let statistics_path = output_path_buf.join("statistics.json");
@@ -338,8 +343,9 @@ pub fn compute_bisimulation(
                 get_i_bisimulation(graph, &predecessors, bisimulation_state, min_support)?
         );
 
-        // Update state
+        // Update state and rotate the refines_writer to the next file
         bisimulation_state.shared_state.update_level()?;
+        bisimulation_state.shared_state.refines_writer_mut().rotate();
     }
 
     // 4. Emit the data edges for the remaining (non-singleton) blocks
@@ -452,8 +458,8 @@ pub fn compute_bisimulation(
     print_format_last("", "\n");
 
     // Explicit flush is good practice, though it happens automatically on drop
-    final_state.data_edge_writer.flush()?;
-    final_state.refines_writer.flush()?;
+    final_state.data_edge_writer_mut().flush()?;
+    final_state.refines_writer_mut().flush()?;
 
     // Get the data edge statistics
     let data_edge_counts = final_state.data_edge_counter();
