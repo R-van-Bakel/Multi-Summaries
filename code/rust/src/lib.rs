@@ -11,3 +11,5 @@ pub mod msd_radix_sort;
 pub mod instrumentation;
 
 pub mod writers;
+
+pub mod bisimulation_statistics;

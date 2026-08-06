@@ -1,29 +1,20 @@
 use clap::{ArgGroup, Parser};
-// use fxhash::FxHashSet;
-use multi_summaries::instrument;
-use multi_summaries::instrumentation::print_format_last;
-use multi_summaries::partition_proto::{PbPart, PbPartition};
-use prost::Message;
-// use multi_summaries::instrumentation::serialize_stats;
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::fs::{self, File};
-// use std::hash::Hash;
-use std::io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Result, Write, sink};
-use std::path::{Path, PathBuf};
-use std::println;
-use time::{
-    OffsetDateTime, format_description::StaticFormatDescription, macros::format_description,
-};
-
-// use itertools::Itertools;
-use multi_summaries::graph::{FlatGraph, Graph};
-// use multi_summaries::graph::EdgeType;
-
+use multi_summaries::bisimulation_statistics::{BisimulationStatistics, FMT};
 use multi_summaries::bisimulator::{
     BlockAssignment, FullBisimulationState, GlobalBlockIndexAndLevel, get_0_bisimulation,
     get_i_bisimulation, get_typed_0_bisimulation,
 };
+use multi_summaries::graph::{FlatGraph, Graph};
+use multi_summaries::instrument;
+use multi_summaries::instrumentation::{print_format_last, serialize_stats};
+use multi_summaries::partition_proto::{PbPart, PbPartition};
+use prost::Message;
+use std::fmt::Debug;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Result, Write, sink};
+use std::path::{Path, PathBuf};
+use std::println;
+use time::OffsetDateTime;
 
 #[derive(Parser, Debug)]
 #[command(group(
@@ -57,82 +48,6 @@ struct Cli {
     /// Preallocation size
     #[arg(long)]
     preallocation_size: Option<usize>,
-}
-
-static FMT: StaticFormatDescription = format_description!(
-    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3] [offset_hour sign:mandatory]:[offset_minute]:[offset_second]"
-);
-
-#[derive(Serialize, Deserialize)]
-struct BisimulationStatistics {
-    singletons_condensed: Vec<usize>,
-    singletons_uncondensed: Vec<usize>,
-    blocks_quotient: Vec<usize>,
-    blocks_condensed: Vec<usize>,
-    blocks_uncondensed: Vec<usize>,
-    refines_edges_condensed: Vec<usize>,
-    data_edges_quotient: Vec<usize>,
-    data_edges_condensed: Vec<usize>,
-    data_edges_uncondensed: Vec<usize>,
-}
-
-impl BisimulationStatistics {
-    fn new() -> Self {
-        BisimulationStatistics {
-            singletons_condensed: Vec::new(),
-            singletons_uncondensed: Vec::new(),
-            blocks_quotient: Vec::new(),
-            blocks_condensed: Vec::new(),
-            blocks_uncondensed: Vec::new(),
-            refines_edges_condensed: Vec::new(),
-            data_edges_quotient: Vec::new(),
-            data_edges_condensed: Vec::new(),
-            data_edges_uncondensed: Vec::new(),
-        }
-    }
-
-    fn add_level(&mut self, bisimulation_state: &FullBisimulationState<impl Write, impl Write>) {
-        let now = OffsetDateTime::now_local()
-            .expect("time could not get the local time")
-            .format(&FMT)
-            .unwrap();
-
-        let last_singletons_uncondensed = self.singletons_uncondensed.last().copied().unwrap_or(0);
-        let last_blocks_condensed = self
-            .blocks_condensed
-            .last()
-            .copied()
-            .unwrap_or(bisimulation_state.current_outcome.total_blocks());
-        let last_blocks_uncondensed = self.blocks_uncondensed.last().copied().unwrap_or(0);
-        let refines_edges_condensed = self.refines_edges_condensed.last().copied().unwrap_or(0);
-
-        self.singletons_uncondensed
-            .push(last_singletons_uncondensed + bisimulation_state.current_outcome.singletons());
-        self.blocks_condensed
-            .push(last_blocks_condensed + bisimulation_state.shared_state.refines_edge_count());
-        self.blocks_uncondensed
-            .push(last_blocks_uncondensed + bisimulation_state.current_outcome.total_blocks());
-        self.refines_edges_condensed
-            .push(refines_edges_condensed + bisimulation_state.shared_state.refines_edge_count());
-
-        self.singletons_condensed
-            .push(bisimulation_state.current_outcome.singletons());
-        self.blocks_quotient
-            .push(bisimulation_state.current_outcome.total_blocks());
-
-        println!(
-            "{} - After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
-            now,
-            bisimulation_state.shared_state.i - 1,
-            bisimulation_state.current_outcome.dirty_blocks.len(),
-            self.singletons_condensed.last().unwrap(),
-            self.blocks_quotient.last().unwrap(),
-            self.blocks_condensed.last().unwrap(),
-            self.singletons_uncondensed.last().unwrap(),
-            self.blocks_uncondensed.last().unwrap(),
-            self.refines_edges_condensed.last().unwrap(),
-        );
-    }
 }
 
 // TODO this function could also be extended to work on "rel2ID.meta.json" files
@@ -362,11 +277,12 @@ pub fn compute_bisimulation(
     // let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_path_buf.clone())?;
 
     let mut bisimulation_statistics = BisimulationStatistics::new();
-    // let statistics_path = output_path_buf.join("statistics.json");
-    // let statistics_file = File::create(statistics_path)?;
+    let statistics_path = output_path_buf.join("statistics.json");
+    let statistics_file = File::create(statistics_path)?;
 
     // 3. Iterative Refinement
-    for _ in 1u64..=max_k {
+    let mut stabilized = false;
+    for _ in 0..max_k {
         bisimulation_statistics.add_level(&bisimulation_state);
         print_format_last("", "\n");
 
@@ -397,6 +313,7 @@ pub fn compute_bisimulation(
                 .expect("time could not get the local time")
                 .format(&FMT)
                 .unwrap();
+            stabilized = true;
             println!("{} - Bisimulation stabilized at k = {}", now, fixed_point);
             break;
         }
@@ -412,21 +329,41 @@ pub fn compute_bisimulation(
         bisimulation_state.shared_state.update_level()?;
     }
 
+    if !stabilized {
+        bisimulation_statistics.add_level(&bisimulation_state);
+    }
+
     // 4. Emit the data edges for the remaining (non-singleton) blocks
     let now = OffsetDateTime::now_local()
         .expect("time could not get the local time")
         .format(&FMT)
         .unwrap();
+    let current_level = bisimulation_state.shared_state.i as usize - 1;
+    let num_blocks = *bisimulation_statistics
+        .get_borrowed_view()
+        .blocks_quotient
+        .get(current_level)
+        .unwrap();
     println!(
-        "{} - Emitting data edges for final (non-singleton) blocks...",
-        now
+        "{} - Emitting the partition for K={}, with {} blocks",
+        now, current_level, num_blocks,
     );
     let (mut final_state, final_outcome) = bisimulation_state.into_parts();
     let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
     let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
 
+    // Get the data edge statistics
+    let data_edge_counts = final_state.data_edge_counter();
+    bisimulation_statistics.add_aggregate_data_edges(data_edge_counts);
+
+    // Serialize the bisimulation statistics
+    serde_json::to_writer_pretty(statistics_file, &bisimulation_statistics)?;
+
+    // Serialize the instrumentation statistics
+    serialize_stats(output_path_buf.join("instrumentation.json"))?;
+
     // Emit the final outcome
-    let final_node_to_block_path = output_path_buf.join("final_node_to_block");
+    let final_node_to_block_path = output_path_buf.join("proto_partition");
     let final_node_to_block_file = File::create(final_node_to_block_path)?;
     let mut final_node_to_block_writer = BufWriter::new(final_node_to_block_file);
 
@@ -451,9 +388,14 @@ pub fn compute_bisimulation(
 
     let wire_parts: Vec<PbPart> = slice_partition
         .into_iter()
-        .map(|block| PbPart {
-            nodes: block.into(),
-            hash: Vec::new(),
+        .filter_map(|block| {
+            if block.is_empty() {
+                return None;
+            }
+            Some(PbPart {
+                nodes: block.into(),
+                hash: Vec::new(),
+            })
         })
         .collect();
 

@@ -1,26 +1,20 @@
 use clap::{ArgGroup, Parser};
 use fxhash::FxHashSet;
+use multi_summaries::bisimulation_statistics::{BisimulationStatistics, FMT};
+use multi_summaries::bisimulator::{
+    BlockAssignment, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel, LevelIndex,
+    get_0_bisimulation, get_i_bisimulation, get_typed_0_bisimulation,
+};
+use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
 use multi_summaries::instrument;
 use multi_summaries::instrumentation::{print_format_last, serialize_stats};
 use multi_summaries::writers::{RotateBufWriter, RotateWrite};
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fs::{self, File};
 use std::hash::Hash;
 use std::io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
-use time::{
-    OffsetDateTime, format_description::StaticFormatDescription, macros::format_description,
-};
-
-// use itertools::Itertools;
-use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
-
-use multi_summaries::bisimulator::{
-    BlockAssignment, DataEdgeCounter, FullBisimulationState, GlobalBlockIndex,
-    GlobalBlockIndexAndLevel, LevelIndex, get_0_bisimulation, get_i_bisimulation,
-    get_typed_0_bisimulation,
-};
+use time::OffsetDateTime;
 
 #[derive(Parser, Debug)]
 #[command(group(
@@ -54,88 +48,6 @@ struct Cli {
     /// Preallocation size
     #[arg(long)]
     preallocation_size: Option<usize>,
-}
-
-static FMT: StaticFormatDescription = format_description!(
-    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3] [offset_hour sign:mandatory]:[offset_minute]:[offset_second]"
-);
-
-#[derive(Serialize, Deserialize)]
-struct BisimulationStatistics {
-    singletons_condensed: Vec<usize>,
-    singletons_uncondensed: Vec<usize>,
-    blocks_quotient: Vec<usize>,
-    blocks_condensed: Vec<usize>,
-    blocks_uncondensed: Vec<usize>,
-    refines_edges_condensed: Vec<usize>,
-    data_edges_quotient: Vec<usize>,
-    data_edges_condensed: Vec<usize>,
-    data_edges_uncondensed: Vec<usize>,
-}
-
-impl BisimulationStatistics {
-    fn new() -> Self {
-        BisimulationStatistics {
-            singletons_condensed: Vec::new(),
-            singletons_uncondensed: Vec::new(),
-            blocks_quotient: Vec::new(),
-            blocks_condensed: Vec::new(),
-            blocks_uncondensed: Vec::new(),
-            refines_edges_condensed: Vec::new(),
-            data_edges_quotient: Vec::new(),
-            data_edges_condensed: Vec::new(),
-            data_edges_uncondensed: Vec::new(),
-        }
-    }
-
-    fn add_level(&mut self, bisimulation_state: &FullBisimulationState<impl Write, impl Write>) {
-        let now = OffsetDateTime::now_local()
-            .expect("time could not get the local time")
-            .format(&FMT)
-            .unwrap();
-
-        let last_singletons_uncondensed = self.singletons_uncondensed.last().copied().unwrap_or(0);
-        let last_blocks_condensed = self
-            .blocks_condensed
-            .last()
-            .copied()
-            .unwrap_or(bisimulation_state.current_outcome.total_blocks());
-        let last_blocks_uncondensed = self.blocks_uncondensed.last().copied().unwrap_or(0);
-        let refines_edges_condensed = self.refines_edges_condensed.last().copied().unwrap_or(0);
-
-        self.singletons_uncondensed
-            .push(last_singletons_uncondensed + bisimulation_state.current_outcome.singletons());
-        self.blocks_condensed
-            .push(last_blocks_condensed + bisimulation_state.shared_state.refines_edge_count());
-        self.blocks_uncondensed
-            .push(last_blocks_uncondensed + bisimulation_state.current_outcome.total_blocks());
-        self.refines_edges_condensed
-            .push(refines_edges_condensed + bisimulation_state.shared_state.refines_edge_count());
-
-        self.singletons_condensed
-            .push(bisimulation_state.current_outcome.singletons());
-        self.blocks_quotient
-            .push(bisimulation_state.current_outcome.total_blocks());
-
-        println!(
-            "{} - After computing {:>4}-bisimulation --> Dirty blocks: {:<10}, singletons: {:<10}, blocks {:<10}, blocks (condensed) {:<10}, singletons (uncondensed) {:<10} blocks (uncondensed) {:<10}, refines edges ((un)condensed) {:<10}",
-            now,
-            bisimulation_state.shared_state.i - 1,
-            bisimulation_state.current_outcome.dirty_blocks.len(),
-            self.singletons_condensed.last().unwrap(),
-            self.blocks_quotient.last().unwrap(),
-            self.blocks_condensed.last().unwrap(),
-            self.singletons_uncondensed.last().unwrap(),
-            self.blocks_uncondensed.last().unwrap(),
-            self.refines_edges_condensed.last().unwrap(),
-        );
-    }
-
-    fn add_aggregate_data_edges(&mut self, aggregate_counter: DataEdgeCounter) {
-        assert!(self.data_edges_condensed.is_empty() && self.data_edges_uncondensed.is_empty());
-        self.data_edges_condensed = aggregate_counter.condensed_counts;
-        self.data_edges_uncondensed = aggregate_counter.uncondensed_counts
-    }
 }
 
 #[derive(Clone)]
@@ -345,7 +257,10 @@ pub fn compute_bisimulation(
 
         // Update state and rotate the refines_writer to the next file
         bisimulation_state.shared_state.update_level()?;
-        bisimulation_state.shared_state.refines_writer_mut().rotate();
+        bisimulation_state
+            .shared_state
+            .refines_writer_mut()
+            .rotate();
     }
 
     // 4. Emit the data edges for the remaining (non-singleton) blocks
