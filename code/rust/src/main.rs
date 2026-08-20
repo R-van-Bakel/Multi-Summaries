@@ -37,6 +37,10 @@ struct Cli {
     #[arg(long)]
     rel_to_id_file: Option<PathBuf>,
 
+    /// Perform backwards bisimulation instead of forwards.
+    #[arg(long)]
+    backwards: bool,
+
     /// The minimal block size needed to be eligible to split
     #[arg(long)]
     min_support: Option<usize>,
@@ -142,7 +146,7 @@ fn main() -> Result<()> {
     println!("{} - Loading Graph...", now);
     instrument!(
         "Loading Graph",
-        g.read_graph_parallel_memmmap(input_file, false)?
+        g.read_graph_parallel_memmmap(input_file, args.backwards)?
     );
     print_format_last("\n", "\n");
 
