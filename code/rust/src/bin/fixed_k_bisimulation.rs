@@ -1,10 +1,11 @@
 use clap::{ArgGroup, Parser};
+use fxhash::FxHashSet;
 use multi_summaries::bisimulation_statistics::{BisimulationStatistics, FMT};
 use multi_summaries::bisimulator::{
-    BlockAssignment, FullBisimulationState, GlobalBlockIndexAndLevel, get_0_bisimulation,
-    get_i_bisimulation, get_typed_0_bisimulation,
+    BlockAssignment, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel,
+    get_0_bisimulation, get_i_bisimulation, get_typed_0_bisimulation,
 };
-use multi_summaries::graph::{FlatGraph, Graph};
+use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
 use multi_summaries::instrument;
 use multi_summaries::instrumentation::{print_format_last, serialize_stats};
 use multi_summaries::partition_proto::{PbPart, PbPartition};
@@ -13,7 +14,6 @@ use std::fmt::Debug;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Result, Write, sink};
 use std::path::{Path, PathBuf};
-use std::println;
 use time::OffsetDateTime;
 
 #[derive(Parser, Debug)]
@@ -181,6 +181,16 @@ impl<'a> IntoIterator for &'a FixedDenseByteSlicePartition {
     }
 }
 
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct DataEdge(GlobalBlockIndex, EdgeType, GlobalBlockIndex);
+
+fn write_data_edge<W: Write>(data_edge_writer: &mut W, data_edge: DataEdge) -> std::io::Result<()> {
+    data_edge_writer.write_all(&data_edge.0.to_be_bytes())?;
+    data_edge_writer.write_all(&data_edge.1.to_be_bytes())?;
+    data_edge_writer.write_all(&data_edge.2.to_be_bytes())?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
     // Parse arguments
     let args = Cli::parse();
@@ -270,9 +280,9 @@ pub fn compute_bisimulation(
     let output_path_buf = output_dir.as_ref().to_path_buf();
     let mut bisimulation_state = {
         // We only care about the final outcome, so dump the refines and data edges into a sink
-        let refines_writer = sink();
-        let data_edge_writer = sink();
-        FullBisimulationState::new(zero_outcome, refines_writer, data_edge_writer)?
+        let refines_sink = sink();
+        let data_edge_sink = sink();
+        FullBisimulationState::new(zero_outcome, refines_sink, data_edge_sink)?
     };
     // let mut bisimulation_state = FullBisimulationState::new(zero_outcome, output_path_buf.clone())?;
 
@@ -286,7 +296,7 @@ pub fn compute_bisimulation(
         bisimulation_statistics.add_level(&bisimulation_state);
         print_format_last("", "\n");
 
-        // If no blocks are dirty, the partition is stable, but if semi_dirty_blocks is not empty, we still need to emit some of there associated data edges
+        // If no blocks are dirty, the partition is stable, but if semi_dirty_blocks is not empty, we still need to emit some of their associated data edges
         if bisimulation_state.current_outcome.dirty_blocks.is_empty() {
             let fixed_point = bisimulation_state.shared_state.i - 1;
             if !bisimulation_state
@@ -348,9 +358,92 @@ pub fn compute_bisimulation(
         "{} - Emitting the partition for K={}, with {} blocks",
         now, current_level, num_blocks,
     );
-    let (mut final_state, final_outcome) = bisimulation_state.into_parts();
+    let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
     let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
     let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
+    let mut data_edge_writer = BufWriter::new(File::create(output_path_buf.join("data_edges"))?);
+    instrument!("Emit Final Blocks", {
+        // This hashset it reused many times in the next for loop
+        let mut data_edges: FxHashSet<DataEdge> = FxHashSet::default();
+
+        for (block_idx, block) in std::mem::take(&mut final_outcome.blocks)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(block_idx, maybe_block)| maybe_block.map(|block| (block_idx, block)))
+        {
+            let GlobalBlockIndexAndLevel {
+                global_id: global_subject,
+                level: _,
+            } = block_mapping.get(&block_idx).unwrap();
+
+            data_edges.clear();
+            for node_idx in block.nodes.iter() {
+                for edge in graph.get_node(*node_idx).edges.iter() {
+                    let edge_type = edge.label;
+                    let GlobalBlockIndexAndLevel {
+                        global_id: global_target,
+                        level: _,
+                    } = match &final_outcome.node_to_block.mapping[edge.target] {
+                        BlockAssignment::Block(block_id) => block_mapping.get(block_id).unwrap(),
+                        BlockAssignment::Singleton(singleton_id) => {
+                            singleton_mapping.get(singleton_id).unwrap()
+                        }
+                    };
+                    data_edges.insert(DataEdge(*global_subject, edge_type, *global_target));
+                }
+            }
+
+            for data_edge in data_edges.drain() {
+                write_data_edge(&mut data_edge_writer, data_edge)?;
+            }
+        }
+    });
+    print_format_last("\n", "\n");
+
+    // 5. Emit the data edges for the remaining singleton blocks
+    let now = OffsetDateTime::now_local()
+        .expect("time could not get the local time")
+        .format(&FMT)
+        .unwrap();
+    println!("{} - Emitting data edges for final singletons...", now);
+    instrument!("Emit Final Singletons", {
+        let mut data_edges = Vec::new();
+        for (
+            node_idx,
+            GlobalBlockIndexAndLevel {
+                global_id: global_subject,
+                level: _,
+            },
+        ) in singleton_mapping.iter()
+        {
+            data_edges.clear();
+            for edge in graph.get_node(*node_idx).edges.iter() {
+                let edge_type = edge.label;
+                let GlobalBlockIndexAndLevel {
+                    global_id: global_target,
+                    level: _,
+                } = match &final_outcome.node_to_block.mapping[edge.target] {
+                    BlockAssignment::Block(block_id) => {
+                        block_mapping.get(block_id).copied().unwrap()
+                    }
+                    BlockAssignment::Singleton(singleton_id) => {
+                        singleton_mapping.get(singleton_id).copied().unwrap()
+                    }
+                };
+                data_edges.push(DataEdge(*global_subject, edge_type, global_target));
+            }
+            data_edges.sort();
+            data_edges.dedup();
+
+            for data_edge in data_edges.drain(..) {
+                write_data_edge(&mut data_edge_writer, data_edge)?;
+            }
+        }
+    });
+    print_format_last("", "\n");
+
+    // Explicit flush is good practice, though it happens automatically on drop
+    data_edge_writer.flush()?;
 
     // Get the data edge statistics
     let data_edge_counts = final_state.data_edge_counter();
