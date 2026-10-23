@@ -2,8 +2,8 @@ use clap::{ArgGroup, Parser};
 use fxhash::FxHashSet;
 use multi_summaries::bisimulation_statistics::{BisimulationStatistics, FMT};
 use multi_summaries::bisimulator::{
-    BlockAssignment, FullBisimulationState, GlobalBlockIndex, GlobalBlockIndexAndLevel,
-    get_0_bisimulation, get_i_bisimulation, get_typed_0_bisimulation,
+    BlockAssignment, FullBisimulationState, GlobalBlockIndexAndLevel, get_0_bisimulation,
+    get_i_bisimulation, get_typed_0_bisimulation,
 };
 use multi_summaries::graph::{EdgeType, FlatGraph, Graph};
 use multi_summaries::instrument;
@@ -181,13 +181,36 @@ impl<'a> IntoIterator for &'a FixedDenseByteSlicePartition {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct DataEdge(GlobalBlockIndex, EdgeType, GlobalBlockIndex);
+// NB this code for writing bytes is mostly copied from the Rust preprocessor
+// TODO think of possibly merging these code bases into one workspace
+const BYTES_PER_ENTITY: usize = 5;
+const BYTES_PER_RELATION: usize = 4;
+const BYTES_PER_TRIPLE: usize = BYTES_PER_ENTITY + BYTES_PER_RELATION + BYTES_PER_ENTITY;
 
-fn write_data_edge<W: Write>(data_edge_writer: &mut W, data_edge: DataEdge) -> std::io::Result<()> {
-    data_edge_writer.write_all(&data_edge.0.to_be_bytes())?;
-    data_edge_writer.write_all(&data_edge.1.to_be_bytes())?;
-    data_edge_writer.write_all(&data_edge.2.to_be_bytes())?;
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IDTriple {
+    pub subject: u64,
+    pub predicate: EdgeType,
+    pub object: u64,
+}
+
+fn write_data_edge<W: Write>(data_edge_writer: &mut W, data_edge: IDTriple) -> std::io::Result<()> {
+    let subject_bytes = data_edge.subject.to_le_bytes();
+    let predicate_bytes = data_edge.predicate.to_le_bytes();
+    let object_bytes = data_edge.object.to_le_bytes();
+
+    // Reserve a buffer for the full triple bytes.
+    let mut triple_bytes = [0u8; BYTES_PER_TRIPLE];
+
+    // Copy the subject, predicate and object bytes into the buffer.
+    triple_bytes[..BYTES_PER_ENTITY].copy_from_slice(&subject_bytes[..BYTES_PER_ENTITY]);
+    triple_bytes[BYTES_PER_ENTITY..BYTES_PER_ENTITY + BYTES_PER_RELATION]
+        .copy_from_slice(&predicate_bytes[..BYTES_PER_RELATION]);
+    triple_bytes[BYTES_PER_ENTITY + BYTES_PER_RELATION..]
+        .copy_from_slice(&object_bytes[..BYTES_PER_ENTITY]);
+
+    // Send off all bytes in one go.
+    data_edge_writer.write_all(&triple_bytes)?;
     Ok(())
 }
 
@@ -364,7 +387,7 @@ pub fn compute_bisimulation(
     let mut data_edge_writer = BufWriter::new(File::create(output_path_buf.join("data_edges"))?);
     instrument!("Emit Final Blocks", {
         // This hashset it reused many times in the next for loop
-        let mut data_edges: FxHashSet<DataEdge> = FxHashSet::default();
+        let mut data_edges: FxHashSet<IDTriple> = FxHashSet::default();
 
         for (block_idx, block) in std::mem::take(&mut final_outcome.blocks)
             .into_iter()
@@ -389,7 +412,11 @@ pub fn compute_bisimulation(
                             singleton_mapping.get(singleton_id).unwrap()
                         }
                     };
-                    data_edges.insert(DataEdge(*global_subject, edge_type, *global_target));
+                    data_edges.insert(IDTriple {
+                        subject: (*global_subject) as u64,
+                        predicate: edge_type,
+                        object: (*global_target) as u64,
+                    });
                 }
             }
 
@@ -430,7 +457,11 @@ pub fn compute_bisimulation(
                         singleton_mapping.get(singleton_id).copied().unwrap()
                     }
                 };
-                data_edges.push(DataEdge(*global_subject, edge_type, global_target));
+                data_edges.push(IDTriple {
+                    subject: (*global_subject) as u64,
+                    predicate: edge_type,
+                    object: global_target as u64,
+                });
             }
             data_edges.sort();
             data_edges.dedup();
