@@ -13,6 +13,7 @@ use prost::Message;
 use std::fmt::Debug;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Result, Write, sink};
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 
@@ -178,6 +179,34 @@ impl<'a> IntoIterator for &'a FixedDenseByteSlicePartition {
             offsets: &self.offsets,
             next_block: 0,
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct OffsetGlobalBlockIndex(NonZeroU64);
+
+impl OffsetGlobalBlockIndex {
+    fn new(idx: u64) -> Self {
+        Self(NonZeroU64::new(idx + 1).unwrap())
+    }
+
+    fn get(self) -> u64 {
+        self.0.get() - 1
+    }
+}
+
+struct NicheGlobalBlockDenseIDMapping {
+    mapping: Vec<Option<OffsetGlobalBlockIndex>>,
+}
+
+impl NicheGlobalBlockDenseIDMapping {
+    fn get(&self, global_id: usize) -> u64 {
+        self.mapping
+            .get(global_id)
+            .expect("Global ID out of dense ID mapping range.")
+            .as_ref()
+            .expect("Accessed illegal index in dense ID mapping.")
+            .get()
     }
 }
 
@@ -366,12 +395,77 @@ pub fn compute_bisimulation(
         bisimulation_statistics.add_level(&bisimulation_state);
     }
 
-    // 4. Emit the data edges for the remaining (non-singleton) blocks
+    // 4. Emit the final outcome
+    let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
+    let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
+    let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
+
+    let final_node_to_block_path = output_path_buf.join("proto_partition");
+    let final_node_to_block_file = File::create(final_node_to_block_path)?;
+    let mut final_node_to_block_writer = BufWriter::new(final_node_to_block_file);
+
+    let mut node_to_block_ids = Vec::with_capacity(final_outcome.node_to_block.mapping.len());
+    let mut largest_global_block_id = 0;
+    final_outcome
+        .node_to_block
+        .mapping
+        .iter()
+        .for_each(|block_assignment| {
+            let GlobalBlockIndexAndLevel {
+                global_id,
+                level: _,
+            } = match block_assignment {
+                BlockAssignment::Block(local_block_id) => {
+                    block_mapping.get(local_block_id).unwrap()
+                }
+                BlockAssignment::Singleton(node_id) => singleton_mapping.get(node_id).unwrap(),
+            };
+            largest_global_block_id = largest_global_block_id.max(*global_id);
+            node_to_block_ids.push(*global_id);
+        });
+    let slice_partition = FixedDenseByteSlicePartition::from_node_to_ids(node_to_block_ids);
+
+    let mut global_to_dense_id_mapping = NicheGlobalBlockDenseIDMapping {
+        mapping: Vec::with_capacity(largest_global_block_id + 1),
+    };
+    let mut current_dense_id = 0;
+
+    let wire_parts: Vec<PbPart> = slice_partition
+        .into_iter()
+        .filter_map(|block| {
+            if block.is_empty() {
+                global_to_dense_id_mapping.mapping.push(None);
+                return None;
+            }
+            global_to_dense_id_mapping
+                .mapping
+                .push(Some(OffsetGlobalBlockIndex::new(current_dense_id)));
+            current_dense_id += 1;
+            Some(PbPart {
+                nodes: block.into(),
+                hash: Vec::new(),
+            })
+        })
+        .collect();
+
+    let wire_struct = PbPartition { parts: wire_parts };
+
+    // Encode
+    let mut buf = Vec::new();
+    wire_struct
+        .encode(&mut buf)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    // Write
+    final_node_to_block_writer.write_all(&buf)?;
+    final_node_to_block_writer.flush()?;
+
+    // 5. Emit the data edges for the remaining (non-singleton) blocks
     let now = OffsetDateTime::now_local()
         .expect("time could not get the local time")
         .format(&FMT)
         .unwrap();
-    let current_level = bisimulation_state.shared_state.i as usize - 1;
+    let current_level = final_state.i as usize - 1;
     let num_blocks = *bisimulation_statistics
         .get_borrowed_view()
         .blocks_quotient
@@ -381,9 +475,7 @@ pub fn compute_bisimulation(
         "{} - Emitting the partition for K={}, with {} blocks",
         now, current_level, num_blocks,
     );
-    let (mut final_state, mut final_outcome) = bisimulation_state.into_parts();
-    let singleton_mapping = std::mem::take(&mut final_state.singleton_mapping);
-    let block_mapping = std::mem::take(&mut final_state.previous_block_mapping);
+
     let mut data_edge_writer = BufWriter::new(File::create(output_path_buf.join("data_edges"))?);
     instrument!("Emit Final Blocks", {
         // This hashset it reused many times in the next for loop
@@ -397,7 +489,7 @@ pub fn compute_bisimulation(
             let GlobalBlockIndexAndLevel {
                 global_id: global_subject,
                 level: _,
-            } = block_mapping.get(&block_idx).unwrap();
+            } = block_mapping.get(&block_idx).copied().unwrap();
 
             data_edges.clear();
             for node_idx in block.nodes.iter() {
@@ -405,17 +497,22 @@ pub fn compute_bisimulation(
                     let edge_type = edge.label;
                     let GlobalBlockIndexAndLevel {
                         global_id: global_target,
-                        level: _,
+                        level: end_level,
                     } = match &final_outcome.node_to_block.mapping[edge.target] {
-                        BlockAssignment::Block(block_id) => block_mapping.get(block_id).unwrap(),
+                        BlockAssignment::Block(block_id) => {
+                            block_mapping.get(block_id).copied().unwrap()
+                        }
                         BlockAssignment::Singleton(singleton_id) => {
-                            singleton_mapping.get(singleton_id).unwrap()
+                            singleton_mapping.get(singleton_id).copied().unwrap()
                         }
                     };
+                    if end_level < current_level as u64 && end_level != 0 {
+                        continue;
+                    }
                     data_edges.insert(IDTriple {
-                        subject: (*global_subject) as u64,
+                        subject: global_to_dense_id_mapping.get(global_subject),
                         predicate: edge_type,
-                        object: (*global_target) as u64,
+                        object: global_to_dense_id_mapping.get(global_target),
                     });
                 }
             }
@@ -427,7 +524,7 @@ pub fn compute_bisimulation(
     });
     print_format_last("\n", "\n");
 
-    // 5. Emit the data edges for the remaining singleton blocks
+    // 6. Emit the data edges for the remaining singleton blocks
     let now = OffsetDateTime::now_local()
         .expect("time could not get the local time")
         .format(&FMT)
@@ -458,9 +555,9 @@ pub fn compute_bisimulation(
                     }
                 };
                 data_edges.push(IDTriple {
-                    subject: (*global_subject) as u64,
+                    subject: global_to_dense_id_mapping.get(*global_subject),
                     predicate: edge_type,
-                    object: global_target as u64,
+                    object: global_to_dense_id_mapping.get(global_target),
                 });
             }
             data_edges.sort();
@@ -476,6 +573,7 @@ pub fn compute_bisimulation(
     // Explicit flush is good practice, though it happens automatically on drop
     data_edge_writer.flush()?;
 
+    // 7. Emit the statistics
     // Get the data edge statistics
     let data_edge_counts = final_state.data_edge_counter();
     bisimulation_statistics.add_aggregate_data_edges(data_edge_counts);
@@ -486,53 +584,5 @@ pub fn compute_bisimulation(
     // Serialize the instrumentation statistics
     serialize_stats(output_path_buf.join("instrumentation.json"))?;
 
-    // Emit the final outcome
-    let final_node_to_block_path = output_path_buf.join("proto_partition");
-    let final_node_to_block_file = File::create(final_node_to_block_path)?;
-    let mut final_node_to_block_writer = BufWriter::new(final_node_to_block_file);
-
-    let mut node_to_block_ids = Vec::with_capacity(final_outcome.node_to_block.mapping.len());
-    final_outcome
-        .node_to_block
-        .mapping
-        .into_iter()
-        .for_each(|block_assignment| {
-            let GlobalBlockIndexAndLevel {
-                global_id,
-                level: _,
-            } = match block_assignment {
-                BlockAssignment::Block(local_block_id) => {
-                    block_mapping.get(&local_block_id).unwrap()
-                }
-                BlockAssignment::Singleton(node_id) => singleton_mapping.get(&node_id).unwrap(),
-            };
-            node_to_block_ids.push(*global_id);
-        });
-    let slice_partition = FixedDenseByteSlicePartition::from_node_to_ids(node_to_block_ids);
-
-    let wire_parts: Vec<PbPart> = slice_partition
-        .into_iter()
-        .filter_map(|block| {
-            if block.is_empty() {
-                return None;
-            }
-            Some(PbPart {
-                nodes: block.into(),
-                hash: Vec::new(),
-            })
-        })
-        .collect();
-
-    let wire_struct = PbPartition { parts: wire_parts };
-
-    // Encode
-    let mut buf = Vec::new();
-    wire_struct
-        .encode(&mut buf)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-    // Write
-    final_node_to_block_writer.write_all(&buf)?;
-    final_node_to_block_writer.flush()?;
     Ok(())
 }
